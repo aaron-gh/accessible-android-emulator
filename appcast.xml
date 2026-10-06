@@ -5,6 +5,23 @@
         <description>Updates for AAE, the Accessible Android Emulator.</description>
         <language>en</language>
         <item>
+            <title>Version 0.2.0</title>
+            <pubDate>Tue, 06 Oct 2026 21:22:41 -0000</pubDate>
+            <sparkle:version>22</sparkle:version>
+            <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>AAE 0.2.0</h2>
+<ul>
+<li>Several devices at once: Open in Own Window (Option-Command-O) gives a device a window of its own, with its own keyboard focus. With several devices running, AAE plays only the one you're using; you can turn that off in Settings.</li>
+<li>Each device has its own volume: a slider, and Option-Command-Up and Down.</li>
+<li>Wipe a device back to how it was first set up, with its screen reader set up again.</li>
+<li>Help, Run Self-Test checks everything AAE needs and reads out what it found.</li>
+<li>Speech and sound arrive about 15 milliseconds sooner.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.2.0/AAE-0.2.0.dmg" sparkle:edSignature="H85Z3EOC3Savok8Fnsjjkb0QJPUt25GCtVeAgW1S3DW/hEeBHxu1WR1zUpaJKZHzZAOMkVzjLhYBAAtzbt7PDQ==" length="23689832" type="application/octet-stream" />
+        </item>
+        <item>
             <title>Version 0.1.0</title>
             <pubDate>Tue, 06 Oct 2026 20:09:54 -0000</pubDate>
             <sparkle:version>15</sparkle:version>
