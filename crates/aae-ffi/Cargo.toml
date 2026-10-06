@@ -4,6 +4,7 @@ description = "The bridge between AAE's Rust core and its native host apps, gene
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["staticlib", "lib"]

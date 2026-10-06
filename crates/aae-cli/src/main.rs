@@ -37,6 +37,21 @@ struct Cli {
 enum Command {
     /// Check the Android SDK, emulator and audio, and say what is missing.
     Doctor,
+    /// Download the emulator and Android SDK tools AAE needs, so Android
+    /// Studio isn't needed. Checks this computer can run the emulator first.
+    Setup {
+        /// Accept the Google licence the tools are under, after reading it.
+        #[arg(long)]
+        accept_licence: bool,
+        /// Also update the emulator and platform tools AAE installed to
+        /// Google's newest stable versions. Ones installed another way, such
+        /// as by Android Studio, are left to it. No device can be running.
+        #[arg(long)]
+        update: bool,
+        /// Fetch Google's list again, instead of using the copy from today.
+        #[arg(long)]
+        refresh: bool,
+    },
     /// List the Android versions installed on this computer.
     Images,
     /// Delete an installed Android version, to free its disk space. Refused
@@ -432,7 +447,7 @@ struct Ctx {
 impl Ctx {
     fn new() -> Result<Self> {
         Ok(Ctx {
-            sdk: Sdk::locate()?,
+            sdk: Sdk::locate_or_new(),
             store: DeviceStore::open_default()?,
         })
     }
@@ -452,6 +467,11 @@ async fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new()?;
     match cli.command {
         Command::Doctor => doctor(&ctx),
+        Command::Setup {
+            accept_licence,
+            update,
+            refresh,
+        } => setup(&ctx, accept_licence, update, refresh).await,
         Command::Available { refresh } => {
             let catalogue = tokio::task::spawn_blocking(move || Catalogue::load(refresh)).await??;
             if catalogue.images.is_empty() {
@@ -1221,7 +1241,7 @@ async fn download_image(
         if version_less(&have, needed) {
             println!(
                 "Warning: {} needs emulator version {needed} or later, and this one is {have}. \
-                 Update the Android Emulator in Android Studio.",
+                 Run aae setup --update to update it.",
                 image.describe()
             );
         }
@@ -1494,8 +1514,135 @@ async fn status(ctx: &Ctx, name: &str) -> Result<()> {
     Ok(())
 }
 
+async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> Result<()> {
+    use aae_core::setup::{self, Tools, Virtualisation};
+    let sdk = &ctx.sdk;
+    let own = if setup::is_own_sdk(&sdk.root) {
+        "AAE's own"
+    } else {
+        "the"
+    };
+    println!("Using {own} Android SDK at {}.", sdk.root.display());
+    match setup::virtualisation() {
+        Virtualisation::Available => println!("This computer can run the emulator at full speed."),
+        Virtualisation::Missing(how) => bail!("{how}"),
+        Virtualisation::Unknown => {}
+    }
+    let tools = tokio::task::spawn_blocking(move || Tools::load(refresh)).await??;
+    let mut wanted: Vec<setup::Tool> = tools.missing(sdk).into_iter().cloned().collect();
+    let updates: Vec<setup::Tool> = tools.updates(sdk).into_iter().cloned().collect();
+    let elsewhere: Vec<String> = tools
+        .managed_elsewhere(sdk)
+        .iter()
+        .map(|t| t.name.clone())
+        .collect();
+    if !elsewhere.is_empty() {
+        let pronoun = if elsewhere.len() == 1 { "it" } else { "them" };
+        println!(
+            "AAE didn't install the {} here, so it leaves updates to whatever installed {pronoun}, such as Android Studio.",
+            elsewhere.join(" or the ")
+        );
+    }
+    if update {
+        wanted.extend(updates.iter().cloned());
+    } else if !updates.is_empty() {
+        let names: Vec<String> = updates
+            .iter()
+            .map(|t| format!("{} {}", t.name, t.revision))
+            .collect();
+        println!(
+            "Updates are available: {}. Run aae setup --update to install them.",
+            names.join(", ")
+        );
+    }
+    if wanted.is_empty() {
+        println!("Everything AAE needs is installed.");
+        return Ok(());
+    }
+    if update && !updates.is_empty() {
+        let running: Vec<String> = ctx
+            .store
+            .list()?
+            .into_iter()
+            .filter(|d| emulator::running(d).is_ok())
+            .map(|d| d.meta.name)
+            .collect();
+        if !running.is_empty() {
+            bail!(
+                "Stop these devices first, as the emulator and adb are replaced: {}.",
+                running.join(", ")
+            );
+        }
+    }
+    let refs: Vec<&setup::Tool> = wanted.iter().collect();
+    for (id, text) in tools.licences_to_accept(sdk, &refs) {
+        if !accept_licence {
+            let path = aae_core::paths::data_dir()
+                .join("licences")
+                .join(format!("{id}.txt"));
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&path, &text)?;
+            bail!(
+                "The tools are under Google's licence \"{id}\", which you haven't accepted yet. \
+                 Read it in {}, then run this again with --accept-licence to accept it.",
+                path.display()
+            );
+        }
+        catalog::accept_licence(sdk, &id, &text)?;
+        println!("Accepted Google's licence {id}.");
+    }
+    let total: u64 = wanted.iter().map(|t| t.size).sum();
+    if wanted.len() > 1 {
+        println!(
+            "Downloading {} tools, {} in all.",
+            wanted.len(),
+            human_size(total)
+        );
+    }
+    let first_setup = wanted
+        .iter()
+        .any(|t| !updates.iter().any(|u| u.path == t.path));
+    for tool in wanted {
+        println!(
+            "Downloading {} {}, {}.",
+            tool.name,
+            tool.revision,
+            human_size(tool.size)
+        );
+        let (sdk, tools) = (sdk.clone(), tools.clone());
+        let name = tool.name.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut last = 0;
+            setup::install(&sdk, &tools, &tool, |p| match p {
+                InstallProgress::Downloading { .. } => {
+                    let percent = p.percent().unwrap_or(0);
+                    if percent >= last + 10 {
+                        last = percent - percent % 10;
+                        println!("Downloaded {last}%.");
+                    }
+                }
+                InstallProgress::Verifying => println!("Checking the download."),
+                InstallProgress::Unpacking => println!("Unpacking."),
+            })
+        })
+        .await??;
+        println!("{name} is installed.");
+    }
+    if first_setup {
+        println!(
+            "AAE is ready. Next, download an Android version with aae available and aae download."
+        );
+    }
+    Ok(())
+}
+
 fn doctor(ctx: &Ctx) -> Result<()> {
     println!("Android SDK: {}.", ctx.sdk.root.display());
+    if let aae_core::setup::Virtualisation::Missing(how) = aae_core::setup::virtualisation() {
+        println!("Problem: {how}");
+    }
     match ctx.sdk.emulator_bin() {
         Ok(_) => println!(
             "Emulator: version {}.",
@@ -1511,7 +1658,9 @@ fn doctor(ctx: &Ctx) -> Result<()> {
     }
     match ctx.sdk.aapt2_bin() {
         Some(path) => println!("Build tools: {}.", path.display()),
-        None => println!("Problem: no build tools. AAE needs them to read app packages."),
+        None => println!(
+            "Problem: no build tools. AAE needs them to read app packages. Run aae setup to install them."
+        ),
     }
     let native: Vec<_> = ctx
         .sdk

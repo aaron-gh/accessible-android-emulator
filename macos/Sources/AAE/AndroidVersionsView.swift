@@ -33,6 +33,35 @@ struct AndroidVersionsView: View {
                 }
             }
 
+            Text("Emulator and Tools")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            if let status = model.setupStatus {
+                if !status.managedElsewhere.isEmpty {
+                    Text("AAE didn't install the \(status.managedElsewhere.joined(separator: " or the ")) here, so it leaves updates to whatever installed \(status.managedElsewhere.count == 1 ? "it" : "them"), such as Android Studio.")
+                }
+                if status.updates.isEmpty {
+                    if status.managedElsewhere.isEmpty {
+                        Text("The emulator and tools are up to date.")
+                    }
+                } else {
+                    Text("Updates: " + status.updates.map { "\($0.name) \($0.revision), \($0.size)" }.joined(separator: "; ") + ".")
+                    if let download = model.download {
+                        ProgressView(value: Double(download.percent), total: 100) {
+                            Text("Updating: \(download.percent)%")
+                        }
+                    } else {
+                        Button("Update the Emulator and Tools") { model.runSetup(update: true) }
+                            .disabled(model.settingUp)
+                    }
+                    Text("Stop every device before updating.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text(model.setupError ?? "Checking for updates…")
+            }
+
             HStack {
                 Button("Delete…") {
                     if let image = selected { model.removeImage(image) }
@@ -45,7 +74,10 @@ struct AndroidVersionsView: View {
         }
         .padding()
         .frame(minWidth: 560, minHeight: 380)
-        .onAppear { model.loadInstalledImages() }
+        .onAppear {
+            model.loadInstalledImages()
+            model.checkSetup()
+        }
     }
 
     private var selected: InstalledImageInfo? {

@@ -7,6 +7,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 repository = "https://github.com/aaron-gh/accessible-android-emulator"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 aae-core = { path = "crates/aae-core" }

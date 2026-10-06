@@ -6,6 +6,13 @@ This is an early development build. It has a cross-platform core, the `aae` comm
 
 ## What works now
 
+### Setting up
+
+- No Android Studio needed. On first run, the Mac app shows what it needs: Google's Android emulator, platform tools (adb) and build tools, about 500 MB. It shows Google's licence for you to accept, then downloads each one, checks it against Google's checksum, and installs it as Android Studio's SDK manager would. `aae setup` does the same on the command line.
+- Before downloading, AAE checks the computer can run the emulator at full speed (Hypervisor.framework on a Mac, KVM on Linux), and says what to do if it can't.
+- AAE uses the Android SDK you already have, if there is one, such as Android Studio's. Otherwise it sets up its own, in its data folder. Set `ANDROID_HOME` to choose another place.
+- Updating the emulator and platform tools AAE installed to Google's newest stable versions, from the Android Versions window or with `aae setup --update`. Every device has to be stopped first. AAE mentions available updates when it starts, at most once a day. Tools something else installed, such as Android Studio, are left for it to update; AAE marks the ones it installs with a `.installed-by-aae` file to tell them apart.
+
 ### Android versions
 
 - Finding your Android SDK and the Android versions installed in it. `aae images` lists them with their size and the devices that use each one.
@@ -59,7 +66,7 @@ These are in the Mac app's Device menu and on the command line. The inspector, c
 
 ### The Mac app
 
-The Mac app is in `macos/`. Announcements go through VoiceOver when it's running, and otherwise through the Mac's system voice. A short sound plays before each one; turn that off in Settings.
+The Mac app is in `macos/`. It updates itself: it checks for new versions, and AAE menu, Check for Updates, checks straight away. Announcements go through VoiceOver when it's running, and otherwise through the Mac's system voice. A short sound plays before each one; turn that off in Settings.
 
 - The main window lists your devices. New Device (Command-N) creates one, downloading its Android version if needed.
 - The File menu also has Android Versions (Option-Command-A), which lists installed versions with their size and the devices that use each one, and deletes the ones you no longer need.
@@ -98,10 +105,10 @@ AAE finds the built helper and eSpeak NG on its own when you run it from this fo
 
 ## Getting started
 
-You need the Android SDK with the emulator, platform tools and build tools. Android Studio installs these. AAE downloads Android versions itself; installing the rest of the SDK from inside AAE is coming.
+AAE sets up everything it needs itself. Open the Mac app and follow the setup screen, or on the command line:
 
 ```sh
-aae doctor
+aae setup
 aae available
 aae create "Android 16 test" --api 36 --backtalk
 aae attach "Android 16 test"
@@ -138,3 +145,11 @@ Android versions are installed into the Android SDK, where Android Studio sees t
 - `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume and read the screen for the inspector. It also carries the full keyboard layout, a small tool AAE runs as the shell user to select it, the speech check, the speech log's relay engine, and the silent test tone used to measure audio speed.
 - `android/espeak`: how AAE builds eSpeak NG: its own app ID, signed like the helper, with eSpeak NG's code unchanged.
 - `android/third_party/espeak-ng`: eSpeak NG's source, as a git submodule.
+
+## Licence
+
+AAE is under the [Apache License 2.0](LICENSE). Parts it includes keep their own licences:
+
+- The Android Emulator's gRPC definitions, in `crates/aae-core/proto`, are under Apache 2.0.
+- eSpeak NG, in `android/third_party/espeak-ng`, is under the GNU General Public License version 3. AAE builds it unchanged as a separate app that runs on the Android device.
+- Sparkle, which updates the Mac app, is under the MIT licence.

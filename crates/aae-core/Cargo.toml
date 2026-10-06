@@ -4,6 +4,7 @@ description = "Core library for the Accessible Android Emulator: SDK, devices, e
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
 anyhow.workspace = true

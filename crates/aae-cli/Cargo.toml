@@ -4,6 +4,7 @@ description = "The aae command: create, run and test accessible Android virtual 
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "aae"

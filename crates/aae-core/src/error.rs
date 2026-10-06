@@ -9,10 +9,12 @@ pub enum Error {
     )]
     SdkNotFound,
 
-    #[error("The Android SDK at {0} has no emulator. Install the Android Emulator package.")]
+    #[error(
+        "The Android SDK at {0} has no emulator. Run aae setup, or open AAE's app, to install it."
+    )]
     EmulatorMissing(PathBuf),
 
-    #[error("The Android SDK at {0} has no adb. Install the Android SDK Platform Tools package.")]
+    #[error("The Android SDK at {0} has no adb. Run aae setup, or open AAE's app, to install it.")]
     AdbMissing(PathBuf),
 
     #[error("There is no device called \"{0}\". Use the list command to see your devices.")]

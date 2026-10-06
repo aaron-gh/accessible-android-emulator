@@ -149,19 +149,22 @@ impl Catalogue {
     }
 }
 
-fn version_key(version: &str) -> Vec<u32> {
+pub(crate) fn version_key(version: &str) -> Vec<u32> {
     version.split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
 
-fn child<'a, 'i>(node: roxmltree::Node<'a, 'i>, name: &str) -> Option<roxmltree::Node<'a, 'i>> {
+pub(crate) fn child<'a, 'i>(
+    node: roxmltree::Node<'a, 'i>,
+    name: &str,
+) -> Option<roxmltree::Node<'a, 'i>> {
     node.children().find(|n| n.has_tag_name(name))
 }
 
-fn child_text<'a>(node: roxmltree::Node<'a, '_>, name: &str) -> Option<&'a str> {
+pub(crate) fn child_text<'a>(node: roxmltree::Node<'a, '_>, name: &str) -> Option<&'a str> {
     child(node, name).and_then(|n| n.text()).map(str::trim)
 }
 
-fn revision(node: roxmltree::Node) -> Option<String> {
+pub(crate) fn revision(node: roxmltree::Node) -> Option<String> {
     let parts: Vec<&str> = ["major", "minor", "micro"]
         .iter()
         .filter_map(|p| child_text(node, p))
@@ -374,23 +377,17 @@ pub fn install(
     let zip_path = temp.join(format!("aae-{}-{}-{}.zip", image.api, image.tag, image.abi));
     let unpack = temp.join(format!("aae-{}-{}-{}", image.api, image.tag, image.abi));
     let result: Result<()> = (|| {
-        download(image, &zip_path, &mut progress)?;
+        let what = image.describe();
+        let archive = Archive {
+            url: &image.url,
+            size: image.size,
+            sha1: &image.sha1,
+            what: &what,
+        };
+        download(&archive, &zip_path, &mut progress)?;
         progress(InstallProgress::Unpacking);
-        let _ = std::fs::remove_dir_all(&unpack);
-        let file =
-            std::fs::File::open(&zip_path).context(|| format!("Opening {}", zip_path.display()))?;
-        let mut archive = zip::ZipArchive::new(file)
-            .map_err(|e| Error::Download(format!("The download is not a valid archive: {e}")))?;
-        archive
-            .extract(&unpack)
-            .map_err(|e| Error::Download(format!("The download couldn't be unpacked: {e}")))?;
         // The archive holds one folder, named after the processor type.
-        let top = std::fs::read_dir(&unpack)
-            .context(|| format!("Reading {}", unpack.display()))?
-            .flatten()
-            .map(|e| e.path())
-            .find(|p| p.is_dir())
-            .ok_or_else(|| Error::Download("The download was empty.".into()))?;
+        let top = unpack_folder(&zip_path, &unpack)?;
         let _ = std::fs::remove_dir_all(&dest);
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent).context(|| format!("Creating {}", parent.display()))?;
@@ -411,18 +408,29 @@ pub fn install(
     })
 }
 
-fn download(
-    image: &RemoteImage,
+/// A file to download: where from, how big, and its SHA-1 checksum.
+pub(crate) struct Archive<'a> {
+    pub url: &'a str,
+    pub size: u64,
+    pub sha1: &'a str,
+    /// What it is, for messages, such as "Android 15 (API 35)".
+    pub what: &'a str,
+}
+
+/// Downloads a file, checking it against its checksum.
+pub(crate) fn download(
+    archive: &Archive,
     path: &Path,
     progress: &mut impl FnMut(InstallProgress),
 ) -> Result<()> {
-    let mut response = ureq::get(&image.url)
+    let what = archive.what;
+    let mut response = ureq::get(archive.url)
         .call()
-        .map_err(|e| Error::Download(format!("Could not download {}: {e}", image.describe())))?;
+        .map_err(|e| Error::Download(format!("Could not download {what}: {e}")))?;
     let mut reader = response
         .body_mut()
         .with_config()
-        .limit(image.size + 1024 * 1024)
+        .limit(archive.size + 1024 * 1024)
         .reader();
     let mut file =
         std::fs::File::create(path).context(|| format!("Creating {}", path.display()))?;
@@ -431,12 +439,12 @@ fn download(
     let mut done = 0u64;
     progress(InstallProgress::Downloading {
         done,
-        total: image.size,
+        total: archive.size,
     });
     loop {
-        let read = reader.read(&mut buffer).map_err(|e| {
-            Error::Download(format!("The download of {} stopped: {e}", image.describe()))
-        })?;
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|e| Error::Download(format!("The download of {what} stopped: {e}")))?;
         if read == 0 {
             break;
         }
@@ -446,7 +454,7 @@ fn download(
         done += read as u64;
         progress(InstallProgress::Downloading {
             done,
-            total: image.size,
+            total: archive.size,
         });
     }
     file.flush()
@@ -457,21 +465,55 @@ fn download(
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    if actual != image.sha1 {
+    if actual != archive.sha1 {
         return Err(Error::Download(format!(
-            "The download of {} was damaged on the way, so it wasn't installed. Try again.",
-            image.describe()
+            "The download of {what} was damaged on the way, so it wasn't installed. Try again."
         )));
     }
     Ok(())
 }
 
+/// Unpacks a downloaded archive that holds one folder, and returns that folder.
+pub(crate) fn unpack_folder(zip_path: &Path, unpack: &Path) -> Result<PathBuf> {
+    let _ = std::fs::remove_dir_all(unpack);
+    let file =
+        std::fs::File::open(zip_path).context(|| format!("Opening {}", zip_path.display()))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| Error::Download(format!("The download is not a valid archive: {e}")))?;
+    archive
+        .extract(unpack)
+        .map_err(|e| Error::Download(format!("The download couldn't be unpacked: {e}")))?;
+    std::fs::read_dir(unpack)
+        .context(|| format!("Reading {}", unpack.display()))?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.is_dir())
+        .ok_or_else(|| Error::Download("The download was empty.".into()))
+}
+
 /// Writes the `package.xml` Android Studio and sdkmanager expect in an
 /// installed package: the catalogue's entry, as a local package, with its licence.
 fn write_package_xml(image: &RemoteImage, licence: &str, dir: &Path) -> Result<()> {
-    let mut entry = image
-        .package_xml
-        .replacen("<remotePackage", "<localPackage", 1);
+    write_local_package(
+        &image.package_xml,
+        ("sys-img", &image.sys_img_namespace),
+        &image.licence_id,
+        licence,
+        dir,
+    )
+}
+
+/// Writes `package.xml` for an installed package from its catalogue entry
+/// (`<remotePackage>…</remotePackage>`), declaring the namespace its type
+/// details use, such as ("generic", "http://…/generic/02").
+pub(crate) fn write_local_package(
+    remote_entry: &str,
+    namespace: (&str, &str),
+    licence_id: &str,
+    licence: &str,
+    dir: &Path,
+) -> Result<()> {
+    let mut entry = remote_entry.replacen("<remotePackage", "<localPackage", 1);
     entry = entry.replace("</remotePackage>", "</localPackage>");
     // The download details belong to the catalogue, not an installed package.
     if let (Some(start), Some(end)) = (entry.find("<archives>"), entry.find("</archives>")) {
@@ -486,19 +528,19 @@ fn write_package_xml(image: &RemoteImage, licence: &str, dir: &Path) -> Result<(
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;");
+    let (prefix, uri) = namespace;
     let xml = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
          <ns2:repository xmlns:ns2=\"http://schemas.android.com/repository/android/common/02\" \
-         xmlns:sys-img=\"{}\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n\
-         <license id=\"{}\" type=\"text\">{licence}</license>\n{entry}\n</ns2:repository>\n",
-        image.sys_img_namespace, image.licence_id
+         xmlns:{prefix}=\"{uri}\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n\
+         <license id=\"{licence_id}\" type=\"text\">{licence}</license>\n{entry}\n</ns2:repository>\n"
     );
     let path = dir.join("package.xml");
     std::fs::write(&path, xml).context(|| format!("Writing {}", path.display()))
 }
 
 /// Free space on the disk holding `path`, in bytes.
-fn free_space(path: &Path) -> Option<u64> {
+pub(crate) fn free_space(path: &Path) -> Option<u64> {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;

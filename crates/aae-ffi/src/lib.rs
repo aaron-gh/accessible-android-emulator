@@ -21,6 +21,7 @@ use aae_core::gestures::{self, Gesture};
 use aae_core::logcat::{self, LogStream};
 use aae_core::provision::{self, ProvisionOptions};
 use aae_core::sdk::{Sdk, android_name, image_kind};
+use aae_core::setup;
 use aae_core::speech::{Announcer, Route};
 use aae_core::{inspector, tts};
 use aae_core::{keys, lifecycle};
@@ -161,6 +162,35 @@ pub struct VersionInfo {
 pub struct LicenceInfo {
     pub id: String,
     pub text: String,
+}
+
+/// One of the SDK tools AAE downloads.
+#[derive(uniffi::Record)]
+pub struct ToolInfo {
+    /// Such as "Android Emulator".
+    pub name: String,
+    pub revision: String,
+    /// Download size, in words.
+    pub size: String,
+}
+
+/// What setting up the Android SDK still needs.
+#[derive(uniffi::Record)]
+pub struct SetupStatus {
+    pub sdk_path: String,
+    /// True for AAE's own SDK folder, false for one shared with Android Studio.
+    pub own_sdk: bool,
+    /// Why this computer can't run the emulator, if it can't.
+    pub virtualisation_problem: Option<String>,
+    /// Tools to download before AAE can work.
+    pub missing: Vec<ToolInfo>,
+    /// Tools AAE installed that have newer versions available.
+    pub updates: Vec<ToolInfo>,
+    /// Installed tools AAE didn't install, such as Android Studio's, which
+    /// AAE leaves to whatever installed them.
+    pub managed_elsewhere: Vec<String>,
+    /// The download size of the missing tools, in words.
+    pub missing_size: String,
 }
 
 /// Receives download progress.
@@ -409,7 +439,7 @@ impl Engine {
             .with_writer(std::io::stderr)
             .try_init();
         Ok(Arc::new(Engine {
-            sdk: Sdk::locate()?,
+            sdk: Sdk::locate_or_new(),
             store: DeviceStore::open_default()?,
             announcer: Announcer::new(Route::Best),
         }))
@@ -423,6 +453,127 @@ impl Engine {
         } else {
             self.announcer.info(text);
         }
+    }
+
+    /// True when the emulator or SDK tools AAE needs aren't installed. Quick,
+    /// and works offline; `setup_status` says what exactly.
+    pub fn needs_setup(&self) -> bool {
+        self.sdk.emulator_bin().is_err()
+            || self.sdk.adb_bin().is_err()
+            || self.sdk.aapt2_bin().is_none()
+            || self.sdk.apksigner_bin().is_none()
+    }
+
+    /// What setting up the SDK still needs, from Google's list of tools.
+    pub async fn setup_status(&self, refresh: bool) -> Result<SetupStatus, AaeError> {
+        let sdk = self.sdk.clone();
+        on_runtime(async move {
+            let tools = load_tools(refresh).await?;
+            let info = |t: &setup::Tool| ToolInfo {
+                name: t.name.clone(),
+                revision: t.revision.clone(),
+                size: human_size(t.size),
+            };
+            let missing = tools.missing(&sdk);
+            Ok(SetupStatus {
+                sdk_path: sdk.root.display().to_string(),
+                own_sdk: setup::is_own_sdk(&sdk.root),
+                virtualisation_problem: match setup::virtualisation() {
+                    setup::Virtualisation::Missing(how) => Some(how),
+                    _ => None,
+                },
+                missing_size: human_size(missing.iter().map(|t| t.size).sum()),
+                missing: missing.into_iter().map(info).collect(),
+                updates: tools.updates(&sdk).into_iter().map(info).collect(),
+                managed_elsewhere: tools
+                    .managed_elsewhere(&sdk)
+                    .into_iter()
+                    .map(|t| t.name.clone())
+                    .collect(),
+            })
+        })
+        .await
+    }
+
+    /// The licence the missing tools (and, with `update`, the updates) are
+    /// under, if it hasn't been accepted yet.
+    pub async fn tools_licence(&self, update: bool) -> Result<Option<LicenceInfo>, AaeError> {
+        let sdk = self.sdk.clone();
+        on_runtime(async move {
+            let tools = load_tools(false).await?;
+            let wanted = wanted_tools(&tools, &sdk, update);
+            Ok(tools
+                .licences_to_accept(&sdk, &wanted)
+                .into_iter()
+                .next()
+                .map(|(id, text)| LicenceInfo { id, text }))
+        })
+        .await
+    }
+
+    /// Downloads and installs the missing tools, and with `update`, newer
+    /// versions of installed ones, which needs every device stopped. Their
+    /// licence must be accepted first. Progress is for all of them together.
+    pub async fn install_tools(
+        &self,
+        update: bool,
+        listener: Arc<dyn DownloadListener>,
+    ) -> Result<(), AaeError> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        on_runtime(async move {
+            let tools = load_tools(false).await?;
+            let wanted: Vec<setup::Tool> = wanted_tools(&tools, &sdk, update)
+                .into_iter()
+                .cloned()
+                .collect();
+            if update {
+                let running: Vec<String> = store
+                    .list()?
+                    .into_iter()
+                    .filter(|d| emulator::running(d).is_ok())
+                    .map(|d| d.meta.name)
+                    .collect();
+                if !running.is_empty() {
+                    return Err(AaeError::Failed {
+                        message: format!(
+                            "Stop these devices first, as the emulator and adb are replaced: {}.",
+                            running.join(", ")
+                        ),
+                    });
+                }
+            }
+            tokio::task::spawn_blocking(move || {
+                let total: u64 = wanted.iter().map(|t| t.size).sum::<u64>().max(1);
+                let mut before = 0u64;
+                let mut last = u32::MAX;
+                for tool in &wanted {
+                    listener.stage(format!("Downloading {}.", tool.name));
+                    setup::install(&sdk, &tools, tool, |p| match p {
+                        InstallProgress::Downloading { done, .. } => {
+                            let percent = ((before + done) * 100 / total) as u32;
+                            if percent != last {
+                                last = percent;
+                                listener.downloaded(percent);
+                            }
+                        }
+                        InstallProgress::Verifying => {
+                            listener.stage(format!("Checking {}.", tool.name))
+                        }
+                        InstallProgress::Unpacking => {
+                            listener.stage(format!("Unpacking {}.", tool.name))
+                        }
+                    })?;
+                    before += tool.size;
+                }
+                Ok::<(), aae_core::error::Error>(())
+            })
+            .await
+            .map_err(|e| AaeError::Failed {
+                message: e.to_string(),
+            })??;
+            Ok(())
+        })
+        .await
     }
 
     pub fn devices(&self) -> Result<Vec<DeviceInfo>, AaeError> {
@@ -777,6 +928,24 @@ fn add_rows(node: &inspector::Node, parent: u32, rows: &mut Vec<InspectorRow>) {
     for child in &node.children {
         add_rows(child, index, rows);
     }
+}
+
+async fn load_tools(refresh: bool) -> Result<setup::Tools, AaeError> {
+    tokio::task::spawn_blocking(move || setup::Tools::load(refresh))
+        .await
+        .map_err(|e| AaeError::Failed {
+            message: e.to_string(),
+        })?
+        .map_err(AaeError::from)
+}
+
+/// The tools to install: the missing ones, and with `update`, newer versions.
+fn wanted_tools<'a>(tools: &'a setup::Tools, sdk: &Sdk, update: bool) -> Vec<&'a setup::Tool> {
+    let mut wanted = tools.missing(sdk);
+    if update {
+        wanted.extend(tools.updates(sdk));
+    }
+    wanted
 }
 
 async fn load_catalogue() -> Result<Catalogue, AaeError> {

@@ -44,6 +44,12 @@ final class AppModel: ObservableObject {
     /// The version being downloaded and how far it has got.
     @Published private(set) var download: (version: String, percent: UInt32)?
     @Published var licenceRequest: LicenceRequest?
+    /// True until the emulator and SDK tools AAE needs are installed.
+    @Published private(set) var needsSetup = false
+    /// What setting up still needs, once read from Google's list.
+    @Published private(set) var setupStatus: SetupStatus?
+    @Published private(set) var setupError: String?
+    @Published private(set) var settingUp = false
     /// The latest accessibility inspection, and the device it's of.
     @Published private(set) var inspection: Inspection?
     @Published private(set) var inspectedDevice: String?
@@ -127,6 +133,12 @@ final class AppModel: ObservableObject {
         }
         appliedCorrectPitch = correctPitch
         setUpGestureKeys()
+        needsSetup = engine?.needsSetup() ?? false
+        if needsSetup {
+            checkSetup()
+        } else {
+            mentionUpdates()
+        }
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -166,6 +178,90 @@ final class AppModel: ObservableObject {
     }
 
     var defaultScreenReader: String? { engine?.defaultScreenReader() }
+
+    // MARK: - Setting up the SDK
+
+    /// Reads what setting up still needs, from Google's list of tools.
+    func checkSetup(refresh: Bool = false) {
+        guard let engine else { return }
+        setupError = nil
+        Task {
+            do {
+                setupStatus = try await engine.setupStatus(refresh: refresh)
+            } catch {
+                setupError = error.localizedDescription
+                announce(error.localizedDescription, tone: .failure)
+            }
+        }
+    }
+
+    /// Says, at most once a day, when tools AAE installed have updates. Quiet
+    /// when offline or when there are none.
+    private func mentionUpdates() {
+        guard let engine else { return }
+        let key = "lastUpdateMention"
+        if let last = UserDefaults.standard.object(forKey: key) as? Date, Date().timeIntervalSince(last) < 24 * 60 * 60 {
+            return
+        }
+        Task {
+            guard let status = try? await engine.setupStatus(refresh: false) else { return }
+            setupStatus = status
+            guard !status.updates.isEmpty else { return }
+            UserDefaults.standard.set(Date(), forKey: key)
+            let names = status.updates.map(\.name).joined(separator: " and ")
+            // After the window has appeared, so VoiceOver reads it.
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            announce("An update is available for \(names). Install it from Android Versions, in the File menu.")
+        }
+    }
+
+    /// Downloads the missing tools (and with `update`, newer versions),
+    /// asking for Google's licence first if needed.
+    func runSetup(update: Bool = false) {
+        guard let engine, !settingUp else { return }
+        settingUp = true
+        setupError = nil
+        Task {
+            defer { settingUp = false }
+            do {
+                if let licence = try await engine.toolsLicence(update: update) {
+                    guard await askLicence(licence, for: "the Android emulator and tools") else {
+                        announce("Licence declined. Nothing was downloaded.")
+                        return
+                    }
+                    try engine.acceptLicence(licence: licence)
+                }
+                let what = update ? "the updates" : "the Android emulator and tools"
+                download = (what, 0)
+                announce("Downloading \(what). Press Command Shift I to hear how far it's got.")
+                let relay = DownloadRelay(
+                    percent: { [weak self] percent in
+                        guard let self, let current = self.download else { return }
+                        if percent / 10 > current.percent / 10 {
+                            Tone.progress.play()
+                        }
+                        self.download = (current.version, percent)
+                    },
+                    stage: { [weak self] message in self?.status = message }
+                )
+                try await engine.installTools(update: update, listener: relay)
+                download = nil
+                needsSetup = engine.needsSetup()
+                setupStatus = try? await engine.setupStatus(refresh: false)
+                refresh()
+                loadVersions()
+                if update {
+                    announce("Updated.", tone: .success)
+                } else {
+                    announce("AAE is set up. Next, create a device with Command N.", tone: .success)
+                }
+            } catch {
+                download = nil
+                setupError = error.localizedDescription
+                announce(error.localizedDescription, tone: .failure)
+            }
+        }
+    }
 
     // MARK: - Android versions
 

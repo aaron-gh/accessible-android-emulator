@@ -42,6 +42,20 @@ impl Sdk {
             .ok_or(Error::SdkNotFound)
     }
 
+    /// The SDK AAE uses, or where AAE sets one up when there is none:
+    /// `ANDROID_HOME` or `ANDROID_SDK_ROOT` if set, otherwise an SDK already
+    /// on this computer, otherwise AAE's own SDK folder.
+    pub fn locate_or_new() -> Self {
+        for var in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+            if let Some(dir) = std::env::var_os(var).filter(|d| !d.is_empty()) {
+                return Sdk { root: dir.into() };
+            }
+        }
+        Self::locate().unwrap_or_else(|_| Sdk {
+            root: paths::sdk_dir(),
+        })
+    }
+
     pub fn emulator_bin(&self) -> Result<PathBuf> {
         let bin = self.root.join("emulator").join(format!("emulator{EXE}"));
         bin.is_file()

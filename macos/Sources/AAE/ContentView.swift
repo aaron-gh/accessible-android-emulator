@@ -12,6 +12,8 @@ struct ContentView: View {
                     Text(error).textSelection(.enabled)
                 }
                 .padding()
+            } else if model.needsSetup {
+                SetupView()
             } else if model.inDeviceMode {
                 DeviceModeView()
             } else {

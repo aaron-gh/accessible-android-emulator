@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct AAEApp: App {
     @StateObject private var model = AppModel()
+    @StateObject private var updater = Updater()
 
     var body: some Scene {
         Window("Accessible Android Emulator", id: "main") {
@@ -10,6 +11,9 @@ struct AAEApp: App {
                 .environmentObject(model)
         }
         .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesMenuItem(updater: updater)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Device…") { model.showingNewDevice = true }
                     .keyboardShortcut("n")

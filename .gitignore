@@ -7,3 +7,4 @@
 /macos/build/
 /macos/Sources/AAE/Generated/
 /macos/Sources/aae_ffiFFI/include/aae_ffiFFI.h
+/macos/dist/
