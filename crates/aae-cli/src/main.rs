@@ -322,6 +322,17 @@ enum Command {
         #[command(subcommand)]
         action: AppAction,
     },
+    /// Watch an app's build output, and install each new build on devices
+    /// as soon as it's made, until Control-C. Give the APK, or a folder to
+    /// take the newest APK from, such as the app's build/outputs/apk.
+    Watch {
+        /// The device, or several separated by commas.
+        device: String,
+        path: PathBuf,
+        /// Install the build that's there now as well.
+        #[arg(long)]
+        now: bool,
+    },
     /// Open a link on the device, such as a web address or an app's own
     /// link, in a given app or whichever Android chooses.
     Link {
@@ -1322,6 +1333,54 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
             Ok(())
+        }
+        Command::Watch { device, path, now } => {
+            use aae_core::watch;
+            let names: Vec<String> = device
+                .split(',')
+                .map(|n| n.trim().to_string())
+                .filter(|n| !n.is_empty())
+                .collect();
+            let mut last = watch::current_build(&path);
+            if last.is_none() && !path.exists() {
+                bail!("{} doesn't exist.", path.display());
+            }
+            println!(
+                "Watching {} for new builds. Press Control-C to stop.",
+                path.display()
+            );
+            let mut pending = if now { last.clone() } else { None };
+            loop {
+                let build = match pending.take() {
+                    Some(build) => build,
+                    None => tokio::select! {
+                        _ = tokio::signal::ctrl_c() => return Ok(()),
+                        build = watch::next_build(&path, last.as_ref()) => build,
+                    },
+                };
+                last = Some(build.clone());
+                println!("New build: {}.", build.path.display());
+                for name in &names {
+                    let result: Result<()> = async {
+                        let (mut device, _, adb) = ctx.connect(name).await?;
+                        let (info, parts) =
+                            provision::install_app(&ctx.sdk, &mut device, &adb, &build.path)
+                                .await?;
+                        let mut choices = Vec::new();
+                        for part in parts.into_iter().filter(|p| p.choice.is_none()) {
+                            let on = ask_part(&part, &info.package)?;
+                            choices.push((part, on));
+                        }
+                        provision::apply_choices(&mut device, &adb, &choices).await?;
+                        println!("Installed {} on {}.", info.package, device.meta.name);
+                        Ok(())
+                    }
+                    .await;
+                    if let Err(e) = result {
+                        println!("{name}: {e:#}");
+                    }
+                }
+            }
         }
         Command::Link { device, link, app } => {
             let (_, _, adb) = ctx.connect(&device).await?;

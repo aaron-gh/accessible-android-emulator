@@ -79,6 +79,7 @@ struct AAEApp: App {
                 Divider()
                 Button("Install App…") { model.installApp() }
                     .keyboardShortcut("i")
+                WatchMenuItems(model: model)
                 Button("Install Screen Reader Build…") { model.installScreenReaderBuild() }
                     .keyboardShortcut("i", modifiers: [.command, .shift, .option])
                 Button("Save Screenshot…") { model.screenshot() }
@@ -113,6 +114,10 @@ struct AAEApp: App {
         }
         Window("Android Versions", id: "versions") {
             AndroidVersionsView()
+                .environmentObject(model)
+        }
+        Window("Watching for New Builds", id: "watches") {
+            WatchView()
                 .environmentObject(model)
         }
         Window("Apps", id: "apps") {

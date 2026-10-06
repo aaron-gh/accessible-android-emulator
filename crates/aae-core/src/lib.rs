@@ -29,6 +29,7 @@ pub mod sdk;
 pub mod setup;
 pub mod speech;
 pub mod tts;
+pub mod watch;
 
 pub use error::{Error, Result};
 

@@ -59,6 +59,8 @@ final class AppModel: ObservableObject {
     /// The app whose permissions are being shown, and them.
     @Published var permissionsShown: (app: AppInfo, permissions: AppPermissions)?
     @Published var showingOpenLink = false
+    /// Build outputs being watched for new builds to install.
+    @Published private(set) var watches: [BuildWatch] = []
     @Published var showingSendIntent = false
     /// The last self-test's results.
     @Published private(set) var selfTestResults: [SelfTestRow] = []
@@ -1427,6 +1429,58 @@ final class AppModel: ObservableObject {
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: action)
         return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    // MARK: - Watching builds
+
+    /// Chooses an APK or a build folder to watch, then the devices.
+    func watchForBuilds() {
+        let panel = NSOpenPanel()
+        panel.message = "Choose an app's APK, or the folder its builds go in, such as build/outputs/apk."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data, .folder]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let running = devices.filter(\.running)
+        guard !running.isEmpty else {
+            announce("Start a device first, to install builds on it.", tone: .failure)
+            return
+        }
+        let chosen = Set(running.map(\.id).filter { $0 == selection || running.count == 1 })
+        installQuestion = InstallQuestion(paths: [url.path], devices: running, chosen: chosen, watch: true)
+    }
+
+    /// Installs each new build at a path on the devices, until stopped.
+    func startWatching(_ path: String, on ids: [String]) {
+        installQuestion = nil
+        guard !ids.isEmpty else { return }
+        var watch = BuildWatch(path: path, deviceIDs: ids)
+        let watchID = watch.id
+        watch.task = Task { [weak self] in
+            var last = BuildWatch.currentBuild(at: path)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let build = BuildWatch.currentBuild(at: path), build != last else { continue }
+                // Wait for it to settle, so a half-written file isn't installed.
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                guard BuildWatch.currentBuild(at: path) == build, let self else { continue }
+                last = build
+                self.announce("New build of \(build.url.lastPathComponent).")
+                if let i = self.watches.firstIndex(where: { $0.id == watchID }) {
+                    self.watches[i].lastBuild = Date()
+                }
+                self.install([build.url.path], on: ids)
+            }
+        }
+        watches.append(watch)
+        let names = ids.compactMap { id in devices.first { $0.id == id }?.name }.joined(separator: " and ")
+        announce("Watching \((path as NSString).lastPathComponent). Each new build goes on \(names).", tone: .success)
+    }
+
+    func stopWatching(_ watch: BuildWatch) {
+        watch.task?.cancel()
+        watches.removeAll { $0.id == watch.id }
+        announce("Stopped watching \((watch.path as NSString).lastPathComponent).")
     }
 
     // MARK: - Snapshots
