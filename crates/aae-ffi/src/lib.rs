@@ -393,6 +393,22 @@ pub struct TouchTargets {
     pub targets: Vec<TouchTarget>,
 }
 
+/// How a self-test check came out.
+#[derive(uniffi::Enum, Clone, Copy, PartialEq)]
+pub enum CheckOutcome {
+    Passed,
+    Warning,
+    Failed,
+}
+
+/// One self-test check.
+#[derive(uniffi::Record)]
+pub struct CheckInfo {
+    pub name: String,
+    pub outcome: CheckOutcome,
+    pub detail: String,
+}
+
 /// What the audio check found.
 #[derive(uniffi::Record)]
 pub struct AudioCheck {
@@ -575,6 +591,28 @@ impl Engine {
             store: DeviceStore::open_default()?,
             announcer: Announcer::new(Route::Best),
         }))
+    }
+
+    /// Checks everything AAE needs, without making a sound.
+    pub async fn self_test(&self) -> Vec<CheckInfo> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        on_runtime(async move {
+            Ok(aae_core::diagnostics::self_test(&sdk, &store)
+                .await
+                .into_iter()
+                .map(|c| CheckInfo {
+                    name: c.name,
+                    outcome: match c.outcome {
+                        aae_core::diagnostics::Outcome::Passed => CheckOutcome::Passed,
+                        aae_core::diagnostics::Outcome::Warning => CheckOutcome::Warning,
+                        aae_core::diagnostics::Outcome::Failed => CheckOutcome::Failed,
+                    },
+                    detail: c.detail,
+                })
+                .collect())
+        })
+        .await
+        .unwrap_or_default()
     }
 
     /// A diagnostic report for a bug report, as plain text with personal

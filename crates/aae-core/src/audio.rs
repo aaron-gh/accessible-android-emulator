@@ -468,6 +468,17 @@ const GOLDFISH_SPEED: f64 = 44_100.0 / 48_000.0;
 /// hears it: call this only while AAE isn't playing the device's audio, and
 /// the emulator's own output is off. A result close to a known fault snaps to
 /// its exact value.
+/// The name of the Mac's sound output, or None if it has none.
+pub fn output_name() -> Option<String> {
+    let device = cpal::default_host().default_output_device()?;
+    Some(
+        device
+            .description()
+            .map(|d| d.name().to_string())
+            .unwrap_or_else(|_| "the default output".into()),
+    )
+}
+
 /// What the audio health check found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AudioHealth {

@@ -139,6 +139,7 @@ Android versions are installed into the Android SDK, where Android Studio sees t
 
 ## Diagnosing problems
 
+- Help, Run Self-Test in the Mac app, or `aae self-test`, checks everything AAE needs and reads out what it found: the Mac's virtualisation and sound output, the SDK, AAE's own parts, free disk space, and for each running device, its screen reader, AAE's helper and its speech. The app also checks it can capture the keyboard, and that each open device's sound is getting through. It makes no sound.
 - To report a bug, attach a diagnostic report: Help, Save Diagnostic Report in the Mac app, or `aae report`. It's plain text: AAE's version, this computer, the SDK, your devices and the end of their emulator logs, and AAE's own log. Your home folder, computer name and full name are taken out, and it never includes what you typed on a device, your clipboard, or the device's own log.
 - AAE keeps its log in its data folder, under `logs`, at most about 4 megabytes. It records AAE's steps and problems, never keys, typed text or clipboards.
 - `AAE_LOG=info aae start "My device"` shows each step of starting a device. Use `debug` for more.

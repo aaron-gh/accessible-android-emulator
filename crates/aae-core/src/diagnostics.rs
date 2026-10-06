@@ -197,6 +197,185 @@ pub fn report(sdk: &Sdk, store: &DeviceStore, version: &str) -> String {
     redact(&out)
 }
 
+/// How a self-test check came out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Passed,
+    /// Works, but something isn't as it should be.
+    Warning,
+    Failed,
+}
+
+/// One self-test check.
+#[derive(Debug, Clone)]
+pub struct Check {
+    pub name: String,
+    pub outcome: Outcome,
+    /// What was found, in words.
+    pub detail: String,
+}
+
+impl Check {
+    fn new(name: &str, outcome: Outcome, detail: impl Into<String>) -> Check {
+        Check {
+            name: name.to_string(),
+            outcome,
+            detail: detail.into(),
+        }
+    }
+}
+
+/// Checks what AAE needs: this computer, the SDK, AAE's own parts, and each
+/// running device's screen reader and speech. Makes no sound. The Mac app
+/// adds its own checks, such as keyboard capture.
+pub async fn self_test(sdk: &Sdk, store: &DeviceStore) -> Vec<Check> {
+    use Outcome::*;
+    let mut checks = Vec::new();
+    checks.push(match setup::virtualisation() {
+        setup::Virtualisation::Available => Check::new(
+            "Virtualisation",
+            Passed,
+            "This computer can run the emulator at full speed.",
+        ),
+        setup::Virtualisation::Missing(why) => Check::new("Virtualisation", Failed, why),
+        setup::Virtualisation::Unknown => {
+            Check::new("Virtualisation", Warning, "AAE can't tell on this system.")
+        }
+    });
+    checks.push(match sdk.emulator_bin() {
+        Ok(_) => Check::new(
+            "Emulator",
+            Passed,
+            format!(
+                "Version {}.",
+                sdk.emulator_version().unwrap_or_else(|| "unknown".into())
+            ),
+        ),
+        Err(e) => Check::new("Emulator", Failed, e.to_string()),
+    });
+    checks.push(match sdk.adb_bin() {
+        Ok(_) => Check::new("adb", Passed, "Installed."),
+        Err(e) => Check::new("adb", Failed, e.to_string()),
+    });
+    checks.push(
+        if sdk.aapt2_bin().is_some() && sdk.apksigner_bin().is_some() {
+            Check::new("Build tools", Passed, "Installed.")
+        } else {
+            Check::new(
+                "Build tools",
+                Failed,
+                "Not installed. AAE needs them to read app packages. Run the setup again.",
+            )
+        },
+    );
+    checks.push(match crate::provision::helper_apk() {
+        Some(_) => Check::new("AAE's helper app", Passed, "Found."),
+        None => Check::new(
+            "AAE's helper app",
+            Failed,
+            "Not found, so new devices can't be set up.",
+        ),
+    });
+    checks.push(match crate::tts::espeak_apk() {
+        Ok(_) => Check::new("AAE's eSpeak NG", Passed, "Found."),
+        Err(_) => Check::new(
+            "AAE's eSpeak NG",
+            Warning,
+            "Not found, so a device whose speech fails can't be given a working voice.",
+        ),
+    });
+    checks.push(match crate::audio::output_name() {
+        Some(name) => Check::new("Sound output", Passed, format!("Playing to {name}.")),
+        None => Check::new("Sound output", Failed, "The Mac has no sound output."),
+    });
+    let images = sdk
+        .system_images()
+        .into_iter()
+        .filter(|i| i.runs_natively())
+        .count();
+    checks.push(if images == 0 {
+        Check::new("Android versions", Warning, "None installed yet.")
+    } else {
+        Check::new("Android versions", Passed, format!("{images} installed."))
+    });
+    if let Some(free) = crate::catalog::free_space(&paths::data_dir()) {
+        let gb = 1024 * 1024 * 1024;
+        checks.push(if free < 10 * gb {
+            Check::new(
+                "Disk space",
+                Warning,
+                format!(
+                    "Only {} free. Devices and Android versions need several gigabytes each.",
+                    human_size(free)
+                ),
+            )
+        } else {
+            Check::new("Disk space", Passed, format!("{} free.", human_size(free)))
+        });
+    }
+    for device in store.list().unwrap_or_default() {
+        let Ok(info) = crate::emulator::running(&device) else {
+            continue;
+        };
+        let name = device.meta.name.clone();
+        let Ok(adb_bin) = sdk.adb_bin() else { continue };
+        let adb = crate::adb::Adb::new(adb_bin, info.serial());
+        if !adb.boot_completed().await {
+            checks.push(Check::new(&name, Failed, "Android isn't answering."));
+            continue;
+        }
+        let running = adb.running_services().await.unwrap_or_default();
+        let is_on = |component: &str| {
+            running
+                .iter()
+                .any(|r| crate::adb::same_component(r, component))
+        };
+        checks.push(match &device.meta.screen_reader {
+            Some(reader) if is_on(reader) => Check::new(
+                &format!("{name}: screen reader"),
+                Passed,
+                format!("{} is on.", reader.split('/').next().unwrap_or(reader)),
+            ),
+            Some(reader) => Check::new(
+                &format!("{name}: screen reader"),
+                Failed,
+                format!(
+                    "{} is off. Starting the device again turns it back on.",
+                    reader.split('/').next().unwrap_or(reader)
+                ),
+            ),
+            None => Check::new(
+                &format!("{name}: screen reader"),
+                Warning,
+                "None is set up.",
+            ),
+        });
+        checks.push(if is_on(crate::provision::HELPER_COMPONENT) {
+            Check::new(&format!("{name}: AAE's helper"), Passed, "On.")
+        } else {
+            Check::new(
+                &format!("{name}: AAE's helper"),
+                Warning,
+                "Off, so the volume, keyboard test and inspector won't work until the device starts again.",
+            )
+        });
+        checks.push(match crate::tts::check(&adb).await {
+            Ok(status) if status.ok => Check::new(
+                &format!("{name}: speech"),
+                Passed,
+                format!("Speaking with {}.", status.engine),
+            ),
+            Ok(status) => Check::new(&format!("{name}: speech"), Failed, status.detail),
+            Err(e) => Check::new(
+                &format!("{name}: speech"),
+                Warning,
+                format!("Couldn't check: {e}"),
+            ),
+        });
+    }
+    checks
+}
+
 fn section(out: &mut String, title: &str) {
     let _ = writeln!(out, "\n== {title} ==");
 }

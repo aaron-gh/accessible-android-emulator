@@ -7,6 +7,8 @@ import AppKit
 private func CGSMainConnectionID() -> Int32
 @_silgen_name("CGSSetGlobalHotKeyOperatingMode")
 private func CGSSetGlobalHotKeyOperatingMode(_ connection: Int32, _ mode: Int32) -> Int32
+@_silgen_name("CGSGetGlobalHotKeyOperatingMode")
+private func CGSGetGlobalHotKeyOperatingMode(_ connection: Int32, _ mode: UnsafeMutablePointer<Int32>) -> Int32
 private let hotKeysEnabled: Int32 = 0
 /// Every system shortcut is off except Universal Access ones, such as VoiceOver's.
 private let hotKeysExceptUniversalAccess: Int32 = 2
@@ -111,6 +113,13 @@ final class DeviceModeLock {
         if let window = captureView?.window {
             window.makeFirstResponder(nil)
         }
+    }
+
+    /// Whether macOS answers the call that switches system shortcuts off in
+    /// device mode, for the self-test. Asking changes nothing.
+    nonisolated static func canCaptureShortcuts() -> Bool {
+        var mode: Int32 = 0
+        return CGSGetGlobalHotKeyOperatingMode(CGSMainConnectionID(), &mode) == 0
     }
 
     /// Control-Command-Escape, the way back to the Mac.

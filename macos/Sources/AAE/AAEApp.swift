@@ -15,6 +15,7 @@ struct AAEApp: App {
                 CheckForUpdatesMenuItem(updater: updater)
             }
             CommandGroup(after: .help) {
+                SelfTestMenuItem(model: model)
                 Button("Save Diagnostic Report…") { model.saveDiagnosticReport() }
             }
             CommandGroup(replacing: .newItem) {
@@ -109,6 +110,10 @@ struct AAEApp: App {
         }
         Window("Battery, Location and Phone", id: "conditions") {
             ConditionsView()
+                .environmentObject(model)
+        }
+        Window("Self-Test", id: "selftest") {
+            SelfTestView()
                 .environmentObject(model)
         }
         Window("Shell", id: "shell") {

@@ -509,7 +509,13 @@ pub async fn screen_reader_for_wipe(
     device: &Device,
     adb: Option<&Adb>,
 ) -> Option<PathBuf> {
-    let package = device.meta.screen_reader.as_deref()?.split('/').next()?.to_string();
+    let package = device
+        .meta
+        .screen_reader
+        .as_deref()?
+        .split('/')
+        .next()?
+        .to_string();
     let copy = screen_reader_copy(&package);
     if copy.is_file() {
         return Some(copy);

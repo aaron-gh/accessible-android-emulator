@@ -38,6 +38,10 @@ struct Cli {
 enum Command {
     /// Check the Android SDK, emulator and audio, and say what is missing.
     Doctor,
+    /// Check everything AAE needs: this computer's virtualisation and sound,
+    /// the SDK, AAE's own parts, and each running device's screen reader
+    /// and speech. Makes no sound.
+    SelfTest,
     /// Save a diagnostic report to attach to a bug report: AAE, this
     /// computer, the SDK, your devices, and AAE's log. It never includes
     /// what you typed on a device, and your home folder and account name are
@@ -550,6 +554,35 @@ async fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new()?;
     match cli.command {
         Command::Doctor => doctor(&ctx),
+        Command::SelfTest => {
+            use aae_core::diagnostics::Outcome;
+            let checks = aae_core::diagnostics::self_test(&ctx.sdk, &ctx.store).await;
+            for check in &checks {
+                let label = match check.outcome {
+                    Outcome::Passed => "OK",
+                    Outcome::Warning => "Warning",
+                    Outcome::Failed => "Problem",
+                };
+                println!("{label}: {}. {}", check.name, check.detail);
+            }
+            let failed = checks
+                .iter()
+                .filter(|c| c.outcome == Outcome::Failed)
+                .count();
+            let warned = checks
+                .iter()
+                .filter(|c| c.outcome == Outcome::Warning)
+                .count();
+            println!(
+                "{} checks: {} passed, {warned} warnings, {failed} problems.",
+                checks.len(),
+                checks.len() - failed - warned
+            );
+            if failed > 0 {
+                bail!("The self-test found {failed} problems.");
+            }
+            Ok(())
+        }
         Command::PlaybackVolume { device, percent } => {
             let mut device = ctx.device(&device)?;
             match percent {

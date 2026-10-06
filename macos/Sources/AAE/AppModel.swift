@@ -51,6 +51,9 @@ final class AppModel: ObservableObject {
     @Published var installQuestion: InstallQuestion?
     /// An installed app's parts waiting for the user to choose about.
     @Published var partsQuestion: PartsQuestion?
+    /// The last self-test's results.
+    @Published private(set) var selfTestResults: [SelfTestRow] = []
+    @Published private(set) var selfTestRunning = false
     /// The selected device's snapshots, while the Snapshots window is open.
     @Published private(set) var snapshots: [SnapshotInfo] = []
     @Published private(set) var snapshotsDevice: String?
@@ -1541,6 +1544,42 @@ final class AppModel: ObservableObject {
         guard soundProblems.insert(id).inserted else { return }
         let name = devices.first { $0.id == id }?.name ?? "A device"
         announce("\(name): \(message) Choose Check Audio in the Device menu to restart it.", tone: .failure)
+    }
+
+    /// Runs the self-test: the core's checks, plus the app's own, keyboard
+    /// capture and each open device's sound. Says how it went.
+    func runSelfTest() {
+        guard let engine, !selfTestRunning else { return }
+        selfTestRunning = true
+        selfTestResults = []
+        announce("Running the self-test.")
+        Task {
+            var results = await engine.selfTest().map {
+                SelfTestRow(name: $0.name, outcome: $0.outcome, detail: $0.detail)
+            }
+            results.insert(
+                DeviceModeLock.canCaptureShortcuts()
+                    ? SelfTestRow(name: "Keyboard capture", outcome: .passed, detail: "AAE can switch the Mac's shortcuts off in device mode, so every key reaches Android.")
+                    : SelfTestRow(name: "Keyboard capture", outcome: .warning, detail: "macOS didn't answer, so shortcuts like Command-Space may reach the Mac in device mode."),
+                at: 0
+            )
+            for (id, session) in sessions {
+                let name = devices.first { $0.id == id }?.name ?? "A device"
+                if let check = try? await session.checkAudio(probe: false) {
+                    results.append(SelfTestRow(name: "\(name): sound", outcome: check.working ? .passed : .failed, detail: check.message))
+                }
+            }
+            selfTestResults = results
+            selfTestRunning = false
+            let problems = results.filter { $0.outcome == .failed }
+            let warnings = results.filter { $0.outcome == .warning }
+            if problems.isEmpty && warnings.isEmpty {
+                announce("All \(results.count) checks passed.", tone: .success)
+            } else {
+                let found = (problems + warnings).map { "\($0.name): \($0.detail)" }.joined(separator: " ")
+                announce("\(problems.count) problems and \(warnings.count) warnings. \(found)", tone: problems.isEmpty ? .info : .failure)
+            }
+        }
     }
 
     /// Saves a diagnostic report for a bug report, where the user chooses.
