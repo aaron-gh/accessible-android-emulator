@@ -29,6 +29,12 @@ struct ContentView: View {
             LicenceView(request: request)
                 .interactiveDismissDisabled()
         }
+        .sheet(isPresented: $model.showingOpenLink) {
+            OpenLinkView()
+        }
+        .sheet(isPresented: $model.showingSendIntent) {
+            SendIntentView()
+        }
         .sheet(item: $model.screenReaderBuildQuestion) { question in
             ScreenReaderBuildView(question: question)
         }

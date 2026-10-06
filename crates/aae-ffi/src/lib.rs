@@ -332,6 +332,24 @@ pub struct InstallResult {
     pub parts: Vec<AppPartInfo>,
 }
 
+/// A text extra for an intent.
+#[derive(uniffi::Record)]
+pub struct IntentExtra {
+    pub key: String,
+    pub value: String,
+}
+
+/// An intent to send.
+#[derive(uniffi::Record)]
+pub struct IntentInfo {
+    pub action: Option<String>,
+    pub data: Option<String>,
+    /// An app's package, or `package/class` for one of its screens or receivers.
+    pub target: Option<String>,
+    pub extras: Vec<IntentExtra>,
+    pub broadcast: bool,
+}
+
 /// An installed app.
 #[derive(uniffi::Record)]
 pub struct AppInfo {
@@ -1921,6 +1939,35 @@ impl Session {
     pub async fn open_app_screen(&self, component: String) -> Result<(), AaeError> {
         let adb = self.adb.clone();
         on_runtime(async move { Ok(aae_core::apps::open_activity(&adb, &component).await?) }).await
+    }
+
+    /// Opens a link, in the given app's package or whichever Android chooses.
+    pub async fn open_link(&self, link: String, package: Option<String>) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move {
+            aae_core::apps::open_link(&adb, &link, package.as_deref()).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Sends an intent, and returns what Android said.
+    pub async fn send_intent(&self, intent: IntentInfo) -> Result<String, AaeError> {
+        let adb = self.adb.clone();
+        let non_empty =
+            |s: Option<String>| s.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let intent = aae_core::apps::Intent {
+            action: non_empty(intent.action),
+            data: non_empty(intent.data),
+            target: non_empty(intent.target),
+            extras: intent
+                .extras
+                .into_iter()
+                .map(|e| (e.key, e.value))
+                .collect(),
+            broadcast: intent.broadcast,
+        };
+        on_runtime(async move { Ok(aae_core::apps::send(&adb, &intent).await?) }).await
     }
 
     pub async fn force_stop_app(&self, package: String) -> Result<(), AaeError> {

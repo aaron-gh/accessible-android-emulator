@@ -71,6 +71,9 @@ struct AAEApp: App {
                     .keyboardShortcut("v", modifiers: [.command, .option])
                 Divider()
                 AppsMenuItem()
+                Button("Open Link…") { model.showingOpenLink = true }
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
+                Button("Send Intent…") { model.showingSendIntent = true }
                 SnapshotsMenuItem()
                 ConditionsMenuItem()
                 Divider()

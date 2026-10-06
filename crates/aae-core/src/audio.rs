@@ -258,7 +258,9 @@ impl AudioPlayer {
     /// Silences this device while another is the one in use (true), or
     /// plays it again (false). Doesn't touch the user's own mute.
     pub fn set_background(&self, background: bool) {
-        self.controls.background.store(background, Ordering::Relaxed);
+        self.controls
+            .background
+            .store(background, Ordering::Relaxed);
     }
 
     /// True while the receiving task is alive.

@@ -5,7 +5,7 @@
 
 use serde::Deserialize;
 
-use crate::adb::Adb;
+use crate::adb::{Adb, shell_quote};
 use crate::error::{Error, Result};
 
 const HELPER_RECEIVER: &str = "io.github.aaron_gh.aae.helper/.CommandReceiver";
@@ -88,7 +88,9 @@ impl Access {
 /// Asks AAE's helper, and returns the JSON it answers with.
 async fn ask_helper(adb: &Adb, action: &str, extras: &str) -> Result<String> {
     let out = adb
-        .shell(&format!("am broadcast -n {HELPER_RECEIVER} -a {action}{extras}"))
+        .shell(&format!(
+            "am broadcast -n {HELPER_RECEIVER} -a {action}{extras}"
+        ))
         .await?;
     if !out.contains("result=1") {
         return Err(Error::Adb(
@@ -121,7 +123,9 @@ pub async fn permissions(adb: &Adb, package: &str) -> Result<Vec<Permission>> {
 /// Grants or revokes one permission.
 pub async fn set_permission(adb: &Adb, package: &str, permission: &str, grant: bool) -> Result<()> {
     let verb = if grant { "grant" } else { "revoke" };
-    let out = adb.shell(&format!("pm {verb} {package} {permission}")).await?;
+    let out = adb
+        .shell(&format!("pm {verb} {package} {permission}"))
+        .await?;
     if out.trim().is_empty() {
         Ok(())
     } else {
@@ -181,7 +185,12 @@ pub async fn open(adb: &Adb, package: &str) -> Result<()> {
         ))
         .await
         .unwrap_or_default();
-    match found.lines().last().map(str::trim).filter(|l| l.contains('/')) {
+    match found
+        .lines()
+        .last()
+        .map(str::trim)
+        .filter(|l| l.contains('/'))
+    {
         Some(component) => open_activity(adb, component).await,
         None => Err(Error::Adb(format!(
             "{package} has no screen to open from an icon."
@@ -213,4 +222,75 @@ pub async fn clear_data(adb: &Adb, package: &str) -> Result<()> {
     } else {
         Err(Error::Adb(out.trim().to_string()))
     }
+}
+
+/// An intent to send: what to do, on what, by whom.
+#[derive(Debug, Clone, Default)]
+pub struct Intent {
+    /// Such as `android.intent.action.VIEW`. None sends none.
+    pub action: Option<String>,
+    /// A link or other address, such as `https://example.com` or `myapp://home`.
+    pub data: Option<String>,
+    /// An app's package, or one of its screens or receivers as
+    /// `package/class`. None lets Android choose.
+    pub target: Option<String>,
+    /// Text extras, as (key, value).
+    pub extras: Vec<(String, String)>,
+    /// Send as a broadcast, not to open a screen.
+    pub broadcast: bool,
+}
+
+/// Opens a link, in the given app or whichever Android chooses.
+pub async fn open_link(adb: &Adb, link: &str, app: Option<&str>) -> Result<String> {
+    send(
+        adb,
+        &Intent {
+            action: Some("android.intent.action.VIEW".into()),
+            data: Some(link.to_string()),
+            target: app.map(String::from),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+/// Sends an intent, and returns what Android said.
+pub async fn send(adb: &Adb, intent: &Intent) -> Result<String> {
+    let mut command = String::from(if intent.broadcast {
+        "am broadcast"
+    } else {
+        "am start"
+    });
+    if let Some(action) = &intent.action {
+        command.push_str(&format!(" -a {}", shell_quote(action)));
+    }
+    if let Some(data) = &intent.data {
+        command.push_str(&format!(" -d {}", shell_quote(data)));
+    }
+    for (key, value) in &intent.extras {
+        command.push_str(&format!(
+            " --es {} {}",
+            shell_quote(key),
+            shell_quote(value)
+        ));
+    }
+    match intent.target.as_deref() {
+        Some(component) if component.contains('/') => {
+            command.push_str(&format!(" -n {}", shell_quote(component)))
+        }
+        Some(package) => command.push_str(&format!(" -p {}", shell_quote(package))),
+        None => {}
+    }
+    let out = adb.shell(&command).await?;
+    // am says so when nothing could handle it.
+    if out.contains("unable to resolve") {
+        return Err(Error::Adb(
+            "Nothing on the device can handle that. Check the address, or install the app it's for."
+                .into(),
+        ));
+    }
+    if out.contains("Error") {
+        return Err(Error::Adb(out.trim().to_string()));
+    }
+    Ok(out.trim().to_string())
 }

@@ -322,6 +322,35 @@ enum Command {
         #[command(subcommand)]
         action: AppAction,
     },
+    /// Open a link on the device, such as a web address or an app's own
+    /// link, in a given app or whichever Android chooses.
+    Link {
+        device: String,
+        link: String,
+        /// The app to open it in, by name or package.
+        #[arg(long)]
+        app: Option<String>,
+    },
+    /// Send an intent on the device, for testing how an app answers it.
+    Intent {
+        device: String,
+        /// Such as android.intent.action.VIEW.
+        #[arg(long)]
+        action: Option<String>,
+        /// A link or other address.
+        #[arg(long)]
+        data: Option<String>,
+        /// The app, by name or package, or one of its screens or receivers
+        /// as package/class.
+        #[arg(long)]
+        to: Option<String>,
+        /// A text extra, as key=value. Can be repeated.
+        #[arg(long = "extra")]
+        extras: Vec<String>,
+        /// Send it as a broadcast instead of to open a screen.
+        #[arg(long)]
+        broadcast: bool,
+    },
     /// Install a screen reader build and make it the device's screen reader.
     /// Installing a new build of the same screen reader keeps its settings.
     /// Stopped devices get it when they next start.
@@ -1294,6 +1323,52 @@ async fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
+        Command::Link { device, link, app } => {
+            let (_, _, adb) = ctx.connect(&device).await?;
+            let app = match app {
+                Some(name) => Some(app_package(&ctx, &adb, &name).await?),
+                None => None,
+            };
+            aae_core::apps::open_link(&adb, &link, app.as_deref()).await?;
+            println!("Opened {link}.");
+            Ok(())
+        }
+        Command::Intent {
+            device,
+            action,
+            data,
+            to,
+            extras,
+            broadcast,
+        } => {
+            let (_, _, adb) = ctx.connect(&device).await?;
+            let target = match to {
+                Some(t) if t.contains('/') => Some(t),
+                Some(name) => Some(app_package(&ctx, &adb, &name).await?),
+                None => None,
+            };
+            let extras = extras
+                .iter()
+                .map(|e| {
+                    e.split_once('=')
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .ok_or_else(|| anyhow!("\"{e}\" isn't key=value."))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let said = aae_core::apps::send(
+                &adb,
+                &aae_core::apps::Intent {
+                    action,
+                    data,
+                    target,
+                    extras,
+                    broadcast,
+                },
+            )
+            .await?;
+            println!("{said}");
+            Ok(())
+        }
         Command::Apps { device, system } => {
             let (_, _, adb) = ctx.connect(&device).await?;
             provision::update_helper(&ctx.sdk, &adb).await?;
@@ -2226,6 +2301,20 @@ fn doctor(ctx: &Ctx) -> Result<()> {
     }
     println!("Devices are stored in {}.", ctx.store.root.display());
     Ok(())
+}
+
+/// An app's package, from its name or package.
+async fn app_package(ctx: &Ctx, adb: &Adb, name: &str) -> Result<String> {
+    if name.contains('.') && !name.contains(' ') {
+        return Ok(name.to_string());
+    }
+    provision::update_helper(&ctx.sdk, adb).await?;
+    aae_core::apps::list(adb, true)
+        .await?
+        .into_iter()
+        .find(|a| a.label.eq_ignore_ascii_case(name.trim()))
+        .map(|a| a.package)
+        .ok_or_else(|| anyhow!("No app called \"{name}\" is installed. aae apps lists them."))
 }
 
 /// Asks whether to turn on part of an app, in a terminal. Without one, an

@@ -58,6 +58,8 @@ final class AppModel: ObservableObject {
     @Published var showSystemApps = false { didSet { loadApps() } }
     /// The app whose permissions are being shown, and them.
     @Published var permissionsShown: (app: AppInfo, permissions: AppPermissions)?
+    @Published var showingOpenLink = false
+    @Published var showingSendIntent = false
     /// The last self-test's results.
     @Published private(set) var selfTestResults: [SelfTestRow] = []
     @Published private(set) var selfTestRunning = false
@@ -1331,6 +1333,24 @@ final class AppModel: ObservableObject {
         withSession { [weak self] session in
             defer { self?.loadingApps = false }
             self?.apps = try await session.listApps(system: system)
+        }
+    }
+
+    /// Opens a link on the selected device, in an app or whichever Android chooses.
+    func openLink(_ link: String, package: String?) {
+        let link = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !link.isEmpty else { return }
+        withSession { [weak self] session in
+            try await session.openLink(link: link, package: package)
+            self?.announce("Opened \(link).")
+        }
+    }
+
+    /// Sends an intent on the selected device, and says what Android said.
+    func sendIntent(_ intent: IntentInfo) {
+        withSession { [weak self] session in
+            let said = try await session.sendIntent(intent: intent)
+            self?.announce(said.isEmpty ? "Sent." : said, tone: .success)
         }
     }
 
