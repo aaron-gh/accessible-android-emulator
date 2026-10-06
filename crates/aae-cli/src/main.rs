@@ -194,6 +194,9 @@ enum Command {
     },
     /// Say what a device is doing.
     Status { device: String },
+    /// Check the device's sound reaches AAE: AAE's helper plays a test tone,
+    /// which AAE listens for without playing it.
+    SoundCheck { device: String },
     /// Measure how fast the device plays audio, so AAE can correct its pitch.
     /// AAE does this by itself on setup; use this to measure again.
     AudioCheck { device: String },
@@ -532,6 +535,17 @@ async fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new()?;
     match cli.command {
         Command::Doctor => doctor(&ctx),
+        Command::SoundCheck { device } => {
+            let (device, controller, adb) = ctx.connect(&device).await?;
+            let mut player = aae_core::audio::AudioPlayer::start(&controller).await?;
+            let health = player.probe(&adb).await;
+            player.stop();
+            match health {
+                aae_core::audio::AudioHealth::Broken(why) => bail!("{why}"),
+                _ => println!("{}'s sound is reaching AAE.", device.meta.name),
+            }
+            Ok(())
+        }
         Command::Report { out } => {
             let version = format!("{} (aae command)", env!("CARGO_PKG_VERSION"));
             let report = aae_core::diagnostics::report(&ctx.sdk, &ctx.store, &version);

@@ -390,6 +390,14 @@ pub struct TouchTargets {
     pub targets: Vec<TouchTarget>,
 }
 
+/// What the audio check found.
+#[derive(uniffi::Record)]
+pub struct AudioCheck {
+    pub working: bool,
+    /// In words.
+    pub message: String,
+}
+
 /// What a shell command printed, and how it ended.
 #[derive(uniffi::Record)]
 pub struct CommandResult {
@@ -1245,6 +1253,62 @@ impl Session {
             on_runtime(async move { Ok(AudioPlayer::start_with_speed(&controller, speed).await?) })
                 .await?;
         *self.audio.lock().unwrap() = Some(player);
+        Ok(())
+    }
+
+    /// Checks the device's sound is reaching AAE. Without `probe`, only
+    /// what can be told without a sound; with it, AAE's helper also plays a
+    /// test tone, with AAE's playback muted so nobody hears it.
+    pub async fn check_audio(&self, probe: bool) -> Result<AudioCheck, AaeError> {
+        let adb = self.adb.clone();
+        // The player can't cross to the runtime, so wait here, off the lock.
+        let player = self.audio.lock().unwrap().take();
+        let Some(player) = player else {
+            return Ok(AudioCheck {
+                working: false,
+                message: "AAE isn't playing this device's audio.".into(),
+            });
+        };
+        let (player, health) = on_runtime(async move {
+            let health = if probe {
+                player.probe(&adb).await
+            } else {
+                player.check(&adb).await
+            };
+            Ok((player, health))
+        })
+        .await?;
+        *self.audio.lock().unwrap() = Some(player);
+        Ok(match health {
+            aae_core::audio::AudioHealth::Working => AudioCheck {
+                working: true,
+                message: "The device's sound is reaching AAE.".into(),
+            },
+            aae_core::audio::AudioHealth::Quiet => AudioCheck {
+                working: true,
+                message: "Nothing's wrong, but the device hasn't played anything lately.".into(),
+            },
+            aae_core::audio::AudioHealth::Broken(why) => AudioCheck {
+                working: false,
+                message: why,
+            },
+        })
+    }
+
+    /// Restarts AAE's side of the device's audio: a new connection to the
+    /// emulator and to the Mac's output. The device itself isn't touched.
+    pub async fn restart_audio(&self, correct_pitch: bool) -> Result<(), AaeError> {
+        let muted = self
+            .audio
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|p| p.is_muted());
+        self.stop_audio();
+        self.start_audio(correct_pitch).await?;
+        if muted {
+            self.toggle_mute();
+        }
         Ok(())
     }
 

@@ -131,6 +131,9 @@ final class AppModel: ObservableObject {
     private var appliedCorrectPitch = true
     private var defaultsObserver: NSObjectProtocol?
     private var sessions: [String: Session] = [:]
+    /// Devices whose missing sound has been mentioned, so it's said once.
+    private var soundProblems: Set<String> = []
+    private var soundWatch: Task<Void, Never>?
     /// First-start choices for devices just created, by device id.
     private var firstStart: [String: (screenReader: String?, volumeBoost: Bool)] = [:]
 
@@ -144,6 +147,7 @@ final class AppModel: ObservableObject {
         }
         appliedCorrectPitch = correctPitch
         setUpGestureKeys()
+        watchSound()
         needsSetup = engine?.needsSetup() ?? false
         if needsSetup {
             checkSetup()
@@ -428,6 +432,7 @@ final class AppModel: ObservableObject {
                 )
                 firstStart[id] = nil
                 _ = try await session(for: id)
+                checkSoundAfterStart(id)
                 Tone.success.play()
                 refresh()
                 if let device = devices.first(where: { $0.id == id }),
@@ -461,6 +466,7 @@ final class AppModel: ObservableObject {
             do {
                 try await engine.restartDevice(id: id, listener: relay)
                 _ = try await session(for: id)
+                checkSoundAfterStart(id)
                 Tone.success.play()
             } catch {
                 announce(error.localizedDescription, tone: .failure)
@@ -1412,6 +1418,76 @@ final class AppModel: ObservableObject {
             }
             self?.announce(said)
         }
+    }
+
+    // MARK: - Sound
+
+    /// Checks the selected device's sound reaches AAE, with a test tone
+    /// nobody hears, and offers to restart AAE's audio if it doesn't.
+    func checkAudio() {
+        guard let device = selected else { return }
+        announce("Checking \(device.name)'s sound.")
+        withSession { [weak self] session in
+            guard let self else { return }
+            let result = try await session.checkAudio(probe: true)
+            if result.working {
+                self.soundProblems.remove(device.id)
+                self.announce(result.message, tone: .success)
+                return
+            }
+            self.announce(result.message, tone: .failure)
+            let alert = NSAlert()
+            alert.messageText = "Restart \(device.name)'s audio?"
+            alert.informativeText = "\(result.message) Restarting AAE's audio reconnects to the device's sound and to the Mac's output. The device itself keeps running."
+            alert.addButton(withTitle: "Restart Audio")
+            alert.addButton(withTitle: "Not Now")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            try await session.restartAudio(correctPitch: self.correctPitch)
+            let again = try await session.checkAudio(probe: true)
+            if again.working {
+                self.soundProblems.remove(device.id)
+                self.announce("Restarted the audio. \(again.message)", tone: .success)
+            } else {
+                self.announce("Restarted the audio, but: \(again.message) Restarting the device may help.", tone: .failure)
+            }
+        }
+    }
+
+    /// After a device starts, checks its sound once, without a test tone,
+    /// which would mean muting the screen reader's first words.
+    private func checkSoundAfterStart(_ id: String) {
+        guard let session = sessions[id] else { return }
+        Task {
+            // Long enough for the screen reader to have said something.
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard let result = try? await session.checkAudio(probe: false), !result.working else { return }
+            reportSoundProblem(id, result.message)
+        }
+    }
+
+    /// Every half minute, checks each device AAE is playing without making a
+    /// sound, and says once when one's sound has stopped reaching AAE.
+    private func watchSound() {
+        soundWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                guard let self else { return }
+                for (id, session) in self.sessions {
+                    guard let result = try? await session.checkAudio(probe: false) else { continue }
+                    if result.working {
+                        self.soundProblems.remove(id)
+                    } else {
+                        self.reportSoundProblem(id, result.message)
+                    }
+                }
+            }
+        }
+    }
+
+    private func reportSoundProblem(_ id: String, _ message: String) {
+        guard soundProblems.insert(id).inserted else { return }
+        let name = devices.first { $0.id == id }?.name ?? "A device"
+        announce("\(name): \(message) Choose Check Audio in the Device menu to restart it.", tone: .failure)
     }
 
     /// Saves a diagnostic report for a bug report, where the user chooses.

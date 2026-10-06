@@ -42,6 +42,10 @@ pub struct AudioStats {
     delay_count: AtomicU64,
     /// The loudest sample seen, from 0 to 1000.
     peak: AtomicU32,
+    /// The loudest sample since the health check last reset it, 0 to 1000.
+    recent_peak: AtomicU32,
+    /// Errors from the Mac's audio output, such as the output going away.
+    pub output_errors: AtomicU64,
 }
 
 impl AudioStats {
@@ -69,8 +73,9 @@ impl AudioStats {
     }
 
     fn mark_packet(&self, captured_us: u64, audio: &[u8]) {
-        self.peak
-            .fetch_max((level(audio) * 1000.0) as u32, Ordering::Relaxed);
+        let level = (level(audio) * 1000.0) as u32;
+        self.peak.fetch_max(level, Ordering::Relaxed);
+        self.recent_peak.fetch_max(level, Ordering::Relaxed);
         let now_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_micros() as u64)
@@ -333,11 +338,15 @@ fn build<T>(
 where
     T: SizedSample + FromSample<f32>,
 {
+    let stats = player.stats.clone();
     device
         .build_output_stream(
             *config,
             move |out: &mut [T], _| player.fill(out),
-            |e| tracing::warn!("audio output error: {e}"),
+            move |e| {
+                stats.output_errors.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!("audio output error: {e}");
+            },
             None,
         )
         .map_err(|e| Error::Audio(e.to_string()))
@@ -449,6 +458,114 @@ const GOLDFISH_SPEED: f64 = 44_100.0 / 48_000.0;
 /// hears it: call this only while AAE isn't playing the device's audio, and
 /// the emulator's own output is off. A result close to a known fault snaps to
 /// its exact value.
+/// What the audio health check found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AudioHealth {
+    /// The device's sound is reaching AAE.
+    Working,
+    /// Nothing suggests a problem, but nothing proves the sound arrives:
+    /// the device hasn't played anything lately.
+    Quiet,
+    /// The device's sound isn't reaching AAE, and why, in words.
+    Broken(String),
+}
+
+/// How long ago Android last played sound on any output, from
+/// `dumpsys media.audio_flinger`, or None if it doesn't say.
+pub async fn android_last_played(adb: &crate::adb::Adb) -> Option<Duration> {
+    last_played(&adb.shell("dumpsys media.audio_flinger").await.ok()?)
+}
+
+fn last_played(dump: &str) -> Option<Duration> {
+    dump.lines()
+        .filter_map(|l| l.trim().strip_prefix("Last write occurred (msecs):"))
+        .filter_map(|ms| ms.trim().parse::<u64>().ok())
+        .min()
+        .map(Duration::from_millis)
+}
+
+impl AudioPlayer {
+    /// Checks without making a sound: AAE's connection is alive, the Mac's
+    /// output has had no errors, and if Android played something in the last
+    /// few seconds, it arrived.
+    pub async fn check(&self, adb: &crate::adb::Adb) -> AudioHealth {
+        if !self.is_running() {
+            return AudioHealth::Broken(
+                "AAE's connection to the device's audio has stopped.".into(),
+            );
+        }
+        if self.stats.output_errors.load(Ordering::Relaxed) > 0 {
+            return AudioHealth::Broken(
+                "The Mac's audio output reported errors, perhaps because it changed.".into(),
+            );
+        }
+        let window = Duration::from_secs(5);
+        let Some(played) = android_last_played(adb).await else {
+            return AudioHealth::Quiet;
+        };
+        // Only sound played since AAE started listening can have arrived.
+        if played > window || self.stats.started.elapsed() < played + Duration::from_secs(3) {
+            return AudioHealth::Quiet;
+        }
+        // Android played something just now; it should have arrived, allowing
+        // a moment for it to travel.
+        match self.stats.since_last_packet() {
+            Some(gap) if gap <= played + Duration::from_secs(2) => AudioHealth::Working,
+            _ => AudioHealth::Broken(
+                "The device is playing sound, but none of it is reaching AAE.".into(),
+            ),
+        }
+    }
+
+    /// Checks by making a sound: AAE's helper plays its test tone, with
+    /// AAE's own playback muted so nobody hears it, and the tone has to
+    /// arrive within a few seconds.
+    pub async fn probe(&self, adb: &crate::adb::Adb) -> AudioHealth {
+        if let AudioHealth::Broken(why) = self.check(adb).await {
+            return AudioHealth::Broken(why);
+        }
+        let was_muted = self.is_muted();
+        if !was_muted {
+            self.toggle_mute();
+        }
+        self.stats.recent_peak.store(0, Ordering::Relaxed);
+        let played = adb
+            .shell(
+                "am broadcast -n io.github.aaron_gh.aae.helper/.CommandReceiver \
+                 -a io.github.aaron_gh.aae.helper.PLAY_TONE --ei hz 1000",
+            )
+            .await;
+        let mut heard = false;
+        if played
+            .as_ref()
+            .is_ok_and(|out| out.contains("result=") && !out.contains("result=0"))
+        {
+            for _ in 0..30 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                if self.stats.recent_peak.load(Ordering::Relaxed) > 100 {
+                    heard = true;
+                    break;
+                }
+            }
+            // The tone lasts a second and a half; stay muted until it's over.
+            tokio::time::sleep(Duration::from_millis(1600)).await;
+        }
+        if !was_muted {
+            self.toggle_mute();
+        }
+        match played {
+            Err(_) => AudioHealth::Broken("AAE's helper couldn't play its test tone.".into()),
+            Ok(out) if !out.contains("result=") || out.contains("result=0") => {
+                AudioHealth::Broken("AAE's helper couldn't play its test tone.".into())
+            }
+            Ok(_) if heard => AudioHealth::Working,
+            Ok(_) => AudioHealth::Broken(
+                "The device played a test tone, but it didn't reach AAE.".into(),
+            ),
+        }
+    }
+}
+
 pub async fn measure_speed(controller: &Controller, adb: &crate::adb::Adb) -> Result<f64> {
     const TONE_HZ: f64 = 1000.0;
     let reader = {
@@ -639,6 +756,14 @@ fn level(audio: &[u8]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_when_android_last_played() {
+        let dump = "Output thread 0x1, name AudioOut_D:\n  Standby: yes\n  Last write occurred (msecs): 568184\n\
+                    Output thread 0x2, name AudioOut_15:\n  Last write occurred (msecs): 1200\n";
+        assert_eq!(last_played(dump), Some(Duration::from_millis(1200)));
+        assert_eq!(last_played("Output thread 0x3:\n  Total writes: 0\n"), None);
+    }
 
     #[test]
     fn goertzel_finds_the_tone() {
