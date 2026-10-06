@@ -194,6 +194,10 @@ enum Command {
     },
     /// Say what a device is doing.
     Status { device: String },
+    /// Set how loud AAE plays a device's audio on this computer, from 0 to
+    /// 100 percent, remembered for the device. With no percentage, says it.
+    /// (aae volume sets the screen reader's own volume on the device.)
+    PlaybackVolume { device: String, percent: Option<u8> },
     /// Check the device's sound reaches AAE: AAE's helper plays a test tone,
     /// which AAE listens for without playing it.
     SoundCheck { device: String },
@@ -537,6 +541,27 @@ async fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new()?;
     match cli.command {
         Command::Doctor => doctor(&ctx),
+        Command::PlaybackVolume { device, percent } => {
+            let mut device = ctx.device(&device)?;
+            match percent {
+                Some(percent) => {
+                    let volume = f32::from(percent.min(100)) / 100.0;
+                    device.meta.playback_volume = (volume < 1.0).then_some(volume);
+                    device.save_meta()?;
+                    println!(
+                        "{} plays at {}% from now on. The Mac app picks it up when it next opens the device.",
+                        device.meta.name,
+                        percent.min(100)
+                    );
+                }
+                None => println!(
+                    "{} plays at {}%.",
+                    device.meta.name,
+                    (device.meta.playback_volume.unwrap_or(1.0) * 100.0).round()
+                ),
+            }
+            Ok(())
+        }
         Command::SoundCheck { device } => {
             let (device, controller, adb) = ctx.connect(&device).await?;
             let mut player = aae_core::audio::AudioPlayer::start(&controller).await?;

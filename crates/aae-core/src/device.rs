@@ -95,6 +95,10 @@ pub struct DeviceMeta {
     /// requests to, to restore when it's turned off.
     #[serde(default)]
     pub speech_log_engine: Option<String>,
+    /// How loud AAE plays this device's audio on the computer, from 0 to 1.
+    /// None is full volume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playback_volume: Option<f32>,
     /// Accessibility services AAE turns back on after every boot and install,
     /// as `package/class`. Includes the screen reader.
     #[serde(default)]
@@ -246,6 +250,7 @@ impl DeviceStore {
             pending_screen_reader: None,
             audio_speed: None,
             speech_log_engine: None,
+            playback_volume: None,
             keep_enabled: Vec::new(),
             app_choices: Default::default(),
         };

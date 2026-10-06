@@ -97,6 +97,8 @@ pub struct DeviceInfo {
     pub speech_log: bool,
     /// Backtalk runs on this device's Android version (8.0 and later).
     pub backtalk_supported: bool,
+    /// How loud AAE plays it on the Mac, from 0 to 1.
+    pub volume: f32,
 }
 
 impl DeviceInfo {
@@ -117,6 +119,7 @@ impl DeviceInfo {
             screen_reader_declined: device.meta.screen_reader_declined,
             speech_log: device.meta.speech_log_engine.is_some(),
             backtalk_supported: device.meta.api >= aae_core::screenreader::BACKTALK_MIN_API,
+            volume: device.meta.playback_volume.unwrap_or(1.0),
         }
     }
 }
@@ -1252,8 +1255,19 @@ impl Session {
         let player =
             on_runtime(async move { Ok(AudioPlayer::start_with_speed(&controller, speed).await?) })
                 .await?;
+        player.set_volume(self.audio_volume());
         *self.audio.lock().unwrap() = Some(player);
         Ok(())
+    }
+
+    /// How loud AAE plays this device on the Mac, from 0 to 1.
+    pub fn audio_volume(&self) -> f32 {
+        self.device
+            .lock()
+            .unwrap()
+            .meta
+            .playback_volume
+            .unwrap_or(1.0)
     }
 
     /// Checks the device's sound is reaching AAE. Without `probe`, only
@@ -1318,11 +1332,16 @@ impl Session {
         }
     }
 
-    /// Sets AAE's playback volume, from 0 to 1.
-    pub fn set_audio_volume(&self, volume: f32) {
+    /// Sets how loud AAE plays this device on the Mac, from 0 to 1, and
+    /// remembers it for the device.
+    pub fn set_audio_volume(&self, volume: f32) -> Result<(), AaeError> {
+        let volume = volume.clamp(0.0, 1.0);
         if let Some(player) = self.audio.lock().unwrap().as_ref() {
             player.set_volume(volume);
         }
+        let mut device = self.device.lock().unwrap();
+        device.meta.playback_volume = (volume < 1.0).then_some(volume);
+        Ok(device.save_meta()?)
     }
 
     /// Mutes or unmutes the device's audio. Returns true if now muted.

@@ -102,6 +102,18 @@ struct DeviceListView: View {
                     Button("Notifications") { model.showNotifications() }
                     Button("Install App…") { model.installApp() }
                 }
+                Slider(
+                    value: Binding(
+                        get: { Double(device.volume) },
+                        set: { model.setVolume(Float($0)) }
+                    ),
+                    in: 0...1,
+                    step: 0.05
+                ) {
+                    Text("Volume of \(device.name)")
+                }
+                .accessibilityValue("\(Int((device.volume * 100).rounded())) percent")
+                .frame(maxWidth: 360)
             }
 
             if let download = model.download {

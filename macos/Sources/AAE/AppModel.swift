@@ -1060,6 +1060,27 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Sets how loud AAE plays the selected device on the Mac, from 0 to 1,
+    /// remembered for the device.
+    func setVolume(_ volume: Float, announce say: Bool = false) {
+        guard let device = selected else { return }
+        let volume = min(max(volume, 0), 1)
+        withSession { [weak self] session in
+            try session.setAudioVolume(volume: volume)
+            if say {
+                self?.announce("\(device.name) at \(Int((volume * 100).rounded())) percent.")
+            }
+            self?.refresh()
+        }
+    }
+
+    /// Turns the selected device's audio up or down by a tenth.
+    func stepVolume(up: Bool) {
+        guard let device = selected else { return }
+        let now = (device.volume * 10).rounded() / 10
+        setVolume(now + (up ? 0.1 : -0.1), announce: true)
+    }
+
     func toggleMute() {
         withSession { [weak self] session in
             let muted = session.toggleMute()

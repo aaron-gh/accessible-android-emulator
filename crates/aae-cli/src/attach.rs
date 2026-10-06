@@ -34,6 +34,7 @@ pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool, correct_pitch: bool
     let (_, controller, _) = emulator::attach(sdk, device).await?;
     let audio =
         AudioPlayer::start_with_speed(&controller, playback_speed(device, correct_pitch)).await?;
+    audio.set_volume(device.meta.playback_volume.unwrap_or(1.0));
     println!(
         "Keyboard is in {}. Press Control-right bracket to return to the terminal.",
         device.meta.name
@@ -131,6 +132,7 @@ pub async fn listen(sdk: &Sdk, device: &Device, correct_pitch: bool) -> Result<(
     let (_, controller, _) = emulator::attach(sdk, device).await?;
     let audio =
         AudioPlayer::start_with_speed(&controller, playback_speed(device, correct_pitch)).await?;
+    audio.set_volume(device.meta.playback_volume.unwrap_or(1.0));
     println!(
         "Playing {}'s audio at {} hertz. Press Control-C to stop.",
         device.meta.name, audio.output_rate

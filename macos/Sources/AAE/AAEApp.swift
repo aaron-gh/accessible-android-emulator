@@ -54,6 +54,10 @@ struct AAEApp: App {
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
                 Button("Mute Device Audio") { model.toggleMute() }
                     .keyboardShortcut("m", modifiers: [.command, .shift])
+                Button("Turn Device Audio Up") { model.stepVolume(up: true) }
+                    .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                Button("Turn Device Audio Down") { model.stepVolume(up: false) }
+                    .keyboardShortcut(.downArrow, modifiers: [.command, .option])
                 Button("Check Audio") { model.checkAudio() }
                     .keyboardShortcut("k", modifiers: [.command, .option])
                 Divider()
