@@ -44,8 +44,9 @@ enum Command {
     SelfTest,
     /// Save a diagnostic report to attach to a bug report: AAE, this
     /// computer, the SDK, your devices, and AAE's log. It never includes
-    /// what you typed on a device, and your home folder and account name are
-    /// taken out. Read it before sending, if you like: it's plain text.
+    /// what you typed on a device, and your home folder, computer name and
+    /// full name are taken out. Read it before sending, if you like: it's
+    /// plain text.
     Report {
         /// Where to save it. Defaults to a dated file in this folder.
         #[arg(long)]

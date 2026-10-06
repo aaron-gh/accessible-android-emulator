@@ -135,6 +135,18 @@ To set a default screen reader, so you don't have to choose one each time, put t
 
 Alternatively, set `AAE_SCREEN_READER_APK` to its path.
 
+## Commands
+
+`aae help` lists them all, and `aae help <command>` explains one. Commands that act on a device take its name.
+
+- Setting up: `setup`, `doctor`, `self-test`, `report`.
+- Android versions: `available`, `download`, `images`, `remove-image`.
+- Devices: `list`, `create`, `clone`, `rename`, `wipe`, `delete`, `start`, `restart`, `stop`, `status`, `snapshot`.
+- Keyboard, sound and speech: `attach`, `listen`, `playback-volume`, `volume` (the screen reader's own volume), `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `speech`.
+- Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
+- Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`.
+- Device conditions: `rotate`, `battery`, `location`, `sms`, `call`, `clipboard`.
+
 ## Where things are kept
 
 Devices live in AAE's data folder, under `devices`. On macOS that's `~/Library/Application Support/io.github.aaron-gh.AAE`. Set `AAE_HOME` to keep them somewhere else, such as an external drive. Each device is an ordinary emulator AVD folder plus an `aae.toml` file. To use AAE's devices from Android Studio, point `ANDROID_AVD_HOME` at the folder.
