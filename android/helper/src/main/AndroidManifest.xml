@@ -28,5 +28,16 @@
                 <action android:name="io.github.aaron_gh.aae.helper.SET_VOLUME" />
             </intent-filter>
         </receiver>
+        <!-- Offers the AAE full keyboard layout to Android. -->
+        <receiver
+            android:name=".KeyboardLayouts"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.hardware.input.action.QUERY_KEYBOARD_LAYOUTS" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.input.metadata.KEYBOARD_LAYOUTS"
+                android:resource="@xml/keyboard_layouts" />
+        </receiver>
     </application>
 </manifest>

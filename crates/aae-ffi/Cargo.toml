@@ -1,0 +1,23 @@
+[package]
+name = "aae-ffi"
+description = "The bridge between AAE's Rust core and its native host apps, generated with UniFFI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["staticlib", "lib"]
+name = "aae_ffi"
+
+[[bin]]
+# Generates the Swift (and later C# and Kotlin) bindings: see macos/build.sh.
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+aae-core.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+uniffi = { workspace = true, features = ["cli"] }

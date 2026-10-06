@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/aae-core", "crates/aae-cli"]
+members = ["crates/aae-core", "crates/aae-cli", "crates/aae-ffi"]
 
 [workspace.package]
 version = "0.1.0"
@@ -29,3 +29,5 @@ clap = { version = "4", features = ["derive"] }
 directories = "6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+prismer = { version = "0.1.4", features = ["static"] }
+uniffi = "0.32"

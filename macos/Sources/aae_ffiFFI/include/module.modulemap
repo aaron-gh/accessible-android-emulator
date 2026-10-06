@@ -1,0 +1,4 @@
+module aae_ffiFFI {
+    header "aae_ffiFFI.h"
+    export *
+}

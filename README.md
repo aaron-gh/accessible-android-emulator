@@ -2,7 +2,7 @@
 
 AAE lets blind people create, run and test Android virtual devices without sighted help. Each device has a screen reader on from its first boot, takes your keyboard, and plays its audio reliably.
 
-This is an early development build. It has a cross-platform core and the `aae` command line. The Mac app comes next.
+This is an early development build. It has a cross-platform core, the `aae` command line, and a first Mac app.
 
 ## What works now
 
@@ -15,8 +15,10 @@ This is an early development build. It has a cross-platform core and the `aae` c
 - Playing the device's audio through AAE's own audio code, not the emulator's. The emulator's own audio output is off, which removes its crackle.
 - Turning the screen reader's volume up to full on each new device, through AAE's helper app. Pass `--no-volume-boost` to leave it alone, or use `aae volume` to change it.
 - Sending keys and text, rotating, battery, location, text messages, calls, clipboard, screenshots and snapshots.
-- `aae attach`: the device's audio plays and your terminal's keyboard goes to the device. Control-] brings it back. Plain Escape goes to the device. A terminal can't see the Command key, so Option is sent as Android's Meta key, the modifier TalkBack's current keymap uses. Pass `--keep-alt` to send it as Alt. macOS Terminal turns Option-Left and Option-Right into word movement before AAE sees them. To fix that, open Terminal's Settings, then Profiles, then Keyboard. Turn on "Use Option as Meta key". Set Option-Left to send `\033[1;3D` and Option-Right to send `\033[1;3C`. iTerm2, Ghostty, kitty and WezTerm report every key and need none of this. The Mac app will capture keys directly.
+- `aae attach`: the device's audio plays and your terminal's keyboard goes to the device. Control-] brings it back. Plain Escape goes to the device. A terminal can't see the Command key, so Option is sent as Android's Meta key, the modifier TalkBack's current keymap uses. Pass `--keep-alt` to send it as Alt. macOS Terminal turns Option-Left and Option-Right into word movement before AAE sees them. To fix that, open Terminal's Settings, then Profiles, then Keyboard. Turn on "Use Option as Meta key". Set Option-Left to send `\033[1;3D` and Option-Right to send `\033[1;3C`. iTerm2, Ghostty, kitty and WezTerm report every key and need none of this. The Mac app captures keys directly, with none of these limits.
 - `aae latency`: measures the time from a key press to the device's speech.
+- A full PC keyboard in Android. The emulator's own keyboard layout is a phone layout with no Meta key, so TalkBack's keyboard shortcuts can't work, and Escape, Home and End act as phone buttons. AAE's helper supplies a full keyboard layout and selects it every time a device starts. This works on Android 15 and later for now.
+- The Mac app (`macos/`): a device list, a New Device sheet, and a Device menu with shortcuts for starting, stopping and Android's buttons. In device mode (Command-Shift-E) every key goes to Android, with Command as Meta, until Control-Command-Escape brings the keyboard back. Announcements go through VoiceOver when it's running, and otherwise through the Mac's system voice.
 
 ## Building
 
@@ -34,6 +36,14 @@ AAE's helper app is an Android app that runs on each device. It needs JDK 17 and
 cd android
 ./gradlew :helper:assembleRelease
 ```
+
+The Mac app needs Xcode, or its command-line tools, and is built with:
+
+```sh
+macos/build.sh
+```
+
+That builds the Rust core, generates the Swift bindings, builds the helper app, and puts `macos/build/AAE.app` together.
 
 AAE finds the built helper on its own when you run it from this folder. Alternatively, put it next to the `aae` program as `aae-helper.apk`, or set `AAE_HELPER_APK` to its path.
 
@@ -65,6 +75,8 @@ Devices live in AAE's data folder, under `devices`. Set `AAE_HOME` to keep them 
 
 - `crates/aae-core`: the cross-platform core. It covers the SDK, the device store, the emulator, gRPC control, adb, audio, keys and provisioning.
 - `crates/aae-cli`: the `aae` command.
+- `crates/aae-ffi`: the bridge from the core to the host apps, generated with UniFFI.
+- `macos`: the Mac app, in Swift.
 - `crates/aae-core/proto`: the Android Emulator's gRPC definitions, under Apache 2.0.
 - `crates/aae-core/examples/audio_probe.rs`: prints how loud the device's audio stream is, in quarter seconds, while pressing keys. Use it to diagnose audio problems.
-- `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume.
+- `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume. It also carries the full keyboard layout, and a small tool AAE runs as the shell user to select it.

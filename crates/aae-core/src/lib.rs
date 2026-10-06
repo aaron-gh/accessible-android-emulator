@@ -14,9 +14,11 @@ pub mod device;
 pub mod emulator;
 pub mod error;
 pub mod keys;
+pub mod lifecycle;
 pub mod paths;
 pub mod provision;
 pub mod sdk;
+pub mod speech;
 
 pub use error::{Error, Result};
 

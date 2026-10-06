@@ -16,7 +16,11 @@ pub const SERVICE_TIMEOUT: Duration = Duration::from_secs(15);
 /// AAE's own helper app, which sets the accessibility volume.
 pub const HELPER_COMPONENT: &str =
     "io.github.aaron_gh.aae.helper/io.github.aaron_gh.aae.helper.HelperService";
+const HELPER_PACKAGE: &str = "io.github.aaron_gh.aae.helper";
 const HELPER_RECEIVER: &str = "io.github.aaron_gh.aae.helper/.CommandReceiver";
+/// Runs the helper's shell tool, as the shell user, which may choose keyboard layouts.
+const HELPER_SHELL_TOOL: &str = "CLASSPATH=$(pm path io.github.aaron_gh.aae.helper | cut -d: -f2) \
+     app_process / io.github.aaron_gh.aae.helper.ShellTool";
 const HELPER_SET_VOLUME: &str = "io.github.aaron_gh.aae.helper.SET_VOLUME";
 
 /// Google's TalkBack, preinstalled on some images.
@@ -52,6 +56,7 @@ impl Default for ProvisionOptions {
 /// One step of setup, for progress announcements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
+    Helper,
     Keyboard,
     SetupWizard,
     StayAwake,
@@ -64,7 +69,8 @@ pub enum Step {
 impl Step {
     pub fn describe(self) -> &'static str {
         match self {
-            Step::Keyboard => "Setting up the hardware keyboard",
+            Step::Helper => "Installing AAE's helper",
+            Step::Keyboard => "Setting up the full keyboard",
             Step::SetupWizard => "Skipping the setup wizard",
             Step::StayAwake => "Keeping the screen on",
             Step::Animations => "Turning off animations",
@@ -85,8 +91,8 @@ pub fn default_screen_reader_apk() -> Option<PathBuf> {
 }
 
 /// Where AAE looks for its helper app: `AAE_HELPER_APK`, then `aae-helper.apk`
-/// next to the program, then AAE's data folder, then the build output in a
-/// source checkout.
+/// next to the program or in the Mac app's Resources folder, then AAE's data
+/// folder, then the build output in a source checkout.
 pub fn helper_apk() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("AAE_HELPER_APK") {
@@ -97,6 +103,7 @@ pub fn helper_apk() -> Option<PathBuf> {
         .and_then(|exe| exe.parent().map(PathBuf::from))
     {
         candidates.push(dir.join("aae-helper.apk"));
+        candidates.push(dir.join("../Resources/aae-helper.apk"));
     }
     candidates.push(paths::data_dir().join("aae-helper.apk"));
     candidates.push(
@@ -104,6 +111,40 @@ pub fn helper_apk() -> Option<PathBuf> {
             .join("../../android/helper/build/outputs/apk/release/helper-release.apk"),
     );
     candidates.into_iter().find(|p| p.is_file())
+}
+
+/// Installs AAE's helper app, or updates it if this AAE has a newer one.
+pub async fn install_helper(adb: &Adb) -> Result<()> {
+    let helper = helper_apk().ok_or_else(|| Error::Apk {
+        path: paths::data_dir().join("aae-helper.apk"),
+        reason: "AAE's helper app was not found. Build it with android/gradlew :helper:assembleRelease, \
+                 or put it at this path"
+            .into(),
+    })?;
+    adb.install(&helper).await
+}
+
+/// Makes the emulator's keyboard behave like a PC keyboard, with the layout
+/// AAE's helper provides. Without it, Android gets no Meta key, so screen
+/// reader shortcuts can't work, and Escape, Home and End act as phone buttons.
+///
+/// Android may forget the choice when it restarts, so AAE applies it every
+/// time a device starts.
+pub async fn apply_keyboard_layout(adb: &Adb) -> Result<()> {
+    if !adb.is_installed(HELPER_PACKAGE).await? {
+        install_helper(adb).await?;
+    }
+    let out = adb
+        .shell(&format!("{HELPER_SHELL_TOOL} keyboard-layout"))
+        .await?;
+    if out.contains("Keyboard layout set") {
+        Ok(())
+    } else {
+        Err(Error::Adb(format!(
+            "The full keyboard could not be set up: {}",
+            out.trim()
+        )))
+    }
 }
 
 /// Sets the screen reader's volume, from 0 to 100 percent, through AAE's helper.
@@ -279,14 +320,8 @@ pub async fn install_app(
 /// Installs AAE's helper if needed, keeps it on, and sets the screen reader's
 /// volume through it. Returns the volume index Android reports.
 pub async fn boost_volume(device: &mut Device, adb: &Adb, percent: u8) -> Result<i32> {
-    if !adb.is_installed("io.github.aaron_gh.aae.helper").await? {
-        let helper = helper_apk().ok_or_else(|| Error::Apk {
-            path: paths::data_dir().join("aae-helper.apk"),
-            reason: "AAE's helper app was not found. Build it with android/gradlew :helper:assembleRelease, \
-                     or put it at this path"
-                .into(),
-        })?;
-        adb.install(&helper).await?;
+    if !adb.is_installed(HELPER_PACKAGE).await? {
+        install_helper(adb).await?;
     }
     if device.keep_service_enabled(HELPER_COMPONENT) {
         device.save_meta()?;

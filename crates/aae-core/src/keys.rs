@@ -108,8 +108,8 @@ pub fn modifier_code(modifier: &str) -> Option<i32> {
 }
 
 /// The Linux evdev code for a key, plus whether Shift is needed to type it.
-/// Android's own buttons (back, home and so on) return `None` and are sent by
-/// name, which the emulator handles.
+/// The codes assume AAE's full keyboard layout is in use on the device (see
+/// `provision::apply_keyboard_layout`), which maps them as a PC keyboard does.
 pub fn evdev_code(name: &str) -> Option<(i32, bool)> {
     const LETTERS: [i32; 26] = [
         30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17,
@@ -171,6 +171,15 @@ pub fn evdev_code(name: &str) -> Option<(i32, bool)> {
         };
     }
     let code = match name {
+        // Android's own buttons. Home is 172 (KEY_HOMEPAGE), not 102: AAE's
+        // keyboard layout keeps 102 for the keyboard's Home key.
+        "GoBack" => 158,
+        "GoHome" => 172,
+        "AppSwitch" => 580,
+        "Power" => 116,
+        "AudioVolumeUp" => 115,
+        "AudioVolumeDown" => 114,
+        "AudioVolumeMute" => 113,
         "Escape" => 1,
         "Backspace" => 14,
         "Tab" => 15,
@@ -190,6 +199,136 @@ pub fn evdev_code(name: &str) -> Option<(i32, bool)> {
         _ => return None,
     };
     Some((code, false))
+}
+
+/// The Linux evdev code for a macOS virtual key code (`kVK_*`), as AppKit
+/// reports in `NSEvent.keyCode`. This is how the Mac app forwards keys.
+///
+/// Command becomes Meta, which TalkBack's keymap uses as its modifier, and
+/// Option becomes Alt. The Mac Help key sits where PC keyboards have Insert,
+/// so it becomes Insert. Fn has no Android equivalent and returns `None`.
+pub fn mac_to_evdev(keycode: u16) -> Option<i32> {
+    Some(match keycode {
+        0x00 => 30,  // A
+        0x01 => 31,  // S
+        0x02 => 32,  // D
+        0x03 => 33,  // F
+        0x04 => 35,  // H
+        0x05 => 34,  // G
+        0x06 => 44,  // Z
+        0x07 => 45,  // X
+        0x08 => 46,  // C
+        0x09 => 47,  // V
+        0x0A => 86,  // ISO section, the extra key on ISO keyboards
+        0x0B => 48,  // B
+        0x0C => 16,  // Q
+        0x0D => 17,  // W
+        0x0E => 18,  // E
+        0x0F => 19,  // R
+        0x10 => 21,  // Y
+        0x11 => 20,  // T
+        0x12 => 2,   // 1
+        0x13 => 3,   // 2
+        0x14 => 4,   // 3
+        0x15 => 5,   // 4
+        0x16 => 7,   // 6
+        0x17 => 6,   // 5
+        0x18 => 13,  // =
+        0x19 => 10,  // 9
+        0x1A => 8,   // 7
+        0x1B => 12,  // -
+        0x1C => 9,   // 8
+        0x1D => 11,  // 0
+        0x1E => 27,  // ]
+        0x1F => 24,  // O
+        0x20 => 22,  // U
+        0x21 => 26,  // [
+        0x22 => 23,  // I
+        0x23 => 25,  // P
+        0x24 => 28,  // Return
+        0x25 => 38,  // L
+        0x26 => 36,  // J
+        0x27 => 40,  // '
+        0x28 => 37,  // K
+        0x29 => 39,  // ;
+        0x2A => 43,  // backslash
+        0x2B => 51,  // ,
+        0x2C => 53,  // /
+        0x2D => 49,  // N
+        0x2E => 50,  // M
+        0x2F => 52,  // .
+        0x30 => 15,  // Tab
+        0x31 => 57,  // Space
+        0x32 => 41,  // `
+        0x33 => 14,  // Delete, which is Backspace
+        0x35 => 1,   // Escape
+        0x36 => 126, // Right Command, as Meta
+        0x37 => 125, // Command, as Meta
+        0x38 => 42,  // Shift
+        0x39 => 58,  // Caps Lock
+        0x3A => 56,  // Option, as Alt
+        0x3B => 29,  // Control
+        0x3C => 54,  // Right Shift
+        0x3D => 100, // Right Option
+        0x3E => 97,  // Right Control
+        0x40 => 187, // F17
+        0x41 => 83,  // keypad .
+        0x43 => 55,  // keypad *
+        0x45 => 78,  // keypad +
+        0x47 => 69,  // keypad Clear, as Num Lock
+        0x48 => 115, // Volume Up
+        0x49 => 114, // Volume Down
+        0x4A => 113, // Mute
+        0x4B => 98,  // keypad /
+        0x4C => 96,  // keypad Enter
+        0x4E => 74,  // keypad -
+        0x4F => 188, // F18
+        0x50 => 189, // F19
+        0x51 => 117, // keypad =
+        0x52 => 82,  // keypad 0
+        0x53 => 79,  // keypad 1
+        0x54 => 80,  // keypad 2
+        0x55 => 81,  // keypad 3
+        0x56 => 75,  // keypad 4
+        0x57 => 76,  // keypad 5
+        0x58 => 77,  // keypad 6
+        0x59 => 71,  // keypad 7
+        0x5A => 190, // F20
+        0x5B => 72,  // keypad 8
+        0x5C => 73,  // keypad 9
+        0x60 => 63,  // F5
+        0x61 => 64,  // F6
+        0x62 => 65,  // F7
+        0x63 => 61,  // F3
+        0x64 => 66,  // F8
+        0x65 => 67,  // F9
+        0x67 => 87,  // F11
+        0x69 => 183, // F13
+        0x6A => 186, // F16
+        0x6B => 184, // F14
+        0x6D => 68,  // F10
+        0x6F => 88,  // F12
+        0x71 => 185, // F15
+        0x72 => 110, // Help, where PC keyboards have Insert
+        0x73 => 102, // Home
+        0x74 => 104, // Page Up
+        0x75 => 111, // Forward Delete
+        0x76 => 62,  // F4
+        0x77 => 107, // End
+        0x78 => 60,  // F2
+        0x79 => 109, // Page Down
+        0x7A => 59,  // F1
+        0x7B => 105, // Left
+        0x7C => 106, // Right
+        0x7D => 108, // Down
+        0x7E => 103, // Up
+        _ => return None,
+    })
+}
+
+/// True for the evdev codes of modifier keys.
+pub fn is_modifier(code: i32) -> bool {
+    matches!(code, 29 | 42 | 54 | 56 | 97 | 100 | 125 | 126)
 }
 
 /// Names accepted by [`parse`], for help text.
@@ -218,8 +357,22 @@ mod tests {
         assert_eq!(evdev_code("?"), Some((53, true)));
         assert_eq!(evdev_code("ArrowRight"), Some((106, false)));
         assert_eq!(evdev_code("F12"), Some((88, false)));
-        assert_eq!(evdev_code("GoBack"), None);
+        assert_eq!(evdev_code("GoBack"), Some((158, false)));
+        assert_eq!(evdev_code("GoHome"), Some((172, false)));
+        assert_eq!(evdev_code("Nonsense"), None);
         assert_eq!(modifier_code("Alt"), Some(56));
+    }
+
+    #[test]
+    fn maps_mac_key_codes() {
+        assert_eq!(mac_to_evdev(0x00), Some(30)); // A
+        assert_eq!(mac_to_evdev(0x37), Some(125)); // Command to Meta
+        assert_eq!(mac_to_evdev(0x3A), Some(56)); // Option to Alt
+        assert_eq!(mac_to_evdev(0x7C), Some(106)); // Right arrow
+        assert_eq!(mac_to_evdev(0x35), Some(1)); // Escape
+        assert_eq!(mac_to_evdev(0x3F), None); // Fn
+        assert!(is_modifier(125));
+        assert!(!is_modifier(30));
     }
 
     #[test]

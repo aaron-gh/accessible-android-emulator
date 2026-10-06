@@ -21,6 +21,12 @@ cpal.workspace = true
 ringbuf.workspace = true
 directories.workspace = true
 tracing.workspace = true
+prismer = { workspace = true, optional = true }
+
+[features]
+default = ["speech"]
+# Announcements through the user's screen reader, or a system voice, using Prism.
+speech = ["dep:prismer"]
 
 [build-dependencies]
 tonic-prost-build.workspace = true

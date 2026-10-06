@@ -11,15 +11,14 @@ use std::time::Duration;
 use aae_core::adb::{Adb, same_component};
 use aae_core::control::Orientation;
 use aae_core::device::{Device, DeviceStore, Profile, human_size};
-use aae_core::emulator::{self, BootStage, StartOptions};
+use aae_core::emulator::{self, StartOptions};
+use aae_core::lifecycle;
 use aae_core::proto::android::emulation::control::phone_call::Operation;
 use aae_core::provision::{self, ProvisionOptions};
 use aae_core::sdk::{self, Sdk, android_name};
 use aae_core::{control::Controller, keys};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-
-const BOOT_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Parser)]
 #[command(
@@ -529,8 +528,11 @@ async fn run(cli: Cli) -> Result<()> {
                 Some(ServiceAction::Enable { component }) => {
                     device.keep_service_enabled(&component);
                     device.save_meta()?;
-                    adb.ensure_services(std::slice::from_ref(&component), provision::SERVICE_TIMEOUT)
-                        .await?;
+                    adb.ensure_services(
+                        std::slice::from_ref(&component),
+                        provision::SERVICE_TIMEOUT,
+                    )
+                    .await?;
                     println!("Turned on {component}, and will keep it on.");
                 }
                 Some(ServiceAction::Disable { component }) => {
@@ -707,49 +709,11 @@ async fn start(
     start_options: &StartOptions,
     options: &ProvisionOptions,
 ) -> Result<()> {
-    let first_boot = !device.meta.provisioned;
-    let info = match emulator::running(device) {
-        Ok(info) => {
-            println!("{} is already running.", device.meta.name);
-            info
-        }
-        Err(_) => {
-            println!("Starting {}.", device.meta.name);
-            emulator::start(&ctx.sdk, &ctx.store, device, start_options)?
-        }
-    };
-    let (_controller, adb) =
-        emulator::wait_until_ready(&ctx.sdk, &info, BOOT_TIMEOUT, |stage| match stage {
-            BootStage::WaitingForEmulator => {}
-            BootStage::WaitingForAndroid => println!(
-                "The emulator is running. Waiting for Android to start{}.",
-                if first_boot {
-                    ", which takes a few minutes the first time"
-                } else {
-                    ""
-                }
-            ),
-            BootStage::Ready => println!("Android has started."),
-        })
-        .await?;
-
-    if first_boot {
-        provision::provision(&ctx.sdk, device, &adb, options, |step| {
-            println!("{}.", step.describe())
-        })
-        .await?;
-    } else {
-        for component in provision::guard_services(device, &adb).await? {
-            println!("Android had turned off {component}. It is back on.");
-        }
-    }
-    let reader = device
-        .meta
-        .screen_reader
-        .as_deref()
-        .and_then(|c| c.split('/').next())
-        .unwrap_or("No screen reader");
-    println!("{} is ready. {reader} is on.", device.meta.name);
+    let name = device.meta.name.clone();
+    lifecycle::start_device(&ctx.sdk, &ctx.store, device, start_options, options, |p| {
+        println!("{}", p.describe(&name))
+    })
+    .await?;
     Ok(())
 }
 
