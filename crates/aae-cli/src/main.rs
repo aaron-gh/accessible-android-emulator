@@ -306,6 +306,22 @@ enum Command {
         #[arg(long, conflicts_with = "no_services")]
         yes: bool,
     },
+    /// List the apps installed on a device, by name.
+    Apps {
+        device: String,
+        /// Include Android's own apps.
+        #[arg(long)]
+        system: bool,
+    },
+    /// Do something with one app: open it, stop it, clear its data,
+    /// uninstall it, or see and change its permissions and special access.
+    App {
+        device: String,
+        /// The app's name, such as Gmail, or its package name.
+        app: String,
+        #[command(subcommand)]
+        action: AppAction,
+    },
     /// Install a screen reader build and make it the device's screen reader.
     /// Installing a new build of the same screen reader keeps its settings.
     /// Stopped devices get it when they next start.
@@ -467,6 +483,62 @@ enum SpeechLogAction {
     Follow,
     /// Forget what was said.
     Clear,
+}
+
+#[derive(Subcommand)]
+enum AppAction {
+    /// Open it, as its icon would.
+    Open,
+    /// Open one of its screens by its class name, such as .SettingsActivity.
+    Screen {
+        name: String,
+    },
+    /// Force stop it.
+    Stop,
+    /// Delete its data, as if just installed.
+    Clear,
+    Uninstall,
+    /// List its permissions and special access, and which it has.
+    Permissions,
+    /// Grant a permission, or all to grant every one it asks for.
+    Grant {
+        permission: String,
+    },
+    Revoke {
+        permission: String,
+    },
+    /// Give special access: battery, overlay, usage or settings.
+    Allow {
+        access: AccessArg,
+    },
+    /// Take special access away.
+    Disallow {
+        access: AccessArg,
+    },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum AccessArg {
+    /// Unrestricted battery use.
+    Battery,
+    /// Display over other apps.
+    Overlay,
+    /// Usage access.
+    Usage,
+    /// Modify system settings.
+    Settings,
+}
+
+impl From<AccessArg> for aae_core::apps::Access {
+    fn from(a: AccessArg) -> Self {
+        use aae_core::apps::Access;
+        match a {
+            AccessArg::Battery => Access::Battery,
+            AccessArg::Overlay => Access::Overlay,
+            AccessArg::Usage => Access::Usage,
+            AccessArg::Settings => Access::WriteSettings,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -1218,6 +1290,115 @@ async fn run(cli: Cli) -> Result<()> {
                         println!("{state} {}, {}.", part.name, part.kind.describe());
                     }
                     provision::apply_choices(&mut device, &adb, &choices).await?;
+                }
+            }
+            Ok(())
+        }
+        Command::Apps { device, system } => {
+            let (_, _, adb) = ctx.connect(&device).await?;
+            provision::update_helper(&ctx.sdk, &adb).await?;
+            let apps = aae_core::apps::list(&adb, system).await?;
+            if apps.is_empty() {
+                println!("No apps are installed.");
+            }
+            for app in apps {
+                let mut line = format!("{} ({}", app.label, app.package);
+                if !app.version.is_empty() {
+                    line.push_str(&format!(", version {}", app.version));
+                }
+                if !app.enabled {
+                    line.push_str(", turned off");
+                }
+                println!("{line}).");
+            }
+            Ok(())
+        }
+        Command::App {
+            device,
+            app,
+            action,
+        } => {
+            use aae_core::apps;
+            let (_, _, adb) = ctx.connect(&device).await?;
+            provision::update_helper(&ctx.sdk, &adb).await?;
+            let all = apps::list(&adb, true).await?;
+            let found = all
+                .iter()
+                .find(|a| a.package == app)
+                .or_else(|| {
+                    all.iter()
+                        .find(|a| a.label.eq_ignore_ascii_case(app.trim()))
+                })
+                .cloned()
+                .ok_or_else(|| {
+                    anyhow!("No app called \"{app}\" is installed. aae apps lists them.")
+                })?;
+            let (name, package) = (found.label.clone(), found.package.clone());
+            match action {
+                AppAction::Open => {
+                    apps::open(&adb, &package).await?;
+                    println!("Opened {name}.");
+                }
+                AppAction::Screen { name: screen } => {
+                    let component = if screen.contains('/') {
+                        screen
+                    } else {
+                        format!("{package}/{screen}")
+                    };
+                    apps::open_activity(&adb, &component).await?;
+                    println!("Opened {component}.");
+                }
+                AppAction::Stop => {
+                    apps::force_stop(&adb, &package).await?;
+                    println!("Stopped {name}.");
+                }
+                AppAction::Clear => {
+                    apps::clear_data(&adb, &package).await?;
+                    println!("Cleared {name}'s data.");
+                }
+                AppAction::Uninstall => {
+                    adb.uninstall(&package).await?;
+                    println!("Uninstalled {name}.");
+                }
+                AppAction::Permissions => {
+                    let permissions = apps::permissions(&adb, &package).await?;
+                    if permissions.is_empty() {
+                        println!("{name} asks for no permissions.");
+                    }
+                    for p in permissions {
+                        let state = if p.granted { "granted" } else { "not granted" };
+                        println!("{}: {state} ({}).", p.label, p.name);
+                    }
+                    for access in apps::Access::ALL {
+                        let on = apps::has_access(&adb, &package, access).await?;
+                        println!(
+                            "{}: {}.",
+                            access.describe(),
+                            if on { "allowed" } else { "not allowed" }
+                        );
+                    }
+                }
+                AppAction::Grant { permission } if permission.eq_ignore_ascii_case("all") => {
+                    let n = apps::grant_all(&adb, &package).await?;
+                    println!("Granted {n} permissions to {name}.");
+                }
+                AppAction::Grant { permission } => {
+                    apps::set_permission(&adb, &package, &permission, true).await?;
+                    println!("Granted {permission} to {name}.");
+                }
+                AppAction::Revoke { permission } => {
+                    apps::set_permission(&adb, &package, &permission, false).await?;
+                    println!("Revoked {permission} from {name}.");
+                }
+                AppAction::Allow { access } => {
+                    let access = apps::Access::from(access);
+                    apps::set_access(&adb, &package, access, true).await?;
+                    println!("{name}: {} allowed.", access.describe());
+                }
+                AppAction::Disallow { access } => {
+                    let access = apps::Access::from(access);
+                    apps::set_access(&adb, &package, access, false).await?;
+                    println!("{name}: {} not allowed.", access.describe());
                 }
             }
             Ok(())

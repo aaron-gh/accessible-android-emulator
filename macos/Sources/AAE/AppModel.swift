@@ -51,6 +51,13 @@ final class AppModel: ObservableObject {
     @Published var installQuestion: InstallQuestion?
     /// An installed app's parts waiting for the user to choose about.
     @Published var partsQuestion: PartsQuestion?
+    /// The selected device's apps, while the Apps window is open.
+    @Published private(set) var apps: [AppInfo] = []
+    @Published private(set) var appsDevice: String?
+    @Published private(set) var loadingApps = false
+    @Published var showSystemApps = false { didSet { loadApps() } }
+    /// The app whose permissions are being shown, and them.
+    @Published var permissionsShown: (app: AppInfo, permissions: AppPermissions)?
     /// The last self-test's results.
     @Published private(set) var selfTestResults: [SelfTestRow] = []
     @Published private(set) var selfTestRunning = false
@@ -1308,6 +1315,98 @@ final class AppModel: ObservableObject {
             }
             refresh()
         }
+    }
+
+    // MARK: - Apps
+
+    /// Reads the selected device's apps, for the Apps window.
+    func loadApps() {
+        appsDevice = selected?.name
+        guard let device = selected, device.running else {
+            apps = []
+            return
+        }
+        loadingApps = true
+        let system = showSystemApps
+        withSession { [weak self] session in
+            defer { self?.loadingApps = false }
+            self?.apps = try await session.listApps(system: system)
+        }
+    }
+
+    func openApp(_ app: AppInfo) {
+        withSession { [weak self] session in
+            try await session.openApp(package: app.package)
+            self?.announce("Opened \(app.label).")
+        }
+    }
+
+    func forceStopApp(_ app: AppInfo) {
+        withSession { [weak self] session in
+            try await session.forceStopApp(package: app.package)
+            self?.announce("Stopped \(app.label).", tone: .success)
+        }
+    }
+
+    /// Asks, then deletes an app's data.
+    func clearAppData(_ app: AppInfo) {
+        guard confirm("Clear \(app.label)'s data?", "It goes back to how it was when first installed: signed out, with its settings and files deleted.", action: "Clear Data") else { return }
+        withSession { [weak self] session in
+            try await session.clearAppData(package: app.package)
+            self?.announce("Cleared \(app.label)'s data.", tone: .success)
+        }
+    }
+
+    /// Asks, then uninstalls an app.
+    func uninstallApp(_ app: AppInfo) {
+        guard confirm("Uninstall \(app.label)?", "It and its data are removed from the device.", action: "Uninstall") else { return }
+        withSession { [weak self] session in
+            try await session.uninstallApp(package: app.package)
+            self?.announce("Uninstalled \(app.label).", tone: .success)
+            self?.loadApps()
+        }
+    }
+
+    func showPermissions(_ app: AppInfo) {
+        withSession { [weak self] session in
+            let permissions = try await session.appPermissions(package: app.package)
+            self?.permissionsShown = (app, permissions)
+        }
+    }
+
+    func setPermission(_ app: AppInfo, _ permission: PermissionInfo, granted: Bool) {
+        withSession { [weak self] session in
+            try await session.setAppPermission(package: app.package, permission: permission.name, grant: granted)
+            self?.announce("\(permission.label): \(granted ? "granted" : "revoked").")
+            self?.showPermissions(app)
+        }
+    }
+
+    func grantAllPermissions(_ app: AppInfo) {
+        withSession { [weak self] session in
+            let count = try await session.grantAllPermissions(package: app.package)
+            self?.announce(count == 0 ? "\(app.label) already has every permission." : "Granted \(count) permissions.", tone: .success)
+            self?.showPermissions(app)
+        }
+    }
+
+    func setAccess(_ app: AppInfo, _ access: AccessInfo, allowed: Bool) {
+        withSession { [weak self] session in
+            try await session.setAppAccess(package: app.package, kind: access.kind, allowed: allowed)
+            self?.announce("\(access.name): \(allowed ? "allowed" : "not allowed").")
+            self?.showPermissions(app)
+        }
+    }
+
+    /// Asks a yes-or-no question, with Cancel the default.
+    private func confirm(_ question: String, _ detail: String, action: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = question
+        alert.informativeText = detail
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: action)
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     // MARK: - Snapshots

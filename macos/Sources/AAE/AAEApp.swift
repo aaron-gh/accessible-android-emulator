@@ -70,6 +70,7 @@ struct AAEApp: App {
                 Button("Type Mac Clipboard on Device") { model.typeClipboard() }
                     .keyboardShortcut("v", modifiers: [.command, .option])
                 Divider()
+                AppsMenuItem()
                 SnapshotsMenuItem()
                 ConditionsMenuItem()
                 Divider()
@@ -109,6 +110,10 @@ struct AAEApp: App {
         }
         Window("Android Versions", id: "versions") {
             AndroidVersionsView()
+                .environmentObject(model)
+        }
+        Window("Apps", id: "apps") {
+            AppsView()
                 .environmentObject(model)
         }
         Window("Snapshots", id: "snapshots") {

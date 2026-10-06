@@ -34,6 +34,12 @@ import android.content.Intent
  * The result code is the sample rate it plays at, and the data names the
  * output's native rate.
  *
+ * LIST_APPS returns every installed app as JSON: package, label, version,
+ * whether it's a system app, enabled, and has an icon to open it with.
+ * APP_PERMISSIONS (extra: package) returns the app's runtime permissions as
+ * JSON, with their names and whether each is granted. Result code 0 if
+ * the app isn't installed.
+ *
  * And for the check above: The result code is 1 if it can,
  * 0 if not, and the result data is "<engine package>|<what happened>".
  */
@@ -84,6 +90,17 @@ class CommandReceiver : BroadcastReceiver() {
                 TestTone.play(intent.getIntExtra("hz", 1000), rate, 1.5)
                 setResult(rate, "native=${TestTone.nativeRate()}", null)
             }
+            ACTION_LIST_APPS -> {
+                setResult(1, AppList.apps(context).toString(), null)
+            }
+            ACTION_APP_PERMISSIONS -> {
+                val name = intent.getStringExtra("package").orEmpty()
+                try {
+                    setResult(1, AppList.permissions(context, name).toString(), null)
+                } catch (e: Exception) {
+                    setResult(0, e.message, null)
+                }
+            }
             ACTION_KEY_TEST -> {
                 val service = HelperService.instance
                 service?.setKeyTest(intent.getBooleanExtra("on", false))
@@ -100,5 +117,7 @@ class CommandReceiver : BroadcastReceiver() {
         const val ACTION_DUMP_TREE = "io.github.aaron_gh.aae.helper.DUMP_TREE"
         const val ACTION_SPEECH_RELAY = "io.github.aaron_gh.aae.helper.SPEECH_RELAY"
         const val ACTION_SPEECH_LOG = "io.github.aaron_gh.aae.helper.SPEECH_LOG"
+        const val ACTION_LIST_APPS = "io.github.aaron_gh.aae.helper.LIST_APPS"
+        const val ACTION_APP_PERMISSIONS = "io.github.aaron_gh.aae.helper.APP_PERMISSIONS"
     }
 }

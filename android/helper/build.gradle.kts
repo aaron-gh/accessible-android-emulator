@@ -12,8 +12,8 @@ android {
         minSdk = 21
         targetSdk = 36
         // Raise versionCode with every change: AAE updates devices whose helper is older.
-        versionCode = 12
-        versionName = "0.12.0"
+        versionCode = 13
+        versionName = "0.13.0"
     }
 
     buildTypes {

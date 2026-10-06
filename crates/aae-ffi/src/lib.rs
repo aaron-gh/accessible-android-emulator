@@ -332,6 +332,76 @@ pub struct InstallResult {
     pub parts: Vec<AppPartInfo>,
 }
 
+/// An installed app.
+#[derive(uniffi::Record)]
+pub struct AppInfo {
+    pub package: String,
+    /// The name people see.
+    pub label: String,
+    pub version: String,
+    pub system: bool,
+    pub enabled: bool,
+    pub launchable: bool,
+}
+
+/// A permission an app asks the user for.
+#[derive(uniffi::Record)]
+pub struct PermissionInfo {
+    pub name: String,
+    /// In words, such as "take pictures and videos".
+    pub label: String,
+    pub granted: bool,
+}
+
+/// A kind of special access.
+#[derive(uniffi::Enum, Clone, Copy)]
+pub enum AccessKind {
+    Battery,
+    Overlay,
+    Usage,
+    WriteSettings,
+}
+
+impl From<aae_core::apps::Access> for AccessKind {
+    fn from(a: aae_core::apps::Access) -> Self {
+        use aae_core::apps::Access;
+        match a {
+            Access::Battery => AccessKind::Battery,
+            Access::Overlay => AccessKind::Overlay,
+            Access::Usage => AccessKind::Usage,
+            Access::WriteSettings => AccessKind::WriteSettings,
+        }
+    }
+}
+
+impl From<AccessKind> for aae_core::apps::Access {
+    fn from(a: AccessKind) -> Self {
+        use aae_core::apps::Access;
+        match a {
+            AccessKind::Battery => Access::Battery,
+            AccessKind::Overlay => Access::Overlay,
+            AccessKind::Usage => Access::Usage,
+            AccessKind::WriteSettings => Access::WriteSettings,
+        }
+    }
+}
+
+/// Special access an app has or hasn't.
+#[derive(uniffi::Record)]
+pub struct AccessInfo {
+    pub kind: AccessKind,
+    /// In words, such as "Unrestricted battery use".
+    pub name: String,
+    pub allowed: bool,
+}
+
+/// An app's permissions and special access.
+#[derive(uniffi::Record)]
+pub struct AppPermissions {
+    pub permissions: Vec<PermissionInfo>,
+    pub access: Vec<AccessInfo>,
+}
+
 /// A saved snapshot of a device.
 #[derive(uniffi::Record)]
 pub struct SnapshotInfo {
@@ -1757,6 +1827,115 @@ impl Session {
         };
         let controller = self.controller.clone();
         on_runtime(async move { Ok(controller.phone(operation, &number).await?) }).await
+    }
+
+    /// The installed apps, by name; with `system`, Android's own too.
+    pub async fn list_apps(&self, system: bool) -> Result<Vec<AppInfo>, AaeError> {
+        let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
+        on_runtime(async move {
+            provision::update_helper(&sdk, &adb).await?;
+            Ok(aae_core::apps::list(&adb, system)
+                .await?
+                .into_iter()
+                .map(|a| AppInfo {
+                    package: a.package,
+                    label: a.label,
+                    version: a.version,
+                    system: a.system,
+                    enabled: a.enabled,
+                    launchable: a.launchable,
+                })
+                .collect())
+        })
+        .await
+    }
+
+    /// An app's permissions and special access, and which it has.
+    pub async fn app_permissions(&self, package: String) -> Result<AppPermissions, AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move {
+            use aae_core::apps;
+            let permissions = apps::permissions(&adb, &package)
+                .await?
+                .into_iter()
+                .map(|p| PermissionInfo {
+                    name: p.name,
+                    label: p.label,
+                    granted: p.granted,
+                })
+                .collect();
+            let mut access = Vec::new();
+            for kind in apps::Access::ALL {
+                access.push(AccessInfo {
+                    kind: kind.into(),
+                    name: kind.describe().to_string(),
+                    allowed: apps::has_access(&adb, &package, kind).await?,
+                });
+            }
+            Ok(AppPermissions {
+                permissions,
+                access,
+            })
+        })
+        .await
+    }
+
+    pub async fn set_app_permission(
+        &self,
+        package: String,
+        permission: String,
+        grant: bool,
+    ) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move {
+            Ok(aae_core::apps::set_permission(&adb, &package, &permission, grant).await?)
+        })
+        .await
+    }
+
+    /// Grants every permission the app asks for. Returns how many.
+    pub async fn grant_all_permissions(&self, package: String) -> Result<u32, AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::apps::grant_all(&adb, &package).await? as u32) }).await
+    }
+
+    pub async fn set_app_access(
+        &self,
+        package: String,
+        kind: AccessKind,
+        allowed: bool,
+    ) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move {
+            Ok(aae_core::apps::set_access(&adb, &package, kind.into(), allowed).await?)
+        })
+        .await
+    }
+
+    pub async fn open_app(&self, package: String) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::apps::open(&adb, &package).await?) }).await
+    }
+
+    /// Opens one of an app's screens, such as `com.example/.Settings`.
+    pub async fn open_app_screen(&self, component: String) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::apps::open_activity(&adb, &component).await?) }).await
+    }
+
+    pub async fn force_stop_app(&self, package: String) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::apps::force_stop(&adb, &package).await?) }).await
+    }
+
+    pub async fn clear_app_data(&self, package: String) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::apps::clear_data(&adb, &package).await?) }).await
+    }
+
+    pub async fn uninstall_app(&self, package: String) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(adb.uninstall(&package).await?) }).await
     }
 
     /// Starts reading the device log, if it isn't being read already.
