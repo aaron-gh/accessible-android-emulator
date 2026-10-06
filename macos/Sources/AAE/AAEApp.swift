@@ -82,6 +82,7 @@ struct AAEApp: App {
                     .keyboardShortcut("r")
                 Button("Copy…") { model.cloning = model.selected }
                     .keyboardShortcut("d")
+                Button("Wipe…") { model.wipe() }
                 Button("Delete…") { model.delete() }
                     .keyboardShortcut(.delete)
             }

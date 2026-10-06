@@ -953,6 +953,27 @@ impl Engine {
         .await
     }
 
+    /// Wipes a device back to its first-boot state and sets it up again,
+    /// with its screen reader. Its apps, data and snapshots go; its name,
+    /// hardware and volume stay.
+    pub async fn wipe_device(
+        &self,
+        id: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> Result<(), AaeError> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        on_runtime(async move {
+            let mut device = store.get(&id)?;
+            let name = device.meta.name.clone();
+            lifecycle::wipe_device(&sdk, &store, &mut device, |p| {
+                listener.progress(p.describe(&name))
+            })
+            .await?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Stops a device, saving its state so it starts quickly next time.
     pub async fn stop_device(&self, id: String) -> Result<(), AaeError> {
         let (sdk, store) = (self.sdk.clone(), self.store.clone());

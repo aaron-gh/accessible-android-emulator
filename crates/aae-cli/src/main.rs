@@ -138,6 +138,15 @@ enum Command {
     Clone { device: String, new_name: String },
     /// Rename a device.
     Rename { device: String, new_name: String },
+    /// Wipe a device back to how it was first set up: its apps, data and
+    /// snapshots are deleted, and its screen reader is set up again. It keeps
+    /// its name, hardware and volume.
+    Wipe {
+        device: String,
+        /// Wipe without asking.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Delete a device and its files.
     Delete {
         device: String,
@@ -744,6 +753,25 @@ async fn run(cli: Cli) -> Result<()> {
             let old = device.meta.name.clone();
             ctx.store.rename(&mut device, &new_name)?;
             println!("Renamed {old} to {}.", device.meta.name);
+            Ok(())
+        }
+        Command::Wipe { device, yes } => {
+            let mut device = ctx.device(&device)?;
+            let name = device.meta.name.clone();
+            if !yes
+                && !confirm(&format!(
+                    "Wipe {name}? Its apps, data and snapshots are deleted, and it's set up again \
+                     with its screen reader. This can't be undone."
+                ))?
+            {
+                println!("Nothing was wiped.");
+                return Ok(());
+            }
+            println!("Wiping {name}.");
+            lifecycle::wipe_device(&ctx.sdk, &ctx.store, &mut device, |p| {
+                println!("{}", p.describe(&name))
+            })
+            .await?;
             Ok(())
         }
         Command::Delete { device, yes } => {

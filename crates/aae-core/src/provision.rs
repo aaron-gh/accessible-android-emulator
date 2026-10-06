@@ -427,7 +427,11 @@ async fn install_screen_reader_apk(
         adb.uninstall(&info.package).await?;
     }
     // Installing over the same app keeps its data, so its settings stay.
-    match adb.install(apk).await {
+    let installed = adb.install(apk).await;
+    if installed.is_ok() {
+        keep_screen_reader_copy(apk, &info.package);
+    }
+    match installed {
         Err(Error::Adb(message)) if message.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") => {
             Err(Error::Apk {
                 path: apk.to_path_buf(),
@@ -472,6 +476,62 @@ pub async fn add_screen_reader(
         .next()
         .unwrap_or(&component)
         .to_string())
+}
+
+/// Where AAE keeps a copy of a screen reader it installed, so a wiped
+/// device can have it again.
+fn screen_reader_copy(package: &str) -> PathBuf {
+    paths::data_dir()
+        .join("screen-readers")
+        .join("installed")
+        .join(format!("{package}.apk"))
+}
+
+fn keep_screen_reader_copy(apk: &std::path::Path, package: &str) {
+    let copy = screen_reader_copy(package);
+    if copy.as_path() == apk {
+        return;
+    }
+    if let Some(dir) = copy.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(e) = std::fs::copy(apk, &copy) {
+        tracing::warn!("couldn't keep a copy of the screen reader: {e}");
+    }
+}
+
+/// The screen reader APK to set a device up with again after it's wiped:
+/// AAE's copy, else the one on the device if it's running, else, for
+/// Backtalk, a fresh download. None if the device has none, or it can't be
+/// found.
+pub async fn screen_reader_for_wipe(
+    sdk: &Sdk,
+    device: &Device,
+    adb: Option<&Adb>,
+) -> Option<PathBuf> {
+    let package = device.meta.screen_reader.as_deref()?.split('/').next()?.to_string();
+    let copy = screen_reader_copy(&package);
+    if copy.is_file() {
+        return Some(copy);
+    }
+    if let Some(adb) = adb {
+        // pm path lists the app's files; the first is its main APK.
+        if let Ok(out) = adb.shell(&format!("pm path {package}")).await {
+            if let Some(path) = out.lines().find_map(|l| l.trim().strip_prefix("package:")) {
+                if let Some(dir) = copy.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let target = copy.to_string_lossy().to_string();
+                if adb.raw(&["pull", path, &target]).await.is_ok() && copy.is_file() {
+                    return Some(copy);
+                }
+            }
+        }
+    }
+    if package == crate::screenreader::BACKTALK_PACKAGE {
+        return download_backtalk(sdk, device.meta.api).await.ok();
+    }
+    None
 }
 
 /// Queues a screen reader build for a stopped device, to install when it

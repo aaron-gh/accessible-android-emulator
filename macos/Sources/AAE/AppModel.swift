@@ -476,6 +476,38 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Asks, then wipes the selected device back to its first-boot state and
+    /// sets it up again with its screen reader.
+    func wipe() {
+        guard let engine, let device = selected, busy[device.id] == nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "Wipe \(device.name)?"
+        alert.informativeText = "Its apps, data and snapshots are deleted, and it's set up again as it was when first created, with its screen reader. It keeps its name, hardware and volume. This can't be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Wipe")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        if deviceModeID == device.id {
+            leaveDeviceMode()
+        }
+        let id = device.id
+        busy[id] = "Wiping"
+        sessions.removeValue(forKey: id)?.stopAudio()
+        announce("Wiping \(device.name). Setting it up again takes a few minutes.")
+        let relay = ProgressRelay { [weak self] message in self?.announce(message) }
+        Task {
+            do {
+                try await engine.wipeDevice(id: id, listener: relay)
+                _ = try await session(for: id)
+                Tone.success.play()
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+            busy[id] = nil
+            refresh()
+        }
+    }
+
     func stop(_ id: String? = nil) {
         guard let engine, let id = id ?? selection, busy[id] == nil else { return }
         if deviceModeID == id {

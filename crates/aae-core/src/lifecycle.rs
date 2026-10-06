@@ -7,7 +7,7 @@ use crate::adb::Adb;
 use crate::control::Controller;
 use crate::device::{Device, DeviceStore};
 use crate::emulator::{self, BootStage, StartOptions};
-use crate::error::Result;
+use crate::error::{IoContext, Result};
 use crate::provision::{self, ProvisionOptions, Step};
 use crate::sdk::Sdk;
 
@@ -63,6 +63,51 @@ impl Progress {
             Progress::Ready(None) => format!("{device} is ready. It has no screen reader."),
         }
     }
+}
+
+/// Wipes a device back to its first-boot state and sets it up again: its
+/// apps, data and snapshots go, while its name, hardware, volume and the
+/// user's answers about apps stay. Its screen reader is installed again if
+/// AAE can find it: its own copy, the one on the device, or Backtalk afresh.
+pub async fn wipe_device(
+    sdk: &Sdk,
+    store: &DeviceStore,
+    device: &mut Device,
+    mut report: impl FnMut(Progress),
+) -> Result<(Controller, Adb)> {
+    let adb = match emulator::running(device) {
+        Ok(info) => Some(Adb::new(sdk.adb_bin()?, info.serial())),
+        Err(_) => None,
+    };
+    let screen_reader = provision::screen_reader_for_wipe(sdk, device, adb.as_ref()).await;
+    if adb.is_some() {
+        emulator::stop(sdk, device, Duration::from_secs(60)).await?;
+    }
+    // Snapshots hold the old data, so they go too, the quick-boot one included.
+    let snapshots = device.dir.join("snapshots");
+    if snapshots.exists() {
+        std::fs::remove_dir_all(&snapshots)
+            .context(|| format!("Deleting {}", snapshots.display()))?;
+    }
+    let declined = device.meta.screen_reader_declined && device.meta.screen_reader.is_none();
+    let meta = &mut device.meta;
+    meta.provisioned = false;
+    meta.screen_reader = None;
+    meta.screen_reader_declined = declined;
+    meta.keep_enabled.clear();
+    meta.speech_log_engine = None;
+    meta.pending_screen_reader = None;
+    device.save_meta()?;
+    let start = StartOptions {
+        cold_boot: true,
+        extra_args: vec!["-wipe-data".into()],
+        ..Default::default()
+    };
+    let setup = ProvisionOptions {
+        screen_reader_apk: screen_reader,
+        ..Default::default()
+    };
+    start_device(sdk, store, device, &start, &setup, &mut report).await
 }
 
 /// Starts a device if it isn't running, waits for Android, runs first-boot

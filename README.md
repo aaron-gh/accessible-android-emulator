@@ -22,6 +22,7 @@ This is an early development build. It has a cross-platform core, the `aae` comm
 ### Devices
 
 - Named devices, including several of the same Android version, each with its own apps and data: create, clone, rename and delete.
+- Wiping a device back to how it was first set up (Device, Wipe, or `aae wipe`): its apps, data and snapshots go, and its screen reader is set up again. It keeps its name, hardware and volume. AAE keeps a copy of each screen reader it installs for this.
 - Starting a device with no emulator window. Stopping it saves its state for a quick start next time, after first writing everything to its disk. `aae restart` restarts Android on a running device without losing anything on it.
 - First-boot setup: hardware keyboard on, setup wizard skipped, screen kept awake, animations off, and a screen reader installed and turned on.
 - Installing a new screen reader build on several devices, for screen reader developers. Installing a new build of the same screen reader keeps its settings. Stopped devices get it when they next start. In the Mac app, Install Screen Reader Build (Option-Shift-Command-I) chooses the devices, starting with the ones that use that screen reader; on the command line, `aae screen-reader all build.apk` does every device that uses it. A build signed differently can only replace the old one, which loses its settings, so AAE asks first (`--replace` on the command line).
