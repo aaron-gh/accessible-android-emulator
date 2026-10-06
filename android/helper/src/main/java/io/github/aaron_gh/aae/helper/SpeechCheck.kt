@@ -20,6 +20,11 @@ class SpeechCheck(private val context: Context, private val done: (Result) -> Un
 
     data class Result(val ok: Boolean, val engine: String, val detail: String)
 
+    companion object {
+        /** What the check says. The speech log leaves it out. */
+        const val PHRASE = "Accessible Android Emulator speech check."
+    }
+
     private val handler = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
     private var finished = false
@@ -55,7 +60,7 @@ class SpeechCheck(private val context: Context, private val done: (Result) -> Un
             override fun onError(utteranceId: String?, errorCode: Int) =
                 finish(false, "the speech engine reported error $errorCode")
         })
-        val result = engine.synthesizeToFile("Accessible Android Emulator speech check.", null, file, "aae-check")
+        val result = engine.synthesizeToFile(PHRASE, null, file, "aae-check")
         if (result != TextToSpeech.SUCCESS) {
             finish(false, "the speech engine refused the request")
         }

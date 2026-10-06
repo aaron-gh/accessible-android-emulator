@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The helper reacts to no accessibility events and reads no screen content.
-     It is an accessibility service only because Android lets accessibility
-     services, and not the shell, set the accessibility volume. It also needs
-     flagEnableAccessibilityVolume: Android only lets services that declare it
-     change that volume. It also filters keys, for AAE's keyboard test: it
-     looks at them only while the test runs, and otherwise passes every key
-     straight on. (Turning filtering on only for the test, at run time, didn't
-     work on Android 11.) -->
+<!-- What AAE's helper does as an accessibility service:
+     - Sets the accessibility volume, which Android allows only for services
+       that declare flagEnableAccessibilityVolume.
+     - Filters keys, for AAE's keyboard test: it looks at them only while the
+       test runs, and otherwise passes every key straight on. (Turning
+       filtering on only for the test, at run time, didn't work on Android 11.)
+     - Reads the screen's accessibility tree, for AAE's accessibility inspector,
+       only when AAE asks. It reacts to no events and keeps nothing. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeAnnouncement"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagEnableAccessibilityVolume|flagRequestFilterKeyEvents"
+    android:accessibilityFlags="flagEnableAccessibilityVolume|flagRequestFilterKeyEvents|flagRetrieveInteractiveWindows|flagReportViewIds"
     android:canRequestFilterKeyEvents="true"
-    android:canRetrieveWindowContent="false"
+    android:canRetrieveWindowContent="true"
     android:description="@string/service_description"
     android:isAccessibilityTool="true"
     android:notificationTimeout="0" />

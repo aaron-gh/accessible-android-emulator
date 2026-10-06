@@ -146,6 +146,18 @@ pub async fn update_helper(sdk: &Sdk, adb: &Adb) -> Result<bool> {
     };
     if needed {
         install_helper(adb).await?;
+        // Android only gives a service its abilities, such as reading the
+        // screen, when it's switched on, so switch an updated one off and on.
+        let enabled = adb.enabled_services().await?;
+        if enabled
+            .iter()
+            .any(|c| crate::adb::same_component(c, HELPER_COMPONENT))
+        {
+            adb.disable_service(HELPER_COMPONENT).await?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            adb.ensure_services(&[HELPER_COMPONENT.to_string()], SERVICE_TIMEOUT)
+                .await?;
+        }
     }
     Ok(needed)
 }

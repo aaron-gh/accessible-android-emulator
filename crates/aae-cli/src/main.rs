@@ -39,6 +39,19 @@ enum Command {
     Doctor,
     /// List the Android versions installed on this computer.
     Images,
+    /// Delete an installed Android version, to free its disk space. Refused
+    /// while any of AAE's devices use it.
+    RemoveImage {
+        /// The API level, such as 35.
+        #[arg(long)]
+        api: u32,
+        /// The kind of Android image, when more than one is installed for this API level.
+        #[arg(long, value_enum)]
+        kind: Option<Kind>,
+        /// Delete without asking.
+        #[arg(long)]
+        yes: bool,
+    },
     /// List the Android versions you can download for this computer.
     Available {
         /// Fetch Google's list again, instead of using the copy from today.
@@ -159,8 +172,46 @@ enum Command {
     /// Measure how fast the device plays audio, so AAE can correct its pitch.
     /// AAE does this by itself on setup; use this to measure again.
     AudioCheck { device: String },
+    /// Record what the screen reader says, and show it.
+    SpeechLog {
+        device: String,
+        #[arg(value_enum, default_value = "show")]
+        action: SpeechLogAction,
+    },
     /// Check that the device can speak, and repair it if it can't.
     Speech { device: String },
+    /// Show the device's log, filtered by app, tag, level or text.
+    Logs {
+        device: String,
+        /// Only lines from this app's package name (or another process name).
+        #[arg(long)]
+        app: Option<String>,
+        /// Only lines with this tag.
+        #[arg(long)]
+        tag: Option<String>,
+        /// Only lines at this level or more important: verbose, debug, info,
+        /// warning, error or fatal (or their first letters).
+        #[arg(long)]
+        level: Option<String>,
+        /// Only lines whose tag or message contains this text.
+        #[arg(long)]
+        search: Option<String>,
+        /// How many of the latest matching lines to show.
+        #[arg(long, default_value_t = 100)]
+        lines: usize,
+        /// Keep showing new lines as they're written, until Control-C.
+        #[arg(long)]
+        follow: bool,
+    },
+    /// Print the screen's accessibility tree, as a screen reader sees it.
+    Inspect {
+        device: String,
+        /// Print it as JSON, with every property.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Check the screen for common accessibility problems.
+    Check { device: String },
     /// Check that keys reach Android as the keys you pressed, Meta included.
     Keytest { device: String },
     /// Measure the time from a key press to hearing the device respond.
@@ -324,6 +375,20 @@ enum ServiceAction {
     Disable { component: String },
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum SpeechLogAction {
+    /// Start recording.
+    On,
+    /// Stop recording.
+    Off,
+    /// Print what was said.
+    Show,
+    /// Print what is said as it happens, until Control-C.
+    Follow,
+    /// Forget what was said.
+    Clear,
+}
+
 #[derive(Subcommand)]
 enum SnapshotAction {
     List,
@@ -402,8 +467,57 @@ async fn run(cli: Cli) -> Result<()> {
                 println!("No Android versions are installed yet.");
             }
             for image in images {
-                println!("{image}");
+                let users = catalog::image_users(&ctx.sdk, &ctx.store, &image)?;
+                let size = human_size(catalog::image_size(&image));
+                println!("{image}. {size}. {}", describe_users(&users));
             }
+            Ok(())
+        }
+        Command::RemoveImage { api, kind, yes } => {
+            let matching: Vec<_> = ctx
+                .sdk
+                .system_images()
+                .into_iter()
+                .filter(|i| i.api == api && kind.is_none_or(|k| k.matches(&i.tag)))
+                .collect();
+            let image = match matching.as_slice() {
+                [] => anyhow::bail!(
+                    "{} isn't installed. Use the images command to see what is.",
+                    aae_core::sdk::android_name(api)
+                ),
+                [image] => image.clone(),
+                several => anyhow::bail!(
+                    "More than one kind of {} is installed: {}. Choose one with --kind.",
+                    aae_core::sdk::android_name(api),
+                    several
+                        .iter()
+                        .map(|i| i.kind())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            };
+            let users = catalog::image_users(&ctx.sdk, &ctx.store, &image)?;
+            if !users.devices.is_empty() {
+                anyhow::bail!(
+                    "{image} can't be deleted while devices use it: {}. Delete those devices first.",
+                    users.devices.join(", ")
+                );
+            }
+            let size = human_size(catalog::image_size(&image));
+            let mut question = format!("Delete {image} and its {size} of files?");
+            if !users.others.is_empty() {
+                question.push_str(&format!(
+                    " Other emulator devices, such as Android Studio's, use it and won't start without it: {}.",
+                    users.others.join(", ")
+                ));
+            }
+            question.push_str(" You can download it again later.");
+            if !yes && !confirm(&question)? {
+                println!("Nothing was deleted.");
+                return Ok(());
+            }
+            let freed = catalog::remove(&ctx.sdk, &ctx.store, &image)?;
+            println!("Deleted {image}. Freed {}.", human_size(freed));
             Ok(())
         }
         Command::List => {
@@ -520,6 +634,42 @@ async fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
+        Command::Inspect { device, json } => {
+            let (device, _, adb) = ctx.connect(&device).await?;
+            let tree =
+                with_helper(&ctx, &device, &adb, aae_core::inspector::read_tree(&adb)).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&tree)?);
+            } else {
+                print!("{}", aae_core::inspector::to_text(&tree));
+            }
+            Ok(())
+        }
+        Command::Check { device } => {
+            let (device, _, adb) = ctx.connect(&device).await?;
+            let tree =
+                with_helper(&ctx, &device, &adb, aae_core::inspector::read_tree(&adb)).await?;
+            let issues = aae_core::inspector::check(&tree);
+            if issues.is_empty() {
+                println!("No problems found on this screen.");
+            }
+            for issue in &issues {
+                let severity = match issue.severity {
+                    aae_core::inspector::Severity::Error => "Error",
+                    aae_core::inspector::Severity::Warning => "Warning",
+                };
+                let id = issue
+                    .id
+                    .as_deref()
+                    .map(|id| format!(" ({id})"))
+                    .unwrap_or_default();
+                println!(
+                    "{severity}: {} Element: {}{id}.",
+                    issue.message, issue.element
+                );
+            }
+            Ok(())
+        }
         Command::AudioCheck { device } => {
             let (mut device, _, adb) = ctx.connect(&device).await?;
             provision::update_helper(&ctx.sdk, &adb).await?;
@@ -537,6 +687,149 @@ async fn run(cli: Cli) -> Result<()> {
                 None => bail!(
                     "The audio couldn't be measured. Try again with AAE_LOG=info for details."
                 ),
+            }
+            Ok(())
+        }
+        Command::Logs {
+            device,
+            app,
+            tag,
+            level,
+            search,
+            lines,
+            follow,
+        } => {
+            use aae_core::logcat;
+            let level = match level {
+                Some(name) => Some(logcat::Level::parse(&name).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "\"{name}\" is not a log level. Use verbose, debug, info, warning, error or fatal."
+                    )
+                })?),
+                None => None,
+            };
+            let filter = logcat::Filter {
+                process: app,
+                tag,
+                level,
+                text: search,
+            };
+            let (_, _, adb) = ctx.connect(&device).await?;
+            let print = |e: &logcat::Entry| {
+                println!(
+                    "{} {} {} {}: {}",
+                    e.clock(),
+                    e.level.letter(),
+                    e.process.as_deref().unwrap_or("?"),
+                    e.tag,
+                    e.message
+                )
+            };
+            if !follow {
+                let found: Vec<_> = logcat::dump(&adb)
+                    .await?
+                    .into_iter()
+                    .filter(|e| filter.matches(e))
+                    .collect();
+                found[found.len().saturating_sub(lines)..]
+                    .iter()
+                    .for_each(print);
+                return Ok(());
+            }
+            let stream = logcat::LogStream::start(adb, lines.max(1000));
+            let everything = logcat::Filter::default();
+            let (mut since, mut settled, mut seen) = (0, false, 0);
+            loop {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => return Ok(()),
+                    _ = tokio::time::sleep(Duration::from_millis(300)) => {}
+                }
+                let new = stream.entries(since, &everything, usize::MAX);
+                if !settled {
+                    // The earlier lines arrive in a burst; once it's over, show
+                    // the latest few of them, then everything new.
+                    if new.is_empty() || new.len() - seen > 20 {
+                        seen = new.len();
+                        continue;
+                    }
+                    settled = true;
+                    let found: Vec<_> = new.iter().filter(|e| filter.matches(e)).collect();
+                    found[found.len().saturating_sub(lines)..]
+                        .iter()
+                        .for_each(|e| print(e));
+                } else {
+                    new.iter().filter(|e| filter.matches(e)).for_each(print);
+                }
+                if let Some(last) = new.last() {
+                    since = last.seq;
+                }
+            }
+        }
+        Command::SpeechLog { device, action } => {
+            use aae_core::tts;
+            let (mut device, _, adb) = ctx.connect(&device).await?;
+            let reader = device.meta.screen_reader.clone();
+            match action {
+                SpeechLogAction::On => {
+                    if device.meta.speech_log_engine.is_some() {
+                        println!("The speech log is already on for {}.", device.meta.name);
+                        return Ok(());
+                    }
+                    provision::update_helper(&ctx.sdk, &adb).await?;
+                    let engine = tts::start_speech_log(&adb, reader.as_deref()).await?;
+                    device.meta.speech_log_engine = Some(engine.clone());
+                    device.save_meta()?;
+                    println!("The speech log is on. Speech goes through it to {engine}.");
+                }
+                SpeechLogAction::Off => {
+                    let Some(engine) = device.meta.speech_log_engine.take() else {
+                        println!("The speech log is already off for {}.", device.meta.name);
+                        return Ok(());
+                    };
+                    tts::stop_speech_log(&adb, &engine, reader.as_deref()).await?;
+                    device.save_meta()?;
+                    println!("The speech log is off. Speech goes straight to {engine} again.");
+                }
+                SpeechLogAction::Show => {
+                    let log = tts::speech_log(&adb, 0, false).await?;
+                    if log.is_empty() {
+                        println!(
+                            "Nothing has been said{}.",
+                            if device.meta.speech_log_engine.is_none() {
+                                ", and the speech log is off. Turn it on with: aae speech-log <device> on"
+                            } else {
+                                " since the log was cleared"
+                            }
+                        );
+                    }
+                    for u in log {
+                        println!("{}  {}", tts::clock_time(u.time), u.text);
+                    }
+                }
+                SpeechLogAction::Follow => {
+                    println!(
+                        "Showing what {} says. Press Control-C to stop.",
+                        device.meta.name
+                    );
+                    let mut since = tts::speech_log(&adb, 0, false)
+                        .await?
+                        .last()
+                        .map_or(0, |u| u.time);
+                    loop {
+                        tokio::select! {
+                            _ = tokio::signal::ctrl_c() => return Ok(()),
+                            _ = tokio::time::sleep(Duration::from_millis(400)) => {}
+                        }
+                        for u in tts::speech_log(&adb, since, false).await? {
+                            println!("{}  {}", tts::clock_time(u.time), u.text);
+                            since = u.time;
+                        }
+                    }
+                }
+                SpeechLogAction::Clear => {
+                    tts::speech_log(&adb, u64::MAX, true).await?;
+                    println!("Cleared the speech log.");
+                }
             }
             Ok(())
         }
@@ -1000,6 +1293,26 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
     }
 }
 
+/// Runs `work` with AAE's helper service on, turning it on just for the work
+/// if this device doesn't keep it on.
+async fn with_helper<T>(
+    ctx: &Ctx,
+    device: &Device,
+    adb: &Adb,
+    work: impl std::future::Future<Output = aae_core::Result<T>>,
+) -> Result<T> {
+    let helper = provision::HELPER_COMPONENT.to_string();
+    let kept = device.meta.keep_enabled.contains(&helper);
+    provision::update_helper(&ctx.sdk, adb).await?;
+    adb.ensure_services(std::slice::from_ref(&helper), provision::SERVICE_TIMEOUT)
+        .await?;
+    let result = work.await;
+    if !kept {
+        adb.disable_service(&helper).await?;
+    }
+    Ok(result?)
+}
+
 async fn keytest(ctx: &Ctx, name: &str) -> Result<()> {
     let (device, controller, adb) = ctx.connect(name).await?;
     println!(
@@ -1163,6 +1476,25 @@ fn doctor(ctx: &Ctx) -> Result<()> {
     }
     println!("Devices are stored in {}.", ctx.store.root.display());
     Ok(())
+}
+
+/// Which devices use an Android version, in words.
+fn describe_users(users: &catalog::ImageUsers) -> String {
+    let mut parts = Vec::new();
+    if !users.devices.is_empty() {
+        parts.push(format!("Used by {}", users.devices.join(", ")));
+    }
+    if !users.others.is_empty() {
+        parts.push(format!(
+            "Used by other emulator devices: {}",
+            users.others.join(", ")
+        ));
+    }
+    if parts.is_empty() {
+        "No devices use it.".to_string()
+    } else {
+        parts.join(". ") + "."
+    }
 }
 
 fn confirm(question: &str) -> Result<bool> {

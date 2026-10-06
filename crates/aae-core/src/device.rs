@@ -87,6 +87,10 @@ pub struct DeviceMeta {
     /// None until measured. See [`crate::audio::measure_speed`].
     #[serde(default)]
     pub audio_speed: Option<f64>,
+    /// While the speech log is on: the real speech engine AAE's relay passes
+    /// requests to, to restore when it's turned off.
+    #[serde(default)]
+    pub speech_log_engine: Option<String>,
     /// Accessibility services AAE turns back on after every boot and install,
     /// as `package/class`. Includes the screen reader.
     #[serde(default)]
@@ -231,6 +235,7 @@ impl DeviceStore {
             screen_reader: None,
             screen_reader_declined: false,
             audio_speed: None,
+            speech_log_engine: None,
             keep_enabled: Vec::new(),
         };
         let device = Device { id, dir, meta };
@@ -446,7 +451,7 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 /// The disk space a folder really uses. Device disks are sparse files, which
 /// reserve their full size but take up only what has been written, so this
 /// counts allocated blocks where the platform reports them.
-fn dir_size(dir: &Path) -> u64 {
+pub(crate) fn dir_size(dir: &Path) -> u64 {
     std::fs::read_dir(dir)
         .into_iter()
         .flatten()

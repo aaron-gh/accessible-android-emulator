@@ -153,3 +153,124 @@ pub fn espeak_apk() -> Result<PathBuf> {
         reason: "AAE's eSpeak NG was not found. Build it with android/build-espeak.sh, or put it at this path".into(),
     })
 }
+
+// The speech log.
+
+/// AAE's helper, which is also the speech relay engine.
+const RELAY_ENGINE: &str = "io.github.aaron_gh.aae.helper";
+const SPEECH_RELAY: &str = "io.github.aaron_gh.aae.helper.SPEECH_RELAY";
+const SPEECH_LOG: &str = "io.github.aaron_gh.aae.helper.SPEECH_LOG";
+
+/// One thing the screen reader said.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Utterance {
+    /// When, in milliseconds since 1970.
+    pub time: u64,
+    pub text: String,
+}
+
+/// The device's default speech engine, as Android's settings record it.
+async fn default_engine(adb: &Adb) -> Result<Option<String>> {
+    adb.setting("secure", "tts_default_synth").await
+}
+
+/// Turns the speech log on: AAE's helper becomes the default speech engine and
+/// passes every request to the real one, recording the text. Returns the real
+/// engine, which the caller keeps to restore later. The screen reader is
+/// restarted so it uses the relay.
+pub async fn start_speech_log(adb: &Adb, screen_reader: Option<&str>) -> Result<String> {
+    let current = default_engine(adb).await?;
+    let target = match current {
+        Some(engine) if engine != RELAY_ENGINE => engine,
+        // Already on, or no default recorded: Google's engine, else AAE's eSpeak NG.
+        _ if adb.is_installed(GOOGLE_TTS).await? => GOOGLE_TTS.to_string(),
+        _ => ESPEAK_PACKAGE.to_string(),
+    };
+    let out = adb
+        .shell(&format!(
+            "am broadcast -n {HELPER_RECEIVER} -a {SPEECH_RELAY} --es target {target}"
+        ))
+        .await?;
+    if !out.contains("result=1") {
+        return Err(Error::Adb(format!(
+            "AAE's helper couldn't set up the speech log: {}",
+            out.trim()
+        )));
+    }
+    adb.put_setting("secure", "tts_default_synth", RELAY_ENGINE)
+        .await?;
+    restart_screen_reader(adb, screen_reader).await?;
+    let status = check(adb).await?;
+    if !status.ok {
+        // Never leave the device silent: go back to the real engine.
+        adb.put_setting("secure", "tts_default_synth", &target)
+            .await?;
+        restart_screen_reader(adb, screen_reader).await?;
+        return Err(Error::Adb(format!(
+            "Speech didn't work through the speech log ({}), so it was turned off.",
+            status.detail
+        )));
+    }
+    Ok(target)
+}
+
+/// Turns the speech log off, making `engine` the default speech engine again.
+pub async fn stop_speech_log(adb: &Adb, engine: &str, screen_reader: Option<&str>) -> Result<()> {
+    adb.put_setting("secure", "tts_default_synth", engine)
+        .await?;
+    restart_screen_reader(adb, screen_reader).await
+}
+
+/// What the screen reader said after `since` (milliseconds since 1970).
+pub async fn speech_log(adb: &Adb, since: u64, clear: bool) -> Result<Vec<Utterance>> {
+    // Android reads the number as a signed 64-bit value; newer versions reject
+    // anything larger.
+    let since = since.min(i64::MAX as u64);
+    let out = adb
+        .shell(&format!(
+            "am broadcast -n {HELPER_RECEIVER} -a {SPEECH_LOG} --el since {since} --ez clear {clear}"
+        ))
+        .await?;
+    let json = out
+        .split_once("data=\"")
+        .and_then(|(_, rest)| rest.rsplit_once('"'))
+        .map(|(json, _)| json)
+        .ok_or_else(|| Error::Adb("AAE's helper didn't send the speech log.".into()))?;
+    serde_json::from_str(json)
+        .map_err(|e| Error::Adb(format!("The speech log couldn't be read: {e}")))
+}
+
+/// Switches the screen reader off and on, so it connects to the default speech
+/// engine afresh.
+async fn restart_screen_reader(adb: &Adb, screen_reader: Option<&str>) -> Result<()> {
+    if let Some(reader) = screen_reader {
+        adb.disable_service(reader).await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        adb.ensure_services(&[reader.to_string()], crate::provision::SERVICE_TIMEOUT)
+            .await?;
+    }
+    Ok(())
+}
+
+/// A time in milliseconds since 1970 as a local clock time, such as "17:42:06.250".
+pub fn clock_time(ms: u64) -> String {
+    let millis = ms % 1000;
+    #[cfg(unix)]
+    {
+        let secs = (ms / 1000) as libc::time_t;
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        if !unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {
+            return format!(
+                "{:02}:{:02}:{:02}.{millis:03}",
+                tm.tm_hour, tm.tm_min, tm.tm_sec
+            );
+        }
+    }
+    let secs = ms / 1000;
+    format!(
+        "{:02}:{:02}:{:02}.{millis:03} UTC",
+        secs / 3600 % 24,
+        secs / 60 % 60,
+        secs % 60
+    )
+}

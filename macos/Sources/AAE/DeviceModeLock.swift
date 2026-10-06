@@ -32,6 +32,9 @@ private let hotKeysExceptUniversalAccess: Int32 = 2
 /// - If anything takes keyboard focus within the window, such as VoiceOver's
 ///   cursor landing on a button, focus goes straight back to the capture view.
 ///   Otherwise Return or Space could press an AAE button by accident.
+/// - The capture view lives in the main window, so that window is brought to
+///   the front and kept there. If another AAE window, such as the Speech Log,
+///   becomes the key window, keys would go to it instead of Android.
 @MainActor
 final class DeviceModeLock {
     static let shared = DeviceModeLock()
@@ -39,6 +42,7 @@ final class DeviceModeLock {
     private(set) var isLocked = false
     private weak var captureView: KeyCaptureView?
     private var responderObservation: NSKeyValueObservation?
+    private var keyWindowToken: NSObjectProtocol?
     private var escapeMonitor: Any?
     private var activationTokens: [NSObjectProtocol] = []
     private var onEscape: (() -> Void)?
@@ -91,6 +95,10 @@ final class DeviceModeLock {
         isLocked = false
         watchdog.stop()
         responderObservation = nil
+        if let keyWindowToken {
+            NotificationCenter.default.removeObserver(keyWindowToken)
+        }
+        keyWindowToken = nil
         if let escapeMonitor {
             NSEvent.removeMonitor(escapeMonitor)
         }
@@ -117,10 +125,47 @@ final class DeviceModeLock {
         onEscape?()
     }
 
+    /// True when keys really reach Android: the capture view has keyboard
+    /// focus in the key window of the active app.
+    var isCapturing: Bool {
+        guard isLocked, let view = captureView, let window = view.window else { return false }
+        return view.isCapturing && NSApp.isActive && window.isKeyWindow && window.firstResponder === view
+    }
+
+    /// Waits up to `timeout` seconds for the keyboard to reach Android.
+    func waitUntilCapturing(timeout: TimeInterval = 3) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isCapturing { return true }
+            if isLocked { enforceFocus() }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return isCapturing
+    }
+
     private func enforceFocus() {
         guard let view = captureView, let window = view.window else { return }
         view.isCapturing = true
+        NSApp.activate(ignoringOtherApps: true)
+        if !window.isKeyWindow {
+            window.makeKeyAndOrderFront(nil)
+        }
         window.makeFirstResponder(view)
+        if keyWindowToken == nil {
+            // Another AAE window becoming key, such as the Speech Log, would
+            // take the keys; bring the capture window back in front.
+            keyWindowToken = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+            ) { note in
+                let other = note.object as? NSWindow
+                MainActor.assumeIsolated {
+                    let lock = DeviceModeLock.shared
+                    guard lock.isLocked, let window = lock.captureView?.window, other !== window else { return }
+                    window.makeKeyAndOrderFront(nil)
+                    if let view = lock.captureView { window.makeFirstResponder(view) }
+                }
+            }
+        }
         responderObservation = window.observe(\.firstResponder, options: [.new]) { [weak self] window, _ in
             Task { @MainActor in
                 guard let self, self.isLocked, let view = self.captureView else { return }

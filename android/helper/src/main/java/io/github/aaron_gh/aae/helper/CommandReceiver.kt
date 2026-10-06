@@ -23,6 +23,13 @@ import android.content.Intent
  *
  * checks the default speech engine can speak.
  *
+ * SPEECH_RELAY (extra: target) sets the real engine the speech relay passes
+ * requests to. SPEECH_LOG (extras: since, in milliseconds since 1970; clear)
+ * returns what the relay has heard since then, as JSON.
+ *
+ * DUMP_TREE returns the screen's accessibility tree as JSON in the result
+ * data, with result code 1, or 0 if the helper's service isn't running.
+ *
  * PLAY_TONE (extras: hz, rate) plays a test tone for a second and a half.
  * The result code is the sample rate it plays at, and the data names the
  * output's native rate.
@@ -50,6 +57,28 @@ class CommandReceiver : BroadcastReceiver() {
                     pending.finish()
                 }.start(timeoutMs = 8000)
             }
+            ACTION_SPEECH_RELAY -> {
+                // The real engine the relay passes requests to.
+                val target = intent.getStringExtra("target")
+                if (target.isNullOrEmpty() || target == context.packageName) {
+                    setResult(0, "no engine given", null)
+                } else {
+                    SpeechLog.setTarget(context, target)
+                    setResult(1, target, null)
+                }
+            }
+            ACTION_SPEECH_LOG -> {
+                if (intent.getBooleanExtra("clear", false)) SpeechLog.clear()
+                setResult(1, SpeechLog.since(intent.getLongExtra("since", 0)).toString(), null)
+            }
+            ACTION_DUMP_TREE -> {
+                val service = HelperService.instance
+                if (service == null) {
+                    setResult(0, null, null)
+                } else {
+                    setResult(1, TreeDump.dump(service).toString(), null)
+                }
+            }
             ACTION_PLAY_TONE -> {
                 val rate = intent.getIntExtra("rate", 0).takeIf { it > 0 } ?: TestTone.nativeRate()
                 TestTone.play(intent.getIntExtra("hz", 1000), rate, 1.5)
@@ -68,5 +97,8 @@ class CommandReceiver : BroadcastReceiver() {
         const val ACTION_KEY_TEST = "io.github.aaron_gh.aae.helper.KEY_TEST"
         const val ACTION_CHECK_SPEECH = "io.github.aaron_gh.aae.helper.CHECK_SPEECH"
         const val ACTION_PLAY_TONE = "io.github.aaron_gh.aae.helper.PLAY_TONE"
+        const val ACTION_DUMP_TREE = "io.github.aaron_gh.aae.helper.DUMP_TREE"
+        const val ACTION_SPEECH_RELAY = "io.github.aaron_gh.aae.helper.SPEECH_RELAY"
+        const val ACTION_SPEECH_LOG = "io.github.aaron_gh.aae.helper.SPEECH_LOG"
     }
 }

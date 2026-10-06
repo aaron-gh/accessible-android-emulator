@@ -44,6 +44,38 @@ final class AppModel: ObservableObject {
     /// The version being downloaded and how far it has got.
     @Published private(set) var download: (version: String, percent: UInt32)?
     @Published var licenceRequest: LicenceRequest?
+    /// The latest accessibility inspection, and the device it's of.
+    @Published private(set) var inspection: Inspection?
+    @Published private(set) var inspectedDevice: String?
+    @Published private(set) var inspecting = false
+    /// The speech log of the selected device, while its window is open.
+    @Published private(set) var speechLog: [UtteranceInfo] = []
+    @Published private(set) var speechLogDevice: String?
+    @Published private(set) var speechLogOn = false
+    @Published private(set) var speechLogBusy = false
+    private var speechLogTask: Task<Void, Never>?
+    /// The device log of the selected device, while its window is open.
+    @Published private(set) var logEntries: [LogEntryInfo] = []
+    @Published private(set) var logProcesses: [String] = []
+    @Published private(set) var logDevice: String?
+    @Published private(set) var logProblem: String?
+    /// Filters for the device log. Empty means everything.
+    @Published var logApp = "" { didSet { if logApp != oldValue { reloadLogs() } } }
+    @Published var logTag = "" { didSet { if logTag != oldValue { reloadLogs() } } }
+    @Published var logLevel: LogLevel? { didSet { if logLevel != oldValue { reloadLogs() } } }
+    @Published var logSearch = "" { didSet { if logSearch != oldValue { reloadLogs() } } }
+    /// While paused, new lines wait and the list stays still.
+    @Published var logPaused = false
+    @Published var announceLogErrors = false
+    private var logTask: Task<Void, Never>?
+    private var logNeedsReload = false
+    /// The shell window's transcript: each command and what it printed.
+    @Published private(set) var shellTranscript = ""
+    @Published private(set) var shellRunning = false
+    @Published private(set) var shellHistory: [String] = []
+    /// Installed Android versions, with sizes and users, for the Android Versions window.
+    @Published private(set) var installedImages: [InstalledImageInfo] = []
+    @Published private(set) var loadingImages = false
     /// A device that has no screen reader, which the user is being asked about.
     @Published var screenReaderQuestion: DeviceInfo?
     @Published var selection: String?
@@ -121,6 +153,54 @@ final class AppModel: ObservableObject {
     var defaultScreenReader: String? { engine?.defaultScreenReader() }
 
     // MARK: - Android versions
+
+    /// Reads the installed Android versions, their sizes and who uses them.
+    func loadInstalledImages() {
+        guard let engine else { return }
+        loadingImages = true
+        Task {
+            defer { loadingImages = false }
+            do {
+                installedImages = try await engine.installedImages()
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+        }
+    }
+
+    /// Asks, then deletes an installed Android version.
+    func removeImage(_ image: InstalledImageInfo) {
+        guard let engine else { return }
+        guard image.devices.isEmpty else {
+            let names = image.devices.joined(separator: ", ")
+            announce("\(image.description) can't be deleted while devices use it: \(names). Delete those devices first.", tone: .failure)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Delete \(image.description)?"
+        var detail = "This deletes its \(image.size) of files. You can download it again later."
+        if !image.otherDevices.isEmpty {
+            detail += " Other emulator devices, such as Android Studio's, use it and won't start without it: \(image.otherDevices.joined(separator: ", "))."
+        }
+        alert.informativeText = detail
+        alert.alertStyle = .warning
+        // Cancel is the default, so a stray Return deletes nothing.
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Delete")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        announce("Deleting \(image.description).")
+        Task {
+            do {
+                let freed = try await engine.removeImage(sysdir: image.sysdir)
+                announce("Deleted \(image.description). Freed \(freed).", tone: .success)
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+            refresh()
+            loadVersions()
+            loadInstalledImages()
+        }
+    }
 
     /// Loads the list of Android versions, from Google's list at most once a day.
     func loadVersions(refresh: Bool = false) {
@@ -307,6 +387,212 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - Accessibility inspector
+
+    /// Reads the selected device's screen and checks it.
+    func inspect() {
+        guard let device = selected else {
+            announce("Select a device first.", tone: .failure)
+            return
+        }
+        inspecting = true
+        withSession { [weak self] session in
+            defer { self?.inspecting = false }
+            let result = try await session.inspect()
+            self?.inspection = result
+            self?.inspectedDevice = device.name
+            let count = result.rows.count
+            let problems = result.issues.isEmpty ? "no problems" : "\(result.issues.count) problems"
+            self?.announce("Read \(count) elements, \(problems).", tone: result.issues.isEmpty ? .success : .info)
+        }
+        // withSession announces failures; make sure the busy state clears.
+        if !(selected?.running ?? false) {
+            inspecting = false
+        }
+    }
+
+    // MARK: - Speech log
+
+    /// Shows the selected device's speech log, checking for new speech every
+    /// half second, until stopped.
+    func watchSpeechLog() {
+        stopWatchingSpeechLog()
+        speechLog = []
+        speechLogDevice = selected?.name
+        speechLogOn = selected?.speechLog ?? false
+        guard let device = selected, device.running else { return }
+        speechLogTask = Task { [weak self] in
+            var since: UInt64 = 0
+            while !Task.isCancelled {
+                guard let self else { return }
+                if let session = try? await self.session(for: device.id) {
+                    self.speechLogOn = session.speechLogOn()
+                    if let new = try? await session.speechLog(since: since, clear: false), !new.isEmpty {
+                        self.speechLog.append(contentsOf: new)
+                        since = new.last?.time ?? since
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+    }
+
+    func stopWatchingSpeechLog() {
+        speechLogTask?.cancel()
+        speechLogTask = nil
+    }
+
+    func setSpeechLog(_ on: Bool) {
+        guard let device = selected else { return }
+        speechLogBusy = true
+        announce(on ? "Turning on the speech log. The screen reader restarts." : "Turning off the speech log.")
+        withSession { [weak self] session in
+            defer { self?.speechLogBusy = false }
+            let message = try await session.setSpeechLog(on: on)
+            self?.speechLogOn = session.speechLogOn()
+            self?.announce(message, tone: .success)
+            self?.refresh()
+            if self?.selected?.id == device.id { self?.speechLogDevice = device.name }
+        }
+    }
+
+    func clearSpeechLog() {
+        speechLog = []
+        withSession { session in
+            _ = try await session.speechLog(since: UInt64.max, clear: true)
+        }
+    }
+
+    // MARK: - Device log
+
+    /// The most lines the log window shows at once.
+    private static let logLimit: UInt32 = 5000
+
+    /// Shows the selected device's log, checking for new lines every half
+    /// second, until stopped.
+    func watchLogs() {
+        stopWatchingLogs()
+        logEntries = []
+        logProcesses = []
+        logProblem = nil
+        logDevice = selected?.name
+        guard let device = selected, device.running else { return }
+        logTask = Task { [weak self] in
+            var seen: UInt64 = 0
+            var lastAnnouncement = Date.distantPast
+            var unannounced: [LogEntryInfo] = []
+            guard let session = try? await self?.session(for: device.id) else { return }
+            session.startLogs()
+            defer { session.stopLogs() }
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.logNeedsReload {
+                    self.logNeedsReload = false
+                    seen = 0
+                    self.logEntries = []
+                    unannounced = []
+                }
+                if !self.logPaused {
+                    let latest = session.logLatest()
+                    let new = session.logEntries(since: seen, filter: self.logFilter, limit: Self.logLimit)
+                    // Lines already there when the window opened, or the filter
+                    // changed, aren't news.
+                    let isNews = seen != 0
+                    seen = max(latest, new.last?.seq ?? 0)
+                    if !new.isEmpty {
+                        self.logEntries.append(contentsOf: new)
+                        let excess = self.logEntries.count - Int(Self.logLimit)
+                        if excess > 0 { self.logEntries.removeFirst(excess) }
+                        if isNews, self.announceLogErrors {
+                            unannounced += new.filter { $0.level == .error || $0.level == .fatal }
+                        }
+                    }
+                    self.logProcesses = session.logProcesses()
+                    self.logProblem = session.logProblem()
+                }
+                // At most one announcement every two seconds, so a burst of
+                // errors doesn't bury everything else.
+                if let first = unannounced.first, Date().timeIntervalSince(lastAnnouncement) >= 2 {
+                    let more = unannounced.count - 1
+                    let suffix = more == 0 ? "" : more == 1 ? ". And 1 more error." : ". And \(more) more errors."
+                    self.announce(first.spoken + suffix, tone: .failure)
+                    unannounced = []
+                    lastAnnouncement = Date()
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+    }
+
+    func stopWatchingLogs() {
+        logTask?.cancel()
+        logTask = nil
+    }
+
+    /// Shows the lines matching the filters again, from the start.
+    func reloadLogs() {
+        logNeedsReload = true
+    }
+
+    /// Forgets the lines read so far, so only new ones show.
+    func clearLogs() {
+        logEntries = []
+        guard let device = selected, let session = sessions[device.id] else { return }
+        session.clearLogs()
+    }
+
+    private var logFilter: LogFilter {
+        func value(_ text: String) -> String? {
+            let text = text.trimmingCharacters(in: .whitespaces)
+            return text.isEmpty ? nil : text
+        }
+        return LogFilter(process: value(logApp), tag: value(logTag), level: logLevel, text: value(logSearch))
+    }
+
+    // MARK: - Shell
+
+    /// Runs a command in the selected device's shell and adds it, with what it
+    /// printed, to the transcript.
+    func runShellCommand(_ command: String) {
+        let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty, !shellRunning else { return }
+        shellHistory.removeAll { $0 == command }
+        shellHistory.append(command)
+        shellRunning = true
+        withSession { [weak self] session in
+            defer { self?.shellRunning = false }
+            let result: CommandResult
+            do {
+                result = try await session.runCommand(command: command)
+            } catch {
+                self?.appendShell("$ \(command)\n\(error.localizedDescription)\n")
+                throw error
+            }
+            var output = result.output
+            if !output.isEmpty, !output.hasSuffix("\n") { output += "\n" }
+            let ending = result.status == 0 ? "" : "Exit status \(result.status).\n"
+            self?.appendShell("$ \(command)\n\(output)\(ending)")
+            let lines = output.split(separator: "\n", omittingEmptySubsequences: false).count - 1
+            let printed = lines == 0 ? "no output" : lines == 1 ? "1 line" : "\(lines) lines"
+            if result.status == 0 {
+                self?.announce("Done, \(printed).", tone: .success)
+            } else {
+                self?.announce("Failed with exit status \(result.status), \(printed).", tone: .failure)
+            }
+        }
+        if !(selected?.running ?? false) {
+            shellRunning = false
+        }
+    }
+
+    func clearShell() {
+        shellTranscript = ""
+    }
+
+    private func appendShell(_ text: String) {
+        shellTranscript += text
+    }
+
     // MARK: - Screen readers
 
     /// Answers the question about a device with no screen reader.
@@ -393,6 +679,12 @@ final class AppModel: ObservableObject {
                 deviceModeID = device.id
                 activeSession = session
                 DeviceModeLock.shared.lock { [weak self] in self?.leaveDeviceMode() }
+                // Only say the keyboard is Android's once keys really reach it.
+                guard await DeviceModeLock.shared.waitUntilCapturing() else {
+                    leaveDeviceMode(quietly: true)
+                    announce("Couldn't give the keyboard to Android. The main window didn't take focus.", tone: .failure)
+                    return
+                }
                 announce("Android keyboard on. Control Command Escape returns to the Mac.")
             } catch {
                 announce(error.localizedDescription, tone: .failure)
@@ -400,12 +692,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func leaveDeviceMode() {
+    func leaveDeviceMode(quietly: Bool = false) {
         guard inDeviceMode else { return }
         DeviceModeLock.shared.unlock()
         deviceModeID = nil
         activeSession = nil
-        announce("Mac keyboard on.")
+        if !quietly {
+            announce("Mac keyboard on.")
+        }
     }
 
     /// The session keys go to in device mode.

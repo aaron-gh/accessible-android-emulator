@@ -10,6 +10,7 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm",
+ "serde_json",
  "tokio",
  "tracing-subscriber",
 ]
@@ -50,6 +51,7 @@ name = "aae-ffi"
 version = "0.1.0"
 dependencies = [
  "aae-core",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

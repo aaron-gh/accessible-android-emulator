@@ -26,6 +26,21 @@
                 android:resource="@xml/helper_service" />
         </service>
 
+        <!-- AAE's speech relay: when AAE's speech log is on, this is the
+             device's speech engine, passing each request to the real one. -->
+        <service
+            android:name=".RelayTtsService"
+            android:exported="true"
+            android:label="@string/relay_name">
+            <intent-filter>
+                <action android:name="android.intent.action.TTS_SERVICE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech.tts"
+                android:resource="@xml/relay_tts" />
+        </service>
+
         <!-- Commands from AAE, sent with adb shell am broadcast. Requiring DUMP
              means only the shell and the system can send them, not other apps. -->
         <receiver
@@ -37,6 +52,9 @@
                 <action android:name="io.github.aaron_gh.aae.helper.KEY_TEST" />
                 <action android:name="io.github.aaron_gh.aae.helper.CHECK_SPEECH" />
                 <action android:name="io.github.aaron_gh.aae.helper.PLAY_TONE" />
+                <action android:name="io.github.aaron_gh.aae.helper.DUMP_TREE" />
+                <action android:name="io.github.aaron_gh.aae.helper.SPEECH_RELAY" />
+                <action android:name="io.github.aaron_gh.aae.helper.SPEECH_LOG" />
             </intent-filter>
         </receiver>
         <!-- Offers the AAE full keyboard layout to Android. -->

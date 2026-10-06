@@ -40,13 +40,18 @@ struct LicenceRequest: Identifiable {
 struct ReadOnlyText: NSViewRepresentable {
     let text: String
     let label: String
+    var monospaced = false
+    /// Scroll to the end when the text grows, as a terminal does.
+    var followsEnd = false
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
         let view = scroll.documentView as! NSTextView
         view.isEditable = false
         view.isSelectable = true
-        view.font = .systemFont(ofSize: NSFont.systemFontSize)
+        view.font = monospaced
+            ? .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            : .systemFont(ofSize: NSFont.systemFontSize)
         view.textContainerInset = NSSize(width: 6, height: 6)
         view.string = text
         view.setAccessibilityLabel(label)
@@ -56,6 +61,9 @@ struct ReadOnlyText: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         if let view = scroll.documentView as? NSTextView, view.string != text {
             view.string = text
+            if followsEnd {
+                view.scrollToEndOfDocument(nil)
+            }
         }
     }
 }

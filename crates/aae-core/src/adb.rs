@@ -68,6 +68,33 @@ impl Adb {
         Ok(self.raw(&["shell", command]).await?.trim_end().to_string())
     }
 
+    /// Runs a command someone typed, as the device's shell user, and returns
+    /// everything it printed (errors included, in order) and its exit status.
+    /// Unlike [`Adb::shell`], a command that fails is not an error. Android 6
+    /// and earlier don't report the exit status, so it's 0 there.
+    pub async fn run_command(&self, command: &str, limit: Duration) -> Result<(String, i32)> {
+        let wrapped = format!("{{ {command}\n}} 2>&1");
+        let run = Command::new(&self.bin)
+            .arg("-s")
+            .arg(&self.serial)
+            .args(["shell", &wrapped])
+            .stdin(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .output();
+        let out = tokio::time::timeout(limit, run)
+            .await
+            .map_err(|_| {
+                Error::Adb(format!(
+                    "the command was still running after {} seconds, so AAE stopped it",
+                    limit.as_secs()
+                ))
+            })?
+            .map_err(|e| Error::Adb(format!("adb could not run: {e}")))?;
+        let mut output = String::from_utf8_lossy(&out.stdout).into_owned();
+        output.push_str(&String::from_utf8_lossy(&out.stderr));
+        Ok((output, out.status.code().unwrap_or(-1)))
+    }
+
     /// True once adb can reach the device and Android reports it has finished booting.
     pub async fn boot_completed(&self) -> bool {
         matches!(self.shell("getprop sys.boot_completed").await, Ok(v) if v.trim() == "1")

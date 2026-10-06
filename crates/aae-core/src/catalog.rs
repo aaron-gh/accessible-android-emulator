@@ -14,9 +14,12 @@ use std::time::{Duration, SystemTime};
 
 use sha1::{Digest, Sha1};
 
+use crate::device::{DeviceStore, dir_size};
 use crate::error::{Error, IoContext, Result};
 use crate::paths;
-use crate::sdk::{Sdk, SystemImage, android_name, host_abi, image_kind};
+use crate::sdk::{
+    Sdk, SystemImage, android_name, host_abi, image_kind, parse_properties, read_properties,
+};
 
 const REPOSITORY: &str = "https://dl.google.com/android/repository/sys-img";
 /// The image types AAE offers: plain Android, with Google services, and with Google Play.
@@ -513,9 +516,183 @@ fn free_space(path: &Path) -> Option<u64> {
     }
 }
 
+/// The devices that use an installed Android version.
+#[derive(Debug, Clone, Default)]
+pub struct ImageUsers {
+    /// AAE's devices made from it. It can't be deleted while there are any.
+    pub devices: Vec<String>,
+    /// Other emulator devices, such as Android Studio's, made from it. They
+    /// won't start once it's deleted.
+    pub others: Vec<String>,
+}
+
+/// Which devices use an installed Android version.
+pub fn image_users(sdk: &Sdk, store: &DeviceStore, image: &SystemImage) -> Result<ImageUsers> {
+    let devices = store
+        .list()?
+        .into_iter()
+        .filter(|d| same_sysdir(&d.meta.sysdir, &image.sysdir))
+        .map(|d| d.meta.name)
+        .collect();
+    // Android Studio's devices name images relative to its own SDK. When AAE
+    // has its own SDK, theirs are other copies.
+    let others = if sdk.root == paths::sdk_dir() {
+        Vec::new()
+    } else {
+        other_devices()
+            .into_iter()
+            .filter(|(_, sysdir)| same_sysdir(sysdir, &image.sysdir))
+            .map(|(name, _)| name)
+            .collect()
+    };
+    Ok(ImageUsers { devices, others })
+}
+
+/// Deletes an installed Android version from the SDK, refusing while any of
+/// AAE's devices use it. Returns the bytes freed.
+pub fn remove(sdk: &Sdk, store: &DeviceStore, image: &SystemImage) -> Result<u64> {
+    let users = image_users(sdk, store, image)?;
+    if !users.devices.is_empty() {
+        return Err(Error::ImageInUse(
+            image.to_string(),
+            users.devices.join(", "),
+        ));
+    }
+    let size = dir_size(&image.path);
+    std::fs::remove_dir_all(&image.path)
+        .context(|| format!("Deleting {}", image.path.display()))?;
+    // Tidy the folders that held only this image, as sdkmanager does.
+    let top = sdk.root.join("system-images");
+    let mut dir = image.path.parent();
+    while let Some(parent) = dir {
+        if parent == top || !parent.starts_with(&top) || std::fs::remove_dir(parent).is_err() {
+            break;
+        }
+        dir = parent.parent();
+    }
+    Ok(size)
+}
+
+/// The disk space an installed Android version uses.
+pub fn image_size(image: &SystemImage) -> u64 {
+    dir_size(&image.path)
+}
+
+fn same_sysdir(a: &str, b: &str) -> bool {
+    let tidy = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_string();
+    tidy(a) == tidy(b)
+}
+
+/// Other emulator devices on this computer, such as Android Studio's, as
+/// (name, image folder) pairs.
+fn other_devices() -> Vec<(String, String)> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(dir) = std::env::var_os("ANDROID_AVD_HOME") {
+        dirs.push(dir.into());
+    }
+    if let Some(dir) = std::env::var_os("ANDROID_USER_HOME") {
+        dirs.push(PathBuf::from(dir).join("avd"));
+    }
+    for var in ["ANDROID_PREFS_ROOT", "ANDROID_SDK_HOME"] {
+        if let Some(dir) = std::env::var_os(var) {
+            dirs.push(PathBuf::from(dir).join(".android/avd"));
+        }
+    }
+    if let Some(home) = directories::BaseDirs::new() {
+        dirs.push(home.home_dir().join(".android/avd"));
+    }
+    let ours = paths::devices_dir();
+    dirs.retain(|d| *d != ours);
+    dirs.dedup();
+    let mut found = Vec::new();
+    for dir in dirs {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let ini = entry.path();
+            if ini.extension().is_none_or(|e| e != "ini") {
+                continue;
+            }
+            let Ok(props) = read_properties(&ini) else {
+                continue;
+            };
+            let avd = props
+                .get("path")
+                .map(PathBuf::from)
+                .filter(|p| p.is_dir())
+                .unwrap_or_else(|| ini.with_extension("avd"));
+            let Ok(text) = std::fs::read_to_string(avd.join("config.ini")) else {
+                continue;
+            };
+            let config = parse_properties(&text);
+            let Some(sysdir) = config.get("image.sysdir.1") else {
+                continue;
+            };
+            let name = config
+                .get("avd.ini.displayname")
+                .cloned()
+                .unwrap_or_else(|| {
+                    ini.file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                });
+            if !found.iter().any(|(n, _): &(String, String)| *n == name) {
+                found.push((name, sysdir.clone()));
+            }
+        }
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removes_images_no_device_uses() {
+        let root = std::env::temp_dir().join(format!("aae-test-remove-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("sdk/system-images/android-35/google_apis/arm64-v8a");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("source.properties"),
+            "AndroidVersion.ApiLevel=35\nSystemImage.TagId=google_apis\nSystemImage.Abi=arm64-v8a\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("system.img"), vec![1u8; 8192]).unwrap();
+        let sdk = Sdk {
+            root: root.join("sdk"),
+        };
+        let image = sdk.system_images().remove(0);
+        let store = DeviceStore::open(root.join("devices")).unwrap();
+        let device = store
+            .create("Uses it", &image, crate::device::Profile::Phone)
+            .unwrap();
+
+        let users = image_users(&sdk, &store, &image).unwrap();
+        assert_eq!(users.devices, vec!["Uses it"]);
+        assert!(matches!(
+            remove(&sdk, &store, &image),
+            Err(Error::ImageInUse(..))
+        ));
+        assert!(dir.exists());
+
+        store.delete(&device).unwrap();
+        assert!(remove(&sdk, &store, &image).unwrap() >= 8192);
+        assert!(!root.join("sdk/system-images/android-35").exists());
+        assert!(root.join("sdk/system-images").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn compares_image_folders() {
+        assert!(same_sysdir(
+            "system-images/android-30/google_apis_playstore/arm64-v8a/",
+            "system-images\\android-30\\google_apis_playstore\\arm64-v8a"
+        ));
+        assert!(!same_sysdir(
+            "system-images/android-30/default/arm64-v8a/",
+            "system-images/android-30/google_apis/arm64-v8a/"
+        ));
+    }
 
     const XML: &str = r#"<?xml version='1.0' encoding='utf-8'?>
 <sys-img:sdk-sys-img xmlns:sys-img="http://schemas.android.com/sdk/android/repo/sys-img2/04" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">

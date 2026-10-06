@@ -13,16 +13,20 @@ struct AAEApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New Device…") { model.showingNewDevice = true }
                     .keyboardShortcut("n")
+                AndroidVersionsMenuItem()
             }
             CommandMenu("Device") {
                 Button("Start") { model.start() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                 Button("Stop") { model.stop() }
                     .keyboardShortcut(".", modifiers: [.command, .shift])
-                Button("Use Android Keyboard") { model.enterDeviceMode() }
-                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                DeviceModeMenuItem(model: model)
                 Button("Speak Status") { model.speakStatus() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
+                InspectorMenuItem()
+                SpeechLogMenuItem()
+                LogMenuItem()
+                ShellMenuItem()
                 Divider()
                 Button("Back") { model.press("back") }
                     .keyboardShortcut("b", modifiers: [.command, .shift])
@@ -55,8 +59,43 @@ struct AAEApp: App {
                     .keyboardShortcut(.delete)
             }
         }
+        Window("Accessibility Inspector", id: "inspector") {
+            InspectorView()
+                .environmentObject(model)
+        }
+        Window("Speech Log", id: "speechlog") {
+            SpeechLogView()
+                .environmentObject(model)
+        }
+        Window("Device Log", id: "devicelog") {
+            LogView()
+                .environmentObject(model)
+        }
+        Window("Android Versions", id: "versions") {
+            AndroidVersionsView()
+                .environmentObject(model)
+        }
+        Window("Shell", id: "shell") {
+            ShellView()
+                .environmentObject(model)
+        }
         Settings {
             SettingsView()
         }
+    }
+}
+
+/// Device mode captures keys in the main window, so it opens that window
+/// first, whichever AAE window the shortcut was pressed in.
+struct DeviceModeMenuItem: View {
+    @Environment(\.openWindow) private var openWindow
+    let model: AppModel
+
+    var body: some View {
+        Button("Use Android Keyboard") {
+            openWindow(id: "main")
+            model.enterDeviceMode()
+        }
+        .keyboardShortcut("e", modifiers: [.command, .shift])
     }
 }

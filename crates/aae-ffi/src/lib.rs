@@ -17,9 +17,11 @@ use aae_core::catalog::{self, Catalogue, InstallProgress};
 use aae_core::control::Controller;
 use aae_core::device::{Device, DeviceStore, Profile, human_size};
 use aae_core::emulator::{self, StartOptions};
+use aae_core::logcat::{self, LogStream};
 use aae_core::provision::{self, ProvisionOptions};
 use aae_core::sdk::{Sdk, android_name, image_kind};
 use aae_core::speech::{Announcer, Route};
+use aae_core::{inspector, tts};
 use aae_core::{keys, lifecycle};
 use tokio::sync::mpsc;
 
@@ -88,6 +90,8 @@ pub struct DeviceInfo {
     pub screen_reader: Option<String>,
     /// The user chose to go without a screen reader; don't offer one again.
     pub screen_reader_declined: bool,
+    /// The speech log is recording what the screen reader says.
+    pub speech_log: bool,
 }
 
 impl DeviceInfo {
@@ -106,6 +110,7 @@ impl DeviceInfo {
                 .and_then(|c| c.split('/').next())
                 .map(String::from),
             screen_reader_declined: device.meta.screen_reader_declined,
+            speech_log: device.meta.speech_log_engine.is_some(),
         }
     }
 }
@@ -118,6 +123,21 @@ pub struct ImageInfo {
     pub api: u32,
     /// Such as "Android 16 (API 36), With Google Play".
     pub description: String,
+}
+
+/// An installed Android version, with what it costs and who uses it.
+#[derive(uniffi::Record)]
+pub struct InstalledImageInfo {
+    /// Pass this to `remove_image`.
+    pub sysdir: String,
+    /// Such as "Android 16 (API 36), With Google Play".
+    pub description: String,
+    /// Its disk space, in words.
+    pub size: String,
+    /// AAE's devices made from it. It can't be deleted while there are any.
+    pub devices: Vec<String>,
+    /// Other emulator devices, such as Android Studio's, that use it.
+    pub other_devices: Vec<String>,
 }
 
 /// An Android version AAE can create devices from: installed, or downloadable.
@@ -158,6 +178,125 @@ pub enum ScreenReaderSource {
     Backtalk,
     /// An APK on this computer.
     Apk { path: String },
+}
+
+/// One row of the accessibility inspector: a window or an element.
+#[derive(uniffi::Record)]
+pub struct InspectorRow {
+    pub index: u32,
+    /// The row this one is inside, or none for a window.
+    pub parent: Option<u32>,
+    /// How the row reads, such as "Send, button, disabled".
+    pub summary: String,
+    /// Every property, one per line.
+    pub details: Vec<String>,
+}
+
+/// An accessibility problem found on the screen.
+#[derive(uniffi::Record)]
+pub struct IssueInfo {
+    /// An error, rather than a warning.
+    pub error: bool,
+    pub message: String,
+    pub element: String,
+    pub id: Option<String>,
+}
+
+/// The screen's accessibility tree and the problems found in it.
+#[derive(uniffi::Record)]
+pub struct Inspection {
+    /// Windows and elements, each after the row it's inside.
+    pub rows: Vec<InspectorRow>,
+    pub issues: Vec<IssueInfo>,
+    /// The tree as indented text, for copying.
+    pub text: String,
+    /// The tree as JSON, with every property, for saving.
+    pub json: String,
+}
+
+/// One thing the screen reader said.
+#[derive(uniffi::Record)]
+pub struct UtteranceInfo {
+    /// When, in milliseconds since 1970.
+    pub time: u64,
+    /// The time as a local clock time, such as "17:42:06.250".
+    pub clock: String,
+    pub text: String,
+}
+
+/// What a shell command printed, and how it ended.
+#[derive(uniffi::Record)]
+pub struct CommandResult {
+    /// Everything it printed, errors included.
+    pub output: String,
+    /// 0 when it succeeded.
+    pub status: i32,
+}
+
+/// How important a log line is.
+#[derive(uniffi::Enum, Clone, Copy)]
+pub enum LogLevel {
+    Verbose,
+    Debug,
+    Info,
+    Warning,
+    Error,
+    Fatal,
+}
+
+impl From<logcat::Level> for LogLevel {
+    fn from(level: logcat::Level) -> Self {
+        match level {
+            logcat::Level::Verbose => LogLevel::Verbose,
+            logcat::Level::Debug => LogLevel::Debug,
+            logcat::Level::Info => LogLevel::Info,
+            logcat::Level::Warning => LogLevel::Warning,
+            logcat::Level::Error => LogLevel::Error,
+            logcat::Level::Fatal => LogLevel::Fatal,
+        }
+    }
+}
+
+impl From<LogLevel> for logcat::Level {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Verbose => logcat::Level::Verbose,
+            LogLevel::Debug => logcat::Level::Debug,
+            LogLevel::Info => logcat::Level::Info,
+            LogLevel::Warning => logcat::Level::Warning,
+            LogLevel::Error => logcat::Level::Error,
+            LogLevel::Fatal => logcat::Level::Fatal,
+        }
+    }
+}
+
+/// Which log lines to show. Empty fields match everything.
+#[derive(uniffi::Record)]
+pub struct LogFilter {
+    /// An app's package name, or another process name.
+    pub process: Option<String>,
+    pub tag: Option<String>,
+    /// The least important level shown.
+    pub level: Option<LogLevel>,
+    /// Text to find in the tag or message.
+    pub text: Option<String>,
+}
+
+/// One line of the device log.
+#[derive(uniffi::Record)]
+pub struct LogEntryInfo {
+    /// Counts up for each line, for asking what's new.
+    pub seq: u64,
+    /// The time of day, such as "18:27:36.037".
+    pub clock: String,
+    pub level: LogLevel,
+    pub tag: String,
+    pub message: String,
+    pub process: Option<String>,
+    /// The line as a screen reader user wants it, most important part first.
+    pub spoken: String,
+    /// The line as text, for copying and saving.
+    pub line: String,
 }
 
 /// The kind of hardware a new device has.
@@ -430,6 +569,57 @@ impl Engine {
     }
 
     /// Deletes a device and its files. Returns how much space was freed, in words.
+    /// Every installed Android version, newest first, with its size and the
+    /// devices that use it.
+    pub async fn installed_images(&self) -> Result<Vec<InstalledImageInfo>, AaeError> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        on_runtime(async move {
+            tokio::task::spawn_blocking(move || {
+                sdk.system_images()
+                    .into_iter()
+                    .map(|image| {
+                        let users = catalog::image_users(&sdk, &store, &image)?;
+                        Ok(InstalledImageInfo {
+                            sysdir: image.sysdir.clone(),
+                            description: image.to_string(),
+                            size: human_size(catalog::image_size(&image)),
+                            devices: users.devices,
+                            other_devices: users.others,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, AaeError>>()
+            })
+            .await
+            .map_err(|e| AaeError::Failed {
+                message: e.to_string(),
+            })?
+        })
+        .await
+    }
+
+    /// Deletes an installed Android version. Refused while any of AAE's
+    /// devices use it. Returns the space freed, in words.
+    pub async fn remove_image(&self, sysdir: String) -> Result<String, AaeError> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        on_runtime(async move {
+            tokio::task::spawn_blocking(move || {
+                let image = sdk
+                    .system_images()
+                    .into_iter()
+                    .find(|i| i.sysdir == sysdir)
+                    .ok_or_else(|| AaeError::Failed {
+                        message: "That Android version isn't installed any more.".into(),
+                    })?;
+                Ok(human_size(catalog::remove(&sdk, &store, &image)?))
+            })
+            .await
+            .map_err(|e| AaeError::Failed {
+                message: e.to_string(),
+            })?
+        })
+        .await
+    }
+
     pub fn delete_device(&self, id: String) -> Result<String, AaeError> {
         let device = self.store.get(&id)?;
         Ok(human_size(self.store.delete(&device)?))
@@ -501,6 +691,19 @@ fn key_logging() -> bool {
     *ENABLED.get_or_init(|| std::env::var("AAE_KEYLOG").as_deref() == Ok("1"))
 }
 
+fn add_rows(node: &inspector::Node, parent: u32, rows: &mut Vec<InspectorRow>) {
+    let index = rows.len() as u32;
+    rows.push(InspectorRow {
+        index,
+        parent: Some(parent),
+        summary: node.summary(),
+        details: node.details(),
+    });
+    for child in &node.children {
+        add_rows(child, index, rows);
+    }
+}
+
 async fn load_catalogue() -> Result<Catalogue, AaeError> {
     tokio::task::spawn_blocking(|| Catalogue::load(false))
         .await
@@ -523,6 +726,7 @@ pub struct Session {
     adb: Adb,
     keys: mpsc::UnboundedSender<KeyMessage>,
     audio: Mutex<Option<AudioPlayer>>,
+    logs: Mutex<Option<LogStream>>,
 }
 
 impl Session {
@@ -545,6 +749,7 @@ impl Session {
             adb,
             keys: tx,
             audio: Mutex::new(None),
+            logs: Mutex::new(None),
         })
     }
 }
@@ -647,6 +852,199 @@ impl Session {
             Ok(next.describe().to_string())
         })
         .await
+    }
+
+    /// Reads the screen's accessibility tree, as a screen reader sees it, and
+    /// checks it for common problems.
+    pub async fn inspect(&self) -> Result<Inspection, AaeError> {
+        let device = self.device.lock().unwrap().clone();
+        let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
+        on_runtime(async move {
+            let helper = provision::HELPER_COMPONENT.to_string();
+            let kept = device.meta.keep_enabled.contains(&helper);
+            provision::update_helper(&sdk, &adb).await?;
+            adb.ensure_services(std::slice::from_ref(&helper), provision::SERVICE_TIMEOUT)
+                .await?;
+            let tree = inspector::read_tree(&adb).await;
+            if !kept {
+                adb.disable_service(&helper).await?;
+            }
+            let tree = tree?;
+            let mut rows = Vec::new();
+            for window in &tree.windows {
+                let index = rows.len() as u32;
+                rows.push(InspectorRow {
+                    index,
+                    parent: None,
+                    summary: window.describe(),
+                    details: vec![format!("Window type: {}", window.kind)],
+                });
+                add_rows(&window.root, index, &mut rows);
+            }
+            let issues = inspector::check(&tree)
+                .into_iter()
+                .map(|i| IssueInfo {
+                    error: i.severity == inspector::Severity::Error,
+                    message: i.message,
+                    element: i.element,
+                    id: i.id,
+                })
+                .collect();
+            Ok(Inspection {
+                rows,
+                issues,
+                text: inspector::to_text(&tree),
+                json: serde_json::to_string_pretty(&tree).unwrap_or_default(),
+            })
+        })
+        .await
+    }
+
+    /// Turns the speech log on or off. Returns what happened, in words.
+    pub async fn set_speech_log(&self, on: bool) -> Result<String, AaeError> {
+        let mut device = self.device.lock().unwrap().clone();
+        let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
+        let (message, device) = on_runtime(async move {
+            let reader = device.meta.screen_reader.clone();
+            let message = match (on, device.meta.speech_log_engine.clone()) {
+                (true, Some(_)) => "The speech log is already on.".to_string(),
+                (false, None) => "The speech log is already off.".to_string(),
+                (true, None) => {
+                    provision::update_helper(&sdk, &adb).await?;
+                    let engine = tts::start_speech_log(&adb, reader.as_deref()).await?;
+                    device.meta.speech_log_engine = Some(engine);
+                    device.save_meta()?;
+                    "The speech log is on.".to_string()
+                }
+                (false, Some(engine)) => {
+                    tts::stop_speech_log(&adb, &engine, reader.as_deref()).await?;
+                    device.meta.speech_log_engine = None;
+                    device.save_meta()?;
+                    "The speech log is off.".to_string()
+                }
+            };
+            Ok((message, device))
+        })
+        .await?;
+        *self.device.lock().unwrap() = device;
+        Ok(message)
+    }
+
+    /// Whether the speech log is on for this device.
+    pub fn speech_log_on(&self) -> bool {
+        self.device.lock().unwrap().meta.speech_log_engine.is_some()
+    }
+
+    /// What the screen reader said after `since` (milliseconds since 1970).
+    /// With `clear`, the log is emptied too.
+    pub async fn speech_log(
+        &self,
+        since: u64,
+        clear: bool,
+    ) -> Result<Vec<UtteranceInfo>, AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move {
+            Ok(tts::speech_log(&adb, since, clear)
+                .await?
+                .into_iter()
+                .map(|u| UtteranceInfo {
+                    time: u.time,
+                    clock: tts::clock_time(u.time),
+                    text: u.text,
+                })
+                .collect())
+        })
+        .await
+    }
+
+    /// Runs a command typed by the user in the device's shell, giving up after
+    /// two minutes. A command that fails still returns what it printed.
+    pub async fn run_command(&self, command: String) -> Result<CommandResult, AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move {
+            let (output, status) = adb
+                .run_command(&command, std::time::Duration::from_secs(120))
+                .await?;
+            Ok(CommandResult { output, status })
+        })
+        .await
+    }
+
+    /// Starts reading the device log, if it isn't being read already.
+    pub fn start_logs(&self) {
+        let mut logs = self.logs.lock().unwrap();
+        if logs.is_none() {
+            let _runtime = runtime().enter();
+            *logs = Some(LogStream::start(self.adb.clone(), 5000));
+        }
+    }
+
+    /// Stops reading the device log and forgets the lines read.
+    pub fn stop_logs(&self) {
+        self.logs.lock().unwrap().take();
+    }
+
+    /// The last `limit` log lines after `since` that match the filter, oldest first.
+    pub fn log_entries(&self, since: u64, filter: LogFilter, limit: u32) -> Vec<LogEntryInfo> {
+        let logs = self.logs.lock().unwrap();
+        let Some(stream) = logs.as_ref() else {
+            return Vec::new();
+        };
+        let filter = logcat::Filter {
+            process: filter.process,
+            tag: filter.tag,
+            level: filter.level.map(Into::into),
+            text: filter.text,
+        };
+        stream
+            .entries(since, &filter, limit as usize)
+            .into_iter()
+            .map(|e| LogEntryInfo {
+                seq: e.seq,
+                clock: e.clock().to_string(),
+                level: e.level.into(),
+                spoken: e.spoken(),
+                line: e.to_line(),
+                tag: e.tag,
+                message: e.message,
+                process: e.process,
+            })
+            .collect()
+    }
+
+    /// The number of the last log line read, or 0.
+    pub fn log_latest(&self) -> u64 {
+        self.logs
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map_or(0, LogStream::latest)
+    }
+
+    /// The processes that have logged something, by name.
+    pub fn log_processes(&self) -> Vec<String> {
+        self.logs
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(LogStream::processes)
+            .unwrap_or_default()
+    }
+
+    /// Forgets the log lines read so far.
+    pub fn clear_logs(&self) {
+        if let Some(stream) = self.logs.lock().unwrap().as_ref() {
+            stream.clear();
+        }
+    }
+
+    /// Why the log isn't being read right now, if it isn't.
+    pub fn log_problem(&self) -> Option<String> {
+        self.logs
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(LogStream::problem)
     }
 
     /// Runs a shell command on the device and returns what it printed.

@@ -33,6 +33,9 @@ pub enum Error {
     #[error("\"{0}\" must be stopped before it can be {1}.")]
     MustStop(String, &'static str),
 
+    #[error("{0} can't be deleted while devices use it: {1}. Delete those devices first.")]
+    ImageInUse(String, String),
+
     #[error("\"{0}\" is not running.")]
     NotRunning(String),
 

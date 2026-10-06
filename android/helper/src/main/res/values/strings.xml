@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">AAE Helper</string>
     <string name="service_name">AAE Helper</string>
-    <string name="service_description">Lets the Accessible Android Emulator set this device up for screen reader use, such as setting the accessibility volume. It reads nothing on the screen.</string>
+    <string name="service_description">Lets the Accessible Android Emulator set this device up for screen reader use, such as setting the accessibility volume. It reads the screen only when you use AAE\'s accessibility inspector, and keeps nothing.</string>
     <string name="keyboard_layout_name">AAE full keyboard</string>
+    <string name="relay_name">AAE speech log</string>
 </resources>
