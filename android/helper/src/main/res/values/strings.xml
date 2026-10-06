@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AAE Helper</string>
+    <string name="service_name">AAE Helper</string>
+    <string name="service_description">Lets the Accessible Android Emulator set this device up for screen reader use, such as setting the accessibility volume. It reads nothing on the screen.</string>
+</resources>

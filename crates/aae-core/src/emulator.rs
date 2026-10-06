@@ -1,0 +1,337 @@
+//! Starting, watching and stopping emulator processes.
+//!
+//! AAE runs Google's emulator with no window and talks to it over gRPC and adb.
+//! The emulator outlives the process that started it, so the command line can
+//! start a device and the Mac app can use it, or the other way round. What a
+//! running device needs to be found again (its process and ports) is kept in the
+//! device's `running.toml`.
+
+use std::net::TcpListener;
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+use crate::adb::Adb;
+use crate::control::Controller;
+use crate::device::{Device, DeviceStore, RuntimeInfo};
+use crate::error::{Error, IoContext, Result};
+use crate::sdk::Sdk;
+
+const FIRST_CONSOLE_PORT: u16 = 5554;
+const LAST_CONSOLE_PORT: u16 = 5682;
+const FIRST_GRPC_PORT: u16 = 8554;
+
+/// Options for starting a device.
+#[derive(Debug, Clone, Default)]
+pub struct StartOptions {
+    /// Boot from scratch instead of from the quick-boot snapshot.
+    pub cold_boot: bool,
+    /// Don't save the quick-boot snapshot on exit.
+    pub no_snapshot_save: bool,
+    /// Let the emulator play audio itself as well. AAE plays the device's audio
+    /// from the gRPC stream, so this is off to avoid hearing everything twice.
+    pub emulator_audio: bool,
+    /// Extra arguments for the emulator, for troubleshooting.
+    pub extra_args: Vec<String>,
+}
+
+/// Starts a device's emulator in the background and records its ports. Returns
+/// as soon as the process is running; use [`wait_until_ready`] to wait for Android.
+pub fn start(
+    sdk: &Sdk,
+    store: &DeviceStore,
+    device: &Device,
+    options: &StartOptions,
+) -> Result<RuntimeInfo> {
+    if let Some(info) = device.runtime() {
+        if is_alive(info.pid) {
+            return Err(Error::AlreadyRunning(device.meta.name.clone()));
+        }
+        device.set_runtime(None)?;
+    }
+    store.repair_pointers()?;
+
+    let used: Vec<RuntimeInfo> = store.list()?.iter().filter_map(Device::runtime).collect();
+    let console_port = free_console_port(&used)?;
+    let grpc_port = free_grpc_port(&used)?;
+
+    let log = device.dir.join("emulator.log");
+    let log_file = std::fs::File::create(&log).context(|| format!("Creating {}", log.display()))?;
+    let log_err = log_file
+        .try_clone()
+        .context(|| format!("Opening {}", log.display()))?;
+
+    let mut command = Command::new(sdk.emulator_bin()?);
+    command
+        .arg("-avd")
+        .arg(&device.id)
+        .arg("-no-window")
+        .arg("-no-boot-anim")
+        .arg("-ports")
+        .arg(format!("{},{}", console_port, console_port + 1))
+        .arg("-grpc")
+        .arg(grpc_port.to_string())
+        // Without a token the gRPC port accepts commands from anyone on the network.
+        .arg("-grpc-use-token")
+        .env("ANDROID_AVD_HOME", &store.root)
+        .env("ANDROID_SDK_ROOT", &sdk.root)
+        .env("ANDROID_HOME", &sdk.root)
+        .stdin(Stdio::null())
+        .stdout(log_file)
+        .stderr(log_err);
+    if options.cold_boot {
+        command.arg("-no-snapshot-load");
+    }
+    if options.no_snapshot_save {
+        command.arg("-no-snapshot-save");
+    }
+    if !options.emulator_audio {
+        // The gRPC audio stream still works with the host backend off.
+        command.arg("-audio").arg("none");
+    }
+    command.args(&options.extra_args);
+    detach(&mut command);
+
+    let mut child = command
+        .spawn()
+        .context(|| "Starting the emulator".to_string())?;
+    let info = RuntimeInfo {
+        pid: child.id(),
+        console_port,
+        adb_port: console_port + 1,
+        grpc_port,
+        log,
+    };
+    device.set_runtime(Some(&info))?;
+    // Reap the process when it exits, so it doesn't linger as a zombie while
+    // this process keeps running.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(info)
+}
+
+/// Progress while a device starts, for announcing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootStage {
+    WaitingForEmulator,
+    WaitingForAndroid,
+    Ready,
+}
+
+/// Waits until the emulator answers on gRPC and Android has finished booting.
+pub async fn wait_until_ready(
+    sdk: &Sdk,
+    info: &RuntimeInfo,
+    timeout: Duration,
+    mut progress: impl FnMut(BootStage),
+) -> Result<(Controller, Adb)> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    let adb = Adb::new(sdk.adb_bin()?, info.serial());
+    let mut stage = BootStage::WaitingForEmulator;
+    progress(stage);
+    let mut controller = None;
+
+    loop {
+        if !is_alive(info.pid) {
+            return Err(Error::EmulatorExited(log_tail(&info.log, 15)));
+        }
+        if tokio::time::Instant::now() > deadline {
+            return Err(Error::BootTimeout(timeout.as_secs(), info.log.clone()));
+        }
+        if controller.is_none() {
+            // The discovery file, and so the token, appears shortly after the process starts.
+            if let Some(token) = grpc_token(info) {
+                controller = Controller::connect(info.grpc_port, Some(&token)).await.ok();
+            }
+        }
+        if let Some(c) = &controller {
+            if stage == BootStage::WaitingForEmulator && c.status().await.is_ok() {
+                stage = BootStage::WaitingForAndroid;
+                progress(stage);
+            }
+            if stage == BootStage::WaitingForAndroid && adb.boot_completed().await {
+                progress(BootStage::Ready);
+                return Ok((controller.unwrap(), adb));
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+/// Connects to a device that is already running.
+pub async fn attach(sdk: &Sdk, device: &Device) -> Result<(RuntimeInfo, Controller, Adb)> {
+    let info = running(device)?;
+    let controller = Controller::connect(info.grpc_port, grpc_token(&info).as_deref()).await?;
+    let adb = Adb::new(sdk.adb_bin()?, info.serial());
+    Ok((info, controller, adb))
+}
+
+/// The device's runtime record, if its emulator is still alive. Clears a stale record.
+pub fn running(device: &Device) -> Result<RuntimeInfo> {
+    match device.runtime() {
+        Some(info) if is_alive(info.pid) => Ok(info),
+        Some(_) => {
+            device.set_runtime(None)?;
+            Err(Error::NotRunning(device.meta.name.clone()))
+        }
+        None => Err(Error::NotRunning(device.meta.name.clone())),
+    }
+}
+
+/// Stops a device, saving its quick-boot snapshot. Forces it to stop if it
+/// hasn't exited after `timeout`.
+pub async fn stop(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
+    let info = running(device)?;
+    let adb = Adb::new(sdk.adb_bin()?, info.serial());
+    // "emu kill" asks the emulator to save its state and exit.
+    let _ = tokio::time::timeout(Duration::from_secs(10), adb.raw(&["emu", "kill"])).await;
+    let deadline = tokio::time::Instant::now() + timeout;
+    while is_alive(info.pid) && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    if is_alive(info.pid) {
+        terminate(info.pid);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    device.set_runtime(None)
+}
+
+/// The token the emulator expects on gRPC calls. With `-grpc-use-token` each
+/// run gets its own token, which the emulator writes to its discovery file.
+pub fn grpc_token(info: &RuntimeInfo) -> Option<String> {
+    let name = format!("pid_{}.ini", info.pid);
+    discovery_dirs()
+        .into_iter()
+        .map(|dir| dir.join(&name))
+        .find_map(|file| {
+            crate::sdk::read_properties(&file)
+                .ok()?
+                .remove("grpc.token")
+        })
+}
+
+/// Where the emulator writes a `pid_<pid>.ini` file describing each running instance.
+fn discovery_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(base) = directories::BaseDirs::new() {
+        if cfg!(target_os = "macos") {
+            dirs.push(
+                base.home_dir()
+                    .join("Library/Caches/TemporaryItems/avd/running"),
+            );
+        } else if cfg!(target_os = "windows") {
+            dirs.push(base.data_local_dir().join("Temp/avd/running"));
+        } else {
+            if let Some(runtime) = base.runtime_dir() {
+                dirs.push(runtime.join("avd/running"));
+            }
+            dirs.push(std::env::temp_dir().join(format!("android-{}/avd/running", whoami())));
+        }
+    }
+    dirs.push(std::env::temp_dir().join("avd/running"));
+    dirs
+}
+
+#[cfg(unix)]
+fn whoami() -> String {
+    std::env::var("USER").unwrap_or_default()
+}
+
+#[cfg(not(unix))]
+fn whoami() -> String {
+    std::env::var("USERNAME").unwrap_or_default()
+}
+
+/// The last lines of a log file.
+pub fn log_tail(path: &Path, lines: usize) -> String {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let all: Vec<&str> = text.lines().collect();
+    all[all.len().saturating_sub(lines)..].join("\n")
+}
+
+fn free_console_port(used: &[RuntimeInfo]) -> Result<u16> {
+    (FIRST_CONSOLE_PORT..=LAST_CONSOLE_PORT)
+        .step_by(2)
+        .find(|&port| {
+            !used.iter().any(|r| r.console_port == port)
+                && port_is_free(port)
+                && port_is_free(port + 1)
+        })
+        .ok_or(Error::NoFreePorts)
+}
+
+fn free_grpc_port(used: &[RuntimeInfo]) -> Result<u16> {
+    (FIRST_GRPC_PORT..FIRST_GRPC_PORT + 200)
+        .find(|&port| !used.iter().any(|r| r.grpc_port == port) && port_is_free(port))
+        .ok_or(Error::NoFreePorts)
+}
+
+fn port_is_free(port: u16) -> bool {
+    TcpListener::bind(("127.0.0.1", port)).is_ok() && TcpListener::bind(("0.0.0.0", port)).is_ok()
+}
+
+/// Runs the emulator in its own process group, so a Control-C in the terminal
+/// that started it doesn't stop it.
+fn detach(command: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
+}
+
+/// True if a process with this id is running.
+pub fn is_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        // Signal 0 checks the process exists without sending anything.
+        let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+        result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return false;
+            }
+            let mut code = 0u32;
+            let ok = GetExitCodeProcess(handle, &mut code) != 0;
+            CloseHandle(handle);
+            ok && code == STILL_ACTIVE as u32
+        }
+    }
+}
+
+fn terminate(pid: u32) {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(pid as libc::pid_t, libc::SIGTERM);
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_TERMINATE, TerminateProcess,
+        };
+        unsafe {
+            let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if !handle.is_null() {
+                TerminateProcess(handle, 1);
+                CloseHandle(handle);
+            }
+        }
+    }
+}

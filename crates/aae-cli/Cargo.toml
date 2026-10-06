@@ -1,0 +1,18 @@
+[package]
+name = "aae-cli"
+description = "The aae command: create, run and test accessible Android virtual devices from the terminal."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "aae"
+path = "src/main.rs"
+
+[dependencies]
+aae-core.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+clap.workspace = true
+tracing-subscriber.workspace = true
+crossterm = "0.29"

@@ -1,0 +1,31 @@
+[workspace]
+resolver = "3"
+members = ["crates/aae-core", "crates/aae-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+repository = "https://github.com/aaron-gh/accessible-android-emulator"
+
+[workspace.dependencies]
+aae-core = { path = "crates/aae-core" }
+anyhow = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "fs", "io-util", "signal"] }
+tokio-stream = "0.1"
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+prost-types = "0.14"
+tonic-prost-build = "0.14"
+protox = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+cpal = "0.18"
+ringbuf = "0.5"
+clap = { version = "4", features = ["derive"] }
+directories = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

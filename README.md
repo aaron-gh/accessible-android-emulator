@@ -1,0 +1,70 @@
+# Accessible Android Emulator (AAE)
+
+AAE lets blind people create, run and test Android virtual devices without sighted help. Each device has a screen reader on from its first boot, takes your keyboard, and plays its audio reliably.
+
+This is an early development build. It has a cross-platform core and the `aae` command line. The Mac app comes next.
+
+## What works now
+
+- Finding your Android SDK and the Android versions installed in it.
+- Named devices, including several of the same Android version: create, clone, rename and delete.
+- Starting a device with no emulator window, and stopping it with its state saved.
+- First-boot setup: hardware keyboard on, setup wizard skipped, screen kept awake, and a screen reader installed and turned on.
+- Keeping accessibility services on. Every start, and every app install, turns back on any service Android turned off.
+- Installing apps, and turning on the accessibility services inside them.
+- Playing the device's audio through AAE's own audio code, not the emulator's. The emulator's own audio output is off, which removes its crackle.
+- Turning the screen reader's volume up to full on each new device, through AAE's helper app. Pass `--no-volume-boost` to leave it alone, or use `aae volume` to change it.
+- Sending keys and text, rotating, battery, location, text messages, calls, clipboard, screenshots and snapshots.
+- `aae attach`: the device's audio plays and your terminal's keyboard goes to the device. Control-] brings it back. Plain Escape goes to the device. A terminal can't see the Command key, so Option is sent as Android's Meta key, the modifier TalkBack's current keymap uses. Pass `--keep-alt` to send it as Alt. macOS Terminal turns Option-Left and Option-Right into word movement before AAE sees them. To fix that, open Terminal's Settings, then Profiles, then Keyboard. Turn on "Use Option as Meta key". Set Option-Left to send `\033[1;3D` and Option-Right to send `\033[1;3C`. iTerm2, Ghostty, kitty and WezTerm report every key and need none of this. The Mac app will capture keys directly.
+- `aae latency`: measures the time from a key press to the device's speech.
+
+## Building
+
+You need Rust (from [rustup.rs](https://rustup.rs)) and CMake 3.24 or later. You don't need protoc.
+
+```sh
+cargo build --release
+```
+
+The command is then `target/release/aae`.
+
+AAE's helper app is an Android app that runs on each device. It needs JDK 17 and the Android SDK:
+
+```sh
+cd android
+./gradlew :helper:assembleRelease
+```
+
+AAE finds the built helper on its own when you run it from this folder. Alternatively, put it next to the `aae` program as `aae-helper.apk`, or set `AAE_HELPER_APK` to its path.
+
+## Getting started
+
+You need the Android SDK with the emulator, platform tools, build tools, and at least one system image. Android Studio installs these. Downloading Android versions from inside AAE is coming.
+
+```sh
+aae doctor
+aae images
+aae create "Android 16 test" --api 36 --screen-reader path/to/backtalk.apk
+aae attach "Android 16 test"
+aae stop "Android 16 test"
+```
+
+`aae help` lists every command, and `aae help <command>` explains one.
+
+To set a default screen reader, so you don't have to pass `--screen-reader` each time, put the APK at:
+
+- macOS: `~/Library/Application Support/io.github.aaron-gh.AAE/screen-readers/default.apk`
+
+Alternatively, set `AAE_SCREEN_READER_APK` to its path.
+
+## Where things are kept
+
+Devices live in AAE's data folder, under `devices`. Set `AAE_HOME` to keep them somewhere else, such as an external drive. Each device is an ordinary emulator AVD folder plus an `aae.toml` file. To use AAE's devices from Android Studio, point `ANDROID_AVD_HOME` at the folder.
+
+## Layout
+
+- `crates/aae-core`: the cross-platform core. It covers the SDK, the device store, the emulator, gRPC control, adb, audio, keys and provisioning.
+- `crates/aae-cli`: the `aae` command.
+- `crates/aae-core/proto`: the Android Emulator's gRPC definitions, under Apache 2.0.
+- `crates/aae-core/examples/audio_probe.rs`: prints how loud the device's audio stream is, in quarter seconds, while pressing keys. Use it to diagnose audio problems.
+- `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume.
