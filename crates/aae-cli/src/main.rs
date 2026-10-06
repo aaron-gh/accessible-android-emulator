@@ -367,7 +367,7 @@ enum Command {
     /// Installing a new build of the same screen reader keeps its settings.
     /// Stopped devices get it when they next start.
     #[command(
-        after_help = "Use backtalk in place of an APK to download Backtalk's latest development build."
+        after_help = "Use backtalk in place of an APK to download Backtalk's latest development build, or the name of a screen reader already on the device, such as talkback, to switch to it."
     )]
     ScreenReader {
         /// The device, several separated by commas, or all, for every
@@ -379,7 +379,8 @@ enum Command {
         #[arg(long)]
         replace: bool,
     },
-    /// List, turn on or turn off accessibility services.
+    /// List the accessibility services installed on a device, by name, and
+    /// which are on; or turn one on, to stay on, or off.
     Services {
         device: String,
         #[command(subcommand)]
@@ -506,10 +507,14 @@ enum Rotation {
 
 #[derive(Subcommand)]
 enum ServiceAction {
-    /// Turn on a service and keep it on, as package/class.
-    Enable { component: String },
-    /// Turn off a service and stop keeping it on.
-    Disable { component: String },
+    /// Turn a service on and keep it on: by its name, package or component.
+    /// A screen reader becomes the device's screen reader, instead of the
+    /// one it had.
+    #[command(alias = "enable")]
+    On { service: String },
+    /// Turn a service off and keep it off.
+    #[command(alias = "disable")]
+    Off { service: String },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -1543,6 +1548,35 @@ async fn run(cli: Cli) -> Result<()> {
             apk,
             replace,
         } => {
+            // A screen reader already on the device, such as talkback, by name.
+            if !apk.eq_ignore_ascii_case("backtalk") && !std::path::Path::new(&apk).exists() {
+                use aae_core::services;
+                let wanted = if apk.eq_ignore_ascii_case("talkback") {
+                    "com.google.android.marvin.talkback".to_string()
+                } else {
+                    apk.clone()
+                };
+                for name in device.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+                    let (mut device, _, adb) = ctx.connect(name).await?;
+                    provision::update_helper(&ctx.sdk, &adb).await?;
+                    let list = services::list(&adb, &device).await?;
+                    let service = services::find(&list, &wanted)
+                        .filter(|s| s.screen_reader)
+                        .cloned()
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "{} has no screen reader called \"{apk}\", and there's no file by that name. aae services lists what's installed.",
+                                device.meta.name
+                            )
+                        })?;
+                    services::use_screen_reader(&mut device, &adb, &service).await?;
+                    println!(
+                        "{} is now the screen reader on {}.",
+                        service.label, device.meta.name
+                    );
+                }
+                return Ok(());
+            }
             let backtalk = apk.eq_ignore_ascii_case("backtalk");
             let mut path = (!backtalk).then(|| PathBuf::from(&apk));
             let devices: Vec<Device> = if device.trim().eq_ignore_ascii_case("all") {
@@ -1606,36 +1640,43 @@ async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Services { device, action } => {
+            use aae_core::services;
             let (mut device, _, adb) = ctx.connect(&device).await?;
+            provision::update_helper(&ctx.sdk, &adb).await?;
+            let list = services::list(&adb, &device).await?;
+            let pick = |name: &str| {
+                services::find(&list, name).cloned().ok_or_else(|| {
+                    anyhow!("No accessibility service called \"{name}\" is installed. aae services lists them.")
+                })
+            };
             match action {
                 None => {
-                    let enabled = adb.enabled_services().await?;
-                    if enabled.is_empty() {
-                        println!("No accessibility services are on.");
-                    }
-                    for component in enabled {
-                        let kept = device.meta.keep_enabled.contains(&component);
-                        println!(
-                            "{component} is on{}.",
-                            if kept { ", and AAE keeps it on" } else { "" }
-                        );
+                    for s in &list {
+                        let mut line = format!("{}: {}", s.label, if s.on { "on" } else { "off" });
+                        if s.current_screen_reader {
+                            line.push_str(", the device's screen reader");
+                        } else if s.screen_reader {
+                            line.push_str(", a screen reader");
+                        }
+                        println!("{line} ({}).", s.component);
+                        if !s.description.is_empty() {
+                            println!("  {}", s.description.lines().next().unwrap_or(""));
+                        }
                     }
                 }
-                Some(ServiceAction::Enable { component }) => {
-                    device.keep_service_enabled(&component);
-                    device.save_meta()?;
-                    adb.ensure_services(
-                        std::slice::from_ref(&component),
-                        provision::SERVICE_TIMEOUT,
-                    )
-                    .await?;
-                    println!("Turned on {component}, and will keep it on.");
+                Some(ServiceAction::On { service }) => {
+                    let service = pick(&service)?;
+                    services::set(&mut device, &adb, &service, true).await?;
+                    if service.screen_reader {
+                        println!("{} is now the screen reader.", service.label);
+                    } else {
+                        println!("Turned on {}, and AAE keeps it on.", service.label);
+                    }
                 }
-                Some(ServiceAction::Disable { component }) => {
-                    device.meta.keep_enabled.retain(|c| c != &component);
-                    device.save_meta()?;
-                    adb.disable_service(&component).await?;
-                    println!("Turned off {component}.");
+                Some(ServiceAction::Off { service }) => {
+                    let service = pick(&service)?;
+                    services::set(&mut device, &adb, &service, false).await?;
+                    println!("Turned off {}.", service.label);
                 }
             }
             Ok(())

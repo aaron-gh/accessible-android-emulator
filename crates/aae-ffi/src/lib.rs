@@ -350,6 +350,19 @@ pub struct IntentInfo {
     pub broadcast: bool,
 }
 
+/// An installed accessibility service.
+#[derive(uniffi::Record)]
+pub struct ServiceInfo {
+    /// As `package/class`.
+    pub component: String,
+    pub label: String,
+    pub description: String,
+    pub screen_reader: bool,
+    pub on: bool,
+    /// The device's screen reader, as AAE keeps it.
+    pub current_screen_reader: bool,
+}
+
 /// An installed app.
 #[derive(uniffi::Record)]
 pub struct AppInfo {
@@ -1845,6 +1858,50 @@ impl Session {
         };
         let controller = self.controller.clone();
         on_runtime(async move { Ok(controller.phone(operation, &number).await?) }).await
+    }
+
+    /// The accessibility services installed on the device, screen readers first.
+    pub async fn list_services(&self) -> Result<Vec<ServiceInfo>, AaeError> {
+        let device = self.device.lock().unwrap().clone();
+        let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
+        on_runtime(async move {
+            provision::update_helper(&sdk, &adb).await?;
+            Ok(aae_core::services::list(&adb, &device)
+                .await?
+                .into_iter()
+                .map(|s| ServiceInfo {
+                    component: s.component,
+                    label: s.label,
+                    description: s.description,
+                    screen_reader: s.screen_reader,
+                    on: s.on,
+                    current_screen_reader: s.current_screen_reader,
+                })
+                .collect())
+        })
+        .await
+    }
+
+    /// Turns a service on, to stay on, or off. Turning on a screen reader
+    /// makes it the device's screen reader instead of the one it had.
+    pub async fn set_service(&self, component: String, on: bool) -> Result<(), AaeError> {
+        let mut device = self.device.lock().unwrap().clone();
+        let adb = self.adb.clone();
+        let device = on_runtime(async move {
+            use aae_core::services;
+            let list = services::list(&adb, &device).await?;
+            let service =
+                services::find(&list, &component)
+                    .cloned()
+                    .ok_or_else(|| AaeError::Failed {
+                        message: "That service isn't installed any more.".into(),
+                    })?;
+            services::set(&mut device, &adb, &service, on).await?;
+            Ok(device)
+        })
+        .await?;
+        *self.device.lock().unwrap() = device;
+        Ok(())
     }
 
     /// The installed apps, by name; with `system`, Android's own too.

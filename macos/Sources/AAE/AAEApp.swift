@@ -71,6 +71,7 @@ struct AAEApp: App {
                     .keyboardShortcut("v", modifiers: [.command, .option])
                 Divider()
                 AppsMenuItem()
+                ServicesMenuItem()
                 Button("Open Link…") { model.showingOpenLink = true }
                     .keyboardShortcut("l", modifiers: [.command, .shift])
                 Button("Send Intent…") { model.showingSendIntent = true }
@@ -118,6 +119,10 @@ struct AAEApp: App {
         }
         Window("Watching for New Builds", id: "watches") {
             WatchView()
+                .environmentObject(model)
+        }
+        Window("Accessibility Services", id: "services") {
+            ServicesView()
                 .environmentObject(model)
         }
         Window("Apps", id: "apps") {

@@ -51,6 +51,10 @@ final class AppModel: ObservableObject {
     @Published var installQuestion: InstallQuestion?
     /// An installed app's parts waiting for the user to choose about.
     @Published var partsQuestion: PartsQuestion?
+    /// The selected device's accessibility services, while their window is open.
+    @Published private(set) var services: [ServiceInfo] = []
+    @Published private(set) var servicesDevice: String?
+    @Published private(set) var loadingServices = false
     /// The selected device's apps, while the Apps window is open.
     @Published private(set) var apps: [AppInfo] = []
     @Published private(set) var appsDevice: String?
@@ -1318,6 +1322,39 @@ final class AppModel: ObservableObject {
                 }
             }
             refresh()
+        }
+    }
+
+    // MARK: - Accessibility services
+
+    func loadServices() {
+        servicesDevice = selected?.name
+        guard let device = selected, device.running else {
+            services = []
+            return
+        }
+        loadingServices = true
+        withSession { [weak self] session in
+            defer { self?.loadingServices = false }
+            self?.services = try await session.listServices()
+        }
+    }
+
+    /// Turns a service on, to stay on, or off. A screen reader turned on
+    /// becomes the device's screen reader instead of the one it had.
+    func setService(_ service: ServiceInfo, on: Bool) {
+        if on && service.screenReader {
+            announce("Switching to \(service.label).")
+        }
+        withSession { [weak self] session in
+            try await session.setService(component: service.component, on: on)
+            if on && service.screenReader {
+                self?.announce("\(service.label) is now the screen reader.", tone: .success)
+            } else {
+                self?.announce("\(service.label) \(on ? "on" : "off").", tone: .success)
+            }
+            self?.loadServices()
+            self?.refresh()
         }
     }
 

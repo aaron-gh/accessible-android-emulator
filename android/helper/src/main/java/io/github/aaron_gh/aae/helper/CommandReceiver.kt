@@ -40,6 +40,9 @@ import android.content.Intent
  * JSON, with their names and whether each is granted. Result code 0 if
  * the app isn't installed.
  *
+ * LIST_SERVICES returns every installed accessibility service as JSON:
+ * component, label, description, and whether it's a screen reader.
+ *
  * And for the check above: The result code is 1 if it can,
  * 0 if not, and the result data is "<engine package>|<what happened>".
  */
@@ -90,6 +93,9 @@ class CommandReceiver : BroadcastReceiver() {
                 TestTone.play(intent.getIntExtra("hz", 1000), rate, 1.5)
                 setResult(rate, "native=${TestTone.nativeRate()}", null)
             }
+            ACTION_LIST_SERVICES -> {
+                setResult(1, ServiceList.services(context).toString(), null)
+            }
             ACTION_LIST_APPS -> {
                 setResult(1, AppList.apps(context).toString(), null)
             }
@@ -118,6 +124,7 @@ class CommandReceiver : BroadcastReceiver() {
         const val ACTION_SPEECH_RELAY = "io.github.aaron_gh.aae.helper.SPEECH_RELAY"
         const val ACTION_SPEECH_LOG = "io.github.aaron_gh.aae.helper.SPEECH_LOG"
         const val ACTION_LIST_APPS = "io.github.aaron_gh.aae.helper.LIST_APPS"
+        const val ACTION_LIST_SERVICES = "io.github.aaron_gh.aae.helper.LIST_SERVICES"
         const val ACTION_APP_PERMISSIONS = "io.github.aaron_gh.aae.helper.APP_PERMISSIONS"
     }
 }
