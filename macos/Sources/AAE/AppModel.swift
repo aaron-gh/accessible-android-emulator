@@ -1,4 +1,5 @@
 import AppKit
+import CoreLocation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -44,6 +45,10 @@ final class AppModel: ObservableObject {
     /// The version being downloaded and how far it has got.
     @Published private(set) var download: (version: String, percent: UInt32)?
     @Published var licenceRequest: LicenceRequest?
+    /// The selected device's snapshots, while the Snapshots window is open.
+    @Published private(set) var snapshots: [SnapshotInfo] = []
+    @Published private(set) var snapshotsDevice: String?
+    @Published private(set) var loadingSnapshots = false
     /// True until the emulator and SDK tools AAE needs are installed.
     @Published private(set) var needsSetup = false
     /// What setting up still needs, once read from Google's list.
@@ -420,6 +425,34 @@ final class AppModel: ObservableObject {
                    device.screenReader == nil, !device.screenReaderDeclined {
                     screenReaderQuestion = device
                 }
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+            busy[id] = nil
+            refresh()
+        }
+    }
+
+    /// Restarts Android on the selected device, keeping everything on it.
+    func restart() {
+        guard let engine, let device = selected, busy[device.id] == nil else { return }
+        guard device.running else {
+            announce("\(device.name) is not running. Start it first.", tone: .failure)
+            return
+        }
+        if deviceModeID == device.id {
+            leaveDeviceMode()
+        }
+        let id = device.id
+        busy[id] = "Restarting"
+        // Android's audio goes away while it restarts; listen again after.
+        sessions.removeValue(forKey: id)?.stopAudio()
+        let relay = ProgressRelay { [weak self] message in self?.announce(message) }
+        Task {
+            do {
+                try await engine.restartDevice(id: id, listener: relay)
+                _ = try await session(for: id)
+                Tone.success.play()
             } catch {
                 announce(error.localizedDescription, tone: .failure)
             }
@@ -1058,6 +1091,188 @@ final class AppModel: ObservableObject {
                 let result = try await session.installApk(path: path)
                 self?.announce(result, tone: .success)
             }
+        }
+    }
+
+    // MARK: - Snapshots
+
+    /// Reads the selected device's snapshots, for the Snapshots window.
+    func loadSnapshots() {
+        snapshotsDevice = selected?.name
+        guard let device = selected, device.running else {
+            snapshots = []
+            return
+        }
+        loadingSnapshots = true
+        withSession { [weak self] session in
+            defer { self?.loadingSnapshots = false }
+            self?.snapshots = try await session.snapshots()
+        }
+    }
+
+    func saveSnapshot(name: String, notes: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        announce("Saving snapshot \(name).")
+        withSession { [weak self] session in
+            try await session.saveSnapshot(name: name, notes: notes)
+            self?.announce("Saved snapshot \(name).", tone: .success)
+            self?.loadSnapshots()
+        }
+    }
+
+    /// Asks, then puts the device back as it was in a snapshot.
+    func restoreSnapshot(_ snapshot: SnapshotInfo) {
+        let alert = NSAlert()
+        alert.messageText = "Restore \(snapshot.name)?"
+        alert.informativeText = "The device goes back to how it was when this snapshot was taken. Anything since then is lost, unless you save a snapshot of it first."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Restore")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        announce("Restoring \(snapshot.name).")
+        withSession { [weak self] session in
+            try await session.loadSnapshot(id: snapshot.id)
+            self?.announce("Restored \(snapshot.name).", tone: .success)
+            self?.loadSnapshots()
+        }
+    }
+
+    func updateSnapshot(_ snapshot: SnapshotInfo, name: String, notes: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        withSession { [weak self] session in
+            try await session.updateSnapshot(id: snapshot.id, name: name, notes: notes)
+            self?.announce("Saved the changes to \(name).", tone: .success)
+            self?.loadSnapshots()
+        }
+    }
+
+    /// Asks, then deletes a snapshot.
+    func deleteSnapshot(_ snapshot: SnapshotInfo) {
+        let alert = NSAlert()
+        alert.messageText = "Delete \(snapshot.name)?"
+        alert.informativeText = "This frees \(snapshot.size). It can't be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Delete")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        withSession { [weak self] session in
+            try await session.deleteSnapshot(id: snapshot.id)
+            self?.announce("Deleted \(snapshot.name).", tone: .success)
+            self?.loadSnapshots()
+        }
+    }
+
+    // MARK: - Clipboard
+
+    /// Copies the device's clipboard to the Mac's.
+    func copyDeviceClipboard() {
+        withSession { [weak self] session in
+            let text = try await session.deviceClipboard()
+            guard !text.isEmpty else {
+                self?.announce("The device's clipboard is empty.")
+                return
+            }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            self?.announce("Copied from the device: \(Self.preview(text))", tone: .success)
+        }
+    }
+
+    /// Puts the Mac's clipboard on the device's.
+    func sendClipboardToDevice() {
+        guard let text = macClipboardText() else { return }
+        withSession { [weak self] session in
+            try await session.setDeviceClipboard(text: text)
+            self?.announce("Sent to the device's clipboard: \(Self.preview(text))", tone: .success)
+        }
+    }
+
+    /// Types the Mac's clipboard on the device, for fields that block pasting.
+    func typeClipboard() {
+        guard let text = macClipboardText() else { return }
+        withSession { [weak self] session in
+            try await session.typeText(text: text)
+            self?.announce("Typed \(text.count) characters.", tone: .success)
+        }
+    }
+
+    private func macClipboardText() -> String? {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
+            announce("The Mac's clipboard has no text.", tone: .failure)
+            return nil
+        }
+        return text
+    }
+
+    /// The start of some text, to read out.
+    private static func preview(_ text: String) -> String {
+        text.count > 80 ? String(text.prefix(80)) + "…" : text
+    }
+
+    // MARK: - Battery, location and phone
+
+    func setBattery(level: Int, charging: Bool) {
+        withSession { [weak self] session in
+            try await session.setBattery(level: UInt32(max(0, min(level, 100))), charging: charging)
+            self?.announce("Battery at \(level) percent, \(charging ? "charging" : "not charging").", tone: .success)
+        }
+    }
+
+    /// Sets the device's location from "latitude, longitude", or a place or
+    /// address, which the Mac looks up.
+    func setLocation(_ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        let numbers = text.split(whereSeparator: { $0 == "," || $0 == " " }).compactMap { Double($0) }
+        if numbers.count == 2, abs(numbers[0]) <= 90, abs(numbers[1]) <= 180 {
+            applyLocation(latitude: numbers[0], longitude: numbers[1], place: nil)
+            return
+        }
+        announce("Looking up \(text).")
+        CLGeocoder().geocodeAddressString(text) { [weak self] places, error in
+            Task { @MainActor in
+                guard let place = places?.first, let coordinate = place.location?.coordinate else {
+                    self?.announce("Couldn't find \(text). Try an address, or latitude and longitude.", tone: .failure)
+                    return
+                }
+                let name = [place.name, place.locality, place.country].compactMap { $0 }.joined(separator: ", ")
+                self?.applyLocation(latitude: coordinate.latitude, longitude: coordinate.longitude, place: name)
+            }
+        }
+    }
+
+    private func applyLocation(latitude: Double, longitude: Double, place: String?) {
+        withSession { [weak self] session in
+            try await session.setLocation(latitude: latitude, longitude: longitude)
+            let coordinates = String(format: "%.5f, %.5f", latitude, longitude)
+            self?.announce("Location set to \(place.map { "\($0), " } ?? "")\(coordinates).", tone: .success)
+        }
+    }
+
+    func sendTextMessage(from: String, text: String) {
+        guard !text.isEmpty else { return }
+        let from = from.isEmpty ? "5551234" : from
+        withSession { [weak self] session in
+            try await session.sendSms(from: from, text: text)
+            self?.announce("Sent a text message from \(from).", tone: .success)
+        }
+    }
+
+    func phoneCall(_ action: CallAction, number: String) {
+        let number = number.isEmpty ? "5551234" : number
+        withSession { [weak self] session in
+            try await session.phoneCall(action: action, number: number)
+            let said: String
+            switch action {
+            case .ring: said = "\(number) is calling the device."
+            case .hangUp: said = "Hung up."
+            case .answer: said = "Answered the device's call."
+            case .busy: said = "Busy for the device's call."
+            case .hold: said = "Call on hold."
+            case .resume: said = "Call taken off hold."
+            }
+            self?.announce(said)
         }
     }
 

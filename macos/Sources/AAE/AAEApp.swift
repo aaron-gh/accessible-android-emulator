@@ -24,6 +24,8 @@ struct AAEApp: App {
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                 Button("Stop") { model.stop() }
                     .keyboardShortcut(".", modifiers: [.command, .shift])
+                Button("Restart") { model.restart() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
                 DeviceModeMenuItem(model: model)
                 Button("Speak Status") { model.speakStatus() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
@@ -49,6 +51,16 @@ struct AAEApp: App {
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
                 Button("Mute Device Audio") { model.toggleMute() }
                     .keyboardShortcut("m", modifiers: [.command, .shift])
+                Divider()
+                Button("Copy Device Clipboard to Mac") { model.copyDeviceClipboard() }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                Button("Send Mac Clipboard to Device") { model.sendClipboardToDevice() }
+                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                Button("Type Mac Clipboard on Device") { model.typeClipboard() }
+                    .keyboardShortcut("v", modifiers: [.command, .option])
+                Divider()
+                SnapshotsMenuItem()
+                ConditionsMenuItem()
                 Divider()
                 Button("Install App…") { model.installApp() }
                     .keyboardShortcut("i")
@@ -77,6 +89,14 @@ struct AAEApp: App {
         }
         Window("Android Versions", id: "versions") {
             AndroidVersionsView()
+                .environmentObject(model)
+        }
+        Window("Snapshots", id: "snapshots") {
+            SnapshotsView()
+                .environmentObject(model)
+        }
+        Window("Battery, Location and Phone", id: "conditions") {
+            ConditionsView()
                 .environmentObject(model)
         }
         Window("Shell", id: "shell") {

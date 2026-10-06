@@ -31,6 +31,53 @@ impl Interceptor for Auth {
 
 type Svc = InterceptedService<Channel, Auth>;
 
+/// The emulator's own snapshot, which it saves on stop and starts from.
+const QUICK_BOOT: &str = "default_boot";
+
+/// A saved snapshot of a device.
+#[derive(Debug, Clone)]
+pub struct Snapshot {
+    pub id: String,
+    /// The name people gave it.
+    pub name: String,
+    pub notes: String,
+    /// When it was taken, in seconds since 1970.
+    pub created: Option<i64>,
+    pub size: u64,
+    /// The device started from it, or it was the last one restored.
+    pub loaded: bool,
+    /// False when the emulator won't restore it, for example after an
+    /// emulator update.
+    pub compatible: bool,
+}
+
+impl Snapshot {
+    /// When it was taken, in local time, such as "6 Oct 2026, 20:41".
+    pub fn taken(&self) -> Option<String> {
+        let secs = self.created?;
+        #[cfg(unix)]
+        {
+            let t = secs as libc::time_t;
+            let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+            if !unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
+                const MONTHS: [&str; 12] = [
+                    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+                    "Dec",
+                ];
+                return Some(format!(
+                    "{} {} {}, {:02}:{:02}",
+                    tm.tm_mday,
+                    MONTHS[tm.tm_mon.clamp(0, 11) as usize],
+                    tm.tm_year + 1900,
+                    tm.tm_hour,
+                    tm.tm_min
+                ));
+            }
+        }
+        Some(format!("{secs} seconds after 1970"))
+    }
+}
+
 /// One finger on the touchscreen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TouchPoint {
@@ -450,6 +497,77 @@ impl Controller {
             .await?
             .into_inner()
             .snapshots)
+    }
+
+    /// The snapshots people have saved, newest first. The emulator's own
+    /// quick-boot state is left out.
+    pub async fn snapshots(&self) -> Result<Vec<Snapshot>> {
+        let mut list: Vec<Snapshot> = self
+            .list_snapshots()
+            .await?
+            .into_iter()
+            .filter(|s| s.snapshot_id != QUICK_BOOT)
+            .map(|s| {
+                let details = s.details.unwrap_or_default();
+                Snapshot {
+                    name: details
+                        .logical_name
+                        .clone()
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or_else(|| s.snapshot_id.clone()),
+                    notes: details.description.clone().unwrap_or_default(),
+                    created: details.creation_time,
+                    size: s.size,
+                    loaded: s.status == pb::snapshot_details::LoadStatus::Loaded as i32,
+                    compatible: s.status != pb::snapshot_details::LoadStatus::Incompatible as i32,
+                    id: s.snapshot_id,
+                }
+            })
+            .collect();
+        list.sort_by_key(|s| std::cmp::Reverse(s.created));
+        Ok(list)
+    }
+
+    /// Saves a snapshot under a name people choose, with notes. Returns its id.
+    pub async fn save_named_snapshot(&self, name: &str, notes: &str) -> Result<String> {
+        let slug: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+            .split('-')
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let id = if slug.is_empty() {
+            format!("snapshot-{stamp}")
+        } else {
+            format!("{slug}-{stamp}")
+        };
+        self.save_snapshot(&id).await?;
+        self.update_snapshot(&id, name, notes).await?;
+        Ok(id)
+    }
+
+    /// Changes a snapshot's name and notes. Its id stays the same.
+    pub async fn update_snapshot(&self, id: &str, name: &str, notes: &str) -> Result<()> {
+        self.snapshots
+            .clone()
+            .update_snapshot(pb::SnapshotUpdateDescription {
+                snapshot_id: id.to_string(),
+                logical_name: Some(name.trim().to_string()),
+                description: Some(notes.trim().to_string()),
+            })
+            .await?;
+        Ok(())
     }
 
     pub async fn save_snapshot(&self, name: &str) -> Result<()> {

@@ -27,7 +27,7 @@ This is an early development build. It has a cross-platform core, the `aae` comm
 - Choosing a screen reader. If the Android image has no screen reader and you didn't choose one, AAE asks whether to download Backtalk (its latest development build, checked against Backtalk's signing key), install your own APK, or go without. `aae screen-reader <device> backtalk` adds Backtalk later.
 - Keeping accessibility services on. Every start, and every app install, turns back on any service Android turned off.
 - Installing apps, and turning on the accessibility services inside them.
-- Sending keys and text, rotating, battery, location, text messages, calls, clipboard, screenshots and snapshots.
+- Sending keys and text, rotating, battery, location, text messages, calls, clipboard, screenshots, and named snapshots with notes (`aae snapshot <device> save "Before sign-in" --notes "…"`, then list, load, rename or delete).
 
 ### Speech and sound
 
@@ -70,7 +70,10 @@ The Mac app is in `macos/`. It updates itself: it checks for new versions, and A
 
 - The main window lists your devices. New Device (Command-N) creates one, downloading its Android version if needed.
 - The File menu also has Android Versions (Option-Command-A), which lists installed versions with their size and the devices that use each one, and deletes the ones you no longer need.
-- The Device menu starts (Command-Shift-S) and stops (Command-Shift-.) the selected device. Speak Status (Command-Shift-I) says what it's doing. The menu also has Android's buttons, notifications and quick settings, rotation, muting, installing apps, screenshots, renaming, copying and deleting, and the testing tools.
+- The Device menu starts (Command-Shift-S), stops (Command-Shift-.) and restarts (Command-Shift-R) the selected device. Speak Status (Command-Shift-I) says what it's doing. The menu also has Android's buttons, notifications and quick settings, rotation, muting, installing apps, screenshots, renaming, copying and deleting, and the testing tools.
+- Clipboard: Command-Shift-C copies the device's clipboard to the Mac, Command-Shift-V sends the Mac's clipboard to the device, and Option-Command-V types it on the device as key presses, for fields that block pasting.
+- Snapshots (Option-Command-S): save the device as it is, with a name and notes, and restore, rename or delete snapshots later. Each one lists when it was taken.
+- Battery, Location and Phone (Option-Command-B): set the battery level and charging, set the location from an address, a place name or coordinates, send the device a text message, and play the other end of a phone call: call the device, hang up, hold, or answer or be busy for a call the device makes.
 - Gesture mode (Command-Shift-G) turns the keyboard into screen reader gestures, described under Gestures above.
 - Device mode (Command-Shift-E) gives the keyboard to Android, from any AAE window. Every key goes to Android, with Command as Meta. That includes system shortcuts such as Spotlight's Command-Space and Mission Control. VoiceOver's own shortcuts, such as Command-F5, still work. Control-Command-Escape, or the "Return to the Mac" button, brings the keyboard back.
 

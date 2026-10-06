@@ -255,6 +255,37 @@ pub struct UtteranceInfo {
     pub text: String,
 }
 
+/// A saved snapshot of a device.
+#[derive(uniffi::Record)]
+pub struct SnapshotInfo {
+    pub id: String,
+    pub name: String,
+    pub notes: String,
+    /// When it was taken, such as "6 Oct 2026, 20:41".
+    pub taken: Option<String>,
+    /// Its size, in words.
+    pub size: String,
+    /// The device started from it, or it was the last one restored.
+    pub loaded: bool,
+    /// False when this emulator won't restore it.
+    pub compatible: bool,
+}
+
+/// What the other end of a phone call does.
+#[derive(uniffi::Enum)]
+pub enum CallAction {
+    /// Call the device from a number, so it rings.
+    Ring,
+    /// End the call.
+    HangUp,
+    /// Answer a call the device is making.
+    Answer,
+    /// Be busy for a call the device is making.
+    Busy,
+    Hold,
+    Resume,
+}
+
 /// A point on the screen as the user sees it, in pixels.
 #[derive(uniffi::Record, Clone, Copy)]
 pub struct ScreenPoint {
@@ -783,6 +814,33 @@ impl Engine {
         .await
     }
 
+    /// Restarts Android on a running device, keeping everything on it, then
+    /// checks the screen reader, keyboard and speech as a start does.
+    pub async fn restart_device(
+        &self,
+        id: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> Result<(), AaeError> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        on_runtime(async move {
+            let mut device = store.get(&id)?;
+            let name = device.meta.name.clone();
+            listener.progress(format!("Restarting Android on {name}."));
+            emulator::reboot(&sdk, &device, lifecycle::BOOT_TIMEOUT).await?;
+            lifecycle::start_device(
+                &sdk,
+                &store,
+                &mut device,
+                &StartOptions::default(),
+                &ProvisionOptions::default(),
+                |p| listener.progress(p.describe(&name)),
+            )
+            .await?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Stops a device, saving its state so it starts quickly next time.
     pub async fn stop_device(&self, id: String) -> Result<(), AaeError> {
         let (sdk, store) = (self.sdk.clone(), self.store.clone());
@@ -794,7 +852,6 @@ impl Engine {
         .await
     }
 
-    /// Deletes a device and its files. Returns how much space was freed, in words.
     /// Every installed Android version, newest first, with its size and the
     /// devices that use it.
     pub async fn installed_images(&self) -> Result<Vec<InstalledImageInfo>, AaeError> {
@@ -846,6 +903,7 @@ impl Engine {
         .await
     }
 
+    /// Deletes a device and its files. Returns how much space was freed, in words.
     pub fn delete_device(&self, id: String) -> Result<String, AaeError> {
         let device = self.store.get(&id)?;
         Ok(human_size(self.store.delete(&device)?))
@@ -1302,6 +1360,116 @@ impl Session {
             Ok(())
         })
         .await
+    }
+
+    /// The snapshots saved of this device, newest first.
+    pub async fn snapshots(&self) -> Result<Vec<SnapshotInfo>, AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move {
+            Ok(controller
+                .snapshots()
+                .await?
+                .into_iter()
+                .map(|s| SnapshotInfo {
+                    taken: s.taken(),
+                    size: human_size(s.size),
+                    id: s.id,
+                    name: s.name,
+                    notes: s.notes,
+                    loaded: s.loaded,
+                    compatible: s.compatible,
+                })
+                .collect())
+        })
+        .await
+    }
+
+    /// Saves the device as it is now, under a name, with notes.
+    pub async fn save_snapshot(&self, name: String, notes: String) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move {
+            controller.save_named_snapshot(&name, &notes).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Puts the device back as it was in a snapshot.
+    pub async fn load_snapshot(&self, id: String) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.load_snapshot(&id).await?) }).await
+    }
+
+    /// Changes a snapshot's name and notes.
+    pub async fn update_snapshot(
+        &self,
+        id: String,
+        name: String,
+        notes: String,
+    ) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.update_snapshot(&id, &name, &notes).await?) }).await
+    }
+
+    pub async fn delete_snapshot(&self, id: String) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.delete_snapshot(&id).await?) }).await
+    }
+
+    /// The text on the device's clipboard.
+    pub async fn device_clipboard(&self) -> Result<String, AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.clipboard().await?) }).await
+    }
+
+    /// Puts text on the device's clipboard.
+    pub async fn set_device_clipboard(&self, text: String) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.set_clipboard(&text).await?) }).await
+    }
+
+    /// Types text on the device as key presses, for fields that block pasting.
+    pub async fn type_text(&self, text: String) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.type_text(&text).await?) }).await
+    }
+
+    /// Sets the battery level, from 0 to 100, and whether it's charging.
+    pub async fn set_battery(&self, level: u32, charging: bool) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move {
+            Ok(controller
+                .set_battery(level.min(100) as i32, charging)
+                .await?)
+        })
+        .await
+    }
+
+    /// Sets where the device thinks it is.
+    pub async fn set_location(&self, latitude: f64, longitude: f64) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.set_location(latitude, longitude).await?) }).await
+    }
+
+    /// Sends the device a text message.
+    pub async fn send_sms(&self, from: String, text: String) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.send_sms(&from, &text).await?) }).await
+    }
+
+    /// Plays the other end of a phone call.
+    pub async fn phone_call(&self, action: CallAction, number: String) -> Result<(), AaeError> {
+        use aae_core::proto::android::emulation::control::phone_call::Operation;
+        let operation = match action {
+            CallAction::Ring => Operation::InitCall,
+            CallAction::HangUp => Operation::DisconnectCall,
+            CallAction::Answer => Operation::AcceptCall,
+            CallAction::Busy => Operation::RejectCallBusy,
+            CallAction::Hold => Operation::PlaceCallOnHold,
+            CallAction::Resume => Operation::TakeCallOffHold,
+        };
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.phone(operation, &number).await?) }).await
     }
 
     /// Starts reading the device log, if it isn't being read already.

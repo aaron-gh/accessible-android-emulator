@@ -421,10 +421,29 @@ enum SpeechLogAction {
 
 #[derive(Subcommand)]
 enum SnapshotAction {
+    /// List the snapshots, newest first, with when each was taken and its notes.
     List,
-    Save { name: String },
-    Load { name: String },
-    Delete { name: String },
+    /// Save the device as it is now, under a name of your choosing.
+    Save {
+        name: String,
+        /// Notes to keep with it, such as what it's for.
+        #[arg(long, default_value = "")]
+        notes: String,
+    },
+    /// Put the device back as it was in a snapshot.
+    Load {
+        name: String,
+    },
+    /// Change a snapshot's name, or its notes.
+    Rename {
+        name: String,
+        new_name: String,
+        #[arg(long)]
+        notes: Option<String>,
+    },
+    Delete {
+        name: String,
+    },
 }
 
 #[tokio::main]
@@ -1056,28 +1075,68 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Command::Snapshot { device, action } => {
             let (device, controller, _) = ctx.connect(&device).await?;
+            let find = |snapshots: &[aae_core::control::Snapshot], name: &str| {
+                snapshots
+                    .iter()
+                    .find(|s| s.id == name || s.name.eq_ignore_ascii_case(name.trim()))
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "{} has no snapshot called \"{name}\". Use aae snapshot \"{}\" list to see them.",
+                            device.meta.name, device.meta.name
+                        )
+                    })
+            };
             match action {
                 SnapshotAction::List => {
-                    let snapshots = controller.list_snapshots().await?;
+                    let snapshots = controller.snapshots().await?;
                     if snapshots.is_empty() {
                         println!("{} has no snapshots.", device.meta.name);
                     }
                     for s in snapshots {
-                        println!("{}, {}.", s.snapshot_id, human_size(s.size));
+                        let mut line = s.name.clone();
+                        if let Some(taken) = s.taken() {
+                            line.push_str(&format!(", taken {taken}"));
+                        }
+                        line.push_str(&format!(", {}", human_size(s.size)));
+                        if s.loaded {
+                            line.push_str(", restored last");
+                        }
+                        if !s.compatible {
+                            line.push_str(", can't be restored by this emulator");
+                        }
+                        println!("{line}.");
+                        if !s.notes.is_empty() {
+                            println!("  {}", s.notes);
+                        }
                     }
                 }
-                SnapshotAction::Save { name } => {
+                SnapshotAction::Save { name, notes } => {
                     println!("Saving snapshot {name}.");
-                    controller.save_snapshot(&name).await?;
+                    controller.save_named_snapshot(&name, &notes).await?;
                     println!("Saved snapshot {name}.");
                 }
                 SnapshotAction::Load { name } => {
-                    controller.load_snapshot(&name).await?;
-                    println!("Restored snapshot {name}.");
+                    let snapshot = find(&controller.snapshots().await?, &name)?;
+                    controller.load_snapshot(&snapshot.id).await?;
+                    println!("Restored snapshot {}.", snapshot.name);
+                }
+                SnapshotAction::Rename {
+                    name,
+                    new_name,
+                    notes,
+                } => {
+                    let snapshot = find(&controller.snapshots().await?, &name)?;
+                    let notes = notes.unwrap_or(snapshot.notes);
+                    controller
+                        .update_snapshot(&snapshot.id, &new_name, &notes)
+                        .await?;
+                    println!("Renamed snapshot {} to {new_name}.", snapshot.name);
                 }
                 SnapshotAction::Delete { name } => {
-                    controller.delete_snapshot(&name).await?;
-                    println!("Deleted snapshot {name}.");
+                    let snapshot = find(&controller.snapshots().await?, &name)?;
+                    controller.delete_snapshot(&snapshot.id).await?;
+                    println!("Deleted snapshot {}.", snapshot.name);
                 }
             }
             Ok(())
