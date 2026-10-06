@@ -94,6 +94,8 @@ pub struct DeviceInfo {
     pub screen_reader_declined: bool,
     /// The speech log is recording what the screen reader says.
     pub speech_log: bool,
+    /// Backtalk runs on this device's Android version (8.0 and later).
+    pub backtalk_supported: bool,
 }
 
 impl DeviceInfo {
@@ -113,6 +115,7 @@ impl DeviceInfo {
                 .map(String::from),
             screen_reader_declined: device.meta.screen_reader_declined,
             speech_log: device.meta.speech_log_engine.is_some(),
+            backtalk_supported: device.meta.api >= aae_core::screenreader::BACKTALK_MIN_API,
         }
     }
 }

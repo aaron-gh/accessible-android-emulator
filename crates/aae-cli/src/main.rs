@@ -1384,31 +1384,69 @@ async fn start(
 async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Result<()> {
     use std::io::{BufRead, IsTerminal, Write};
     let name = device.meta.name.clone();
+    let backtalk = device.meta.api >= aae_core::screenreader::BACKTALK_MIN_API;
     if !std::io::stdin().is_terminal() {
-        println!(
-            "{name} has no screen reader. Add one with: aae screen-reader \"{name}\" backtalk, \
-             or aae screen-reader \"{name}\" followed by the path to an APK."
-        );
+        if backtalk {
+            println!(
+                "{name} has no screen reader. Add one with: aae screen-reader \"{name}\" backtalk, \
+                 or aae screen-reader \"{name}\" followed by the path to an APK."
+            );
+        } else {
+            println!(
+                "{name} has no screen reader, and Backtalk needs Android 8 or later. Add one made for \
+                 this Android version, such as an older TalkBack, with: aae screen-reader \"{name}\" \
+                 followed by the path to its APK."
+            );
+        }
         return Ok(());
     }
-    println!("{name} has no screen reader. What would you like to do?");
-    println!("1. Download and install Backtalk.");
-    println!("2. Install a screen reader APK from this computer.");
-    println!("3. Continue without a screen reader, and don't ask again.");
+    // The choices, numbered in order.
+    let mut choices = Vec::new();
+    if backtalk {
+        println!("{name} has no screen reader. What would you like to do?");
+        choices.push(("Download and install Backtalk.", "backtalk"));
+    } else {
+        println!(
+            "{name} has no screen reader, and Backtalk needs Android 8 or later. \
+             You can install one made for this Android version, such as an older TalkBack."
+        );
+    }
+    choices.push(("Install a screen reader APK from this computer.", "apk"));
+    choices.push((
+        "Continue without a screen reader, and don't ask again.",
+        "none",
+    ));
+    for (i, (text, _)) in choices.iter().enumerate() {
+        println!("{}. {text}", i + 1);
+    }
+    let numbers: Vec<String> = (1..=choices.len()).map(|n| n.to_string()).collect();
+    let prompt = format!(
+        "Type {} or {}: ",
+        numbers[..numbers.len() - 1].join(", "),
+        numbers[numbers.len() - 1]
+    );
     let stdin = std::io::stdin();
     loop {
-        print!("Type 1, 2 or 3: ");
+        print!("{prompt}");
         std::io::stdout().flush()?;
         let mut answer = String::new();
         if stdin.lock().read_line(&mut answer)? == 0 {
             return Ok(());
         }
-        let path = match answer.trim() {
-            "1" => {
+        let Some(&(_, choice)) = answer
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .and_then(|n| choices.get(n.wrapping_sub(1)))
+        else {
+            continue;
+        };
+        let path = match choice {
+            "backtalk" => {
                 println!("Getting Backtalk's latest development build.");
                 provision::download_backtalk(&ctx.sdk, device.meta.api).await?
             }
-            "2" => {
+            "apk" => {
                 print!("Type the path to the APK: ");
                 std::io::stdout().flush()?;
                 let mut path = String::new();
@@ -1416,13 +1454,12 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
                 // Finder's Copy as Pathname and dragging into Terminal can add quotes.
                 PathBuf::from(path.trim().trim_matches(|c| c == '"' || c == '\''))
             }
-            "3" => {
+            _ => {
                 device.meta.screen_reader_declined = true;
                 device.save_meta()?;
                 println!("{name} has no screen reader. AAE won't ask again.");
                 return Ok(());
             }
-            _ => continue,
         };
         let package = provision::add_screen_reader(&ctx.sdk, device, adb, &path).await?;
         println!("{package} is installed and on.");

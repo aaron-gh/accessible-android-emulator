@@ -196,7 +196,9 @@ struct ScreenReaderQuestion: View {
             Text("\(device.name) has no screen reader")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text("This Android image doesn't include one. What would you like to do?")
+            Text(device.backtalkSupported
+                ? "This Android image doesn't include one. What would you like to do?"
+                : "This Android image doesn't include one, and Backtalk needs Android 8 or later. You can install a screen reader APK made for \(device.android), such as an older TalkBack, or continue without.")
             HStack {
                 Button("Continue Without", role: .cancel) {
                     model.setUpScreenReader(device, source: nil)
@@ -211,8 +213,10 @@ struct ScreenReaderQuestion: View {
                         model.setUpScreenReader(device, source: .apk(path: url.path))
                     }
                 }
-                Button("Download Backtalk") {
-                    model.setUpScreenReader(device, source: .backtalk)
+                if device.backtalkSupported {
+                    Button("Download Backtalk") {
+                        model.setUpScreenReader(device, source: .backtalk)
+                    }
                 }
             }
         }
