@@ -28,6 +28,9 @@ struct ContentView: View {
             LicenceView(request: request)
                 .interactiveDismissDisabled()
         }
+        .sheet(item: $model.installQuestion) { question in
+            InstallView(question: question)
+        }
         .sheet(item: $model.partsQuestion) { question in
             AppPartsView(question: question)
                 .interactiveDismissDisabled()
@@ -112,6 +115,13 @@ struct DeviceListView: View {
             }
         }
         .padding()
+        // Drop app packages anywhere on the window to install them.
+        .dropDestination(for: URL.self) { urls, _ in
+            let apks = urls.filter { $0.pathExtension.lowercased() == "apk" }
+            guard !apks.isEmpty else { return false }
+            model.install(paths: apks.map(\.path))
+            return true
+        }
     }
 
     private func rowText(_ device: DeviceInfo) -> String {

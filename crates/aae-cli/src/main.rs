@@ -5,6 +5,7 @@
 
 mod attach;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -263,6 +264,8 @@ enum Command {
     /// keyboard, a notification listener or a device administrator, AAE asks
     /// whether to turn it on, and remembers the answer for that device.
     Install {
+        /// The device, or several separated by commas, such as
+        /// "Android 16 test,Android 14 test".
         device: String,
         apks: Vec<PathBuf>,
         /// Leave every such part off, without asking.
@@ -1017,37 +1020,49 @@ async fn run(cli: Cli) -> Result<()> {
             no_services,
             yes,
         } => {
-            let (mut device, _, adb) = ctx.connect(&device).await?;
-            for apk in apks {
-                println!("Installing {}.", apk.display());
-                let (info, parts) =
-                    provision::install_app(&ctx.sdk, &mut device, &adb, &apk).await?;
-                println!("Installed {}.", info.package);
-                let mut choices = Vec::new();
-                for part in parts {
-                    match part.choice {
-                        Some(on) => println!(
-                            "{} is {}, as you chose before.",
-                            part.name,
-                            if on { "on" } else { "off" }
-                        ),
-                        None => {
-                            let on = if no_services {
-                                false
-                            } else if yes {
-                                true
-                            } else {
-                                ask_part(&part, &info.package)?
-                            };
-                            choices.push((part, on));
+            let names: Vec<&str> = device
+                .split(',')
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .collect();
+            // Answers about an app's parts, asked once and used on every device.
+            let mut answers: HashMap<String, bool> = HashMap::new();
+            for name in names {
+                let (mut device, _, adb) = ctx.connect(name).await?;
+                for apk in &apks {
+                    println!("Installing {} on {}.", apk.display(), device.meta.name);
+                    let (info, parts) =
+                        provision::install_app(&ctx.sdk, &mut device, &adb, apk).await?;
+                    println!("Installed {}.", info.package);
+                    let mut choices = Vec::new();
+                    for part in parts {
+                        match part.choice {
+                            Some(on) => println!(
+                                "{} is {}, as you chose before.",
+                                part.name,
+                                if on { "on" } else { "off" }
+                            ),
+                            None => {
+                                let on = if no_services {
+                                    false
+                                } else if yes {
+                                    true
+                                } else if let Some(&on) = answers.get(&part.component) {
+                                    on
+                                } else {
+                                    ask_part(&part, &info.package)?
+                                };
+                                answers.insert(part.component.clone(), on);
+                                choices.push((part, on));
+                            }
                         }
                     }
+                    for (part, on) in &choices {
+                        let state = if *on { "Turning on" } else { "Leaving off" };
+                        println!("{state} {}, {}.", part.name, part.kind.describe());
+                    }
+                    provision::apply_choices(&mut device, &adb, &choices).await?;
                 }
-                for (part, on) in &choices {
-                    let state = if *on { "Turning on" } else { "Leaving off" };
-                    println!("{state} {}, {}.", part.name, part.kind.describe());
-                }
-                provision::apply_choices(&mut device, &adb, &choices).await?;
             }
             Ok(())
         }

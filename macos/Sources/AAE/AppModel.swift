@@ -45,6 +45,8 @@ final class AppModel: ObservableObject {
     /// The version being downloaded and how far it has got.
     @Published private(set) var download: (version: String, percent: UInt32)?
     @Published var licenceRequest: LicenceRequest?
+    /// Apps waiting for the user to choose which devices to install them on.
+    @Published var installQuestion: InstallQuestion?
     /// An installed app's parts waiting for the user to choose about.
     @Published var partsQuestion: PartsQuestion?
     /// The selected device's snapshots, while the Snapshots window is open.
@@ -1082,23 +1084,64 @@ final class AppModel: ObservableObject {
 
     func installApp() {
         let panel = NSOpenPanel()
-        panel.message = "Choose an app to install."
+        panel.message = "Choose apps to install."
         panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data]
         panel.allowsMultipleSelection = true
         guard panel.runModal() == .OK else { return }
-        let paths = panel.urls.map(\.path)
-        withSession { [weak self] session in
+        install(paths: panel.urls.map(\.path))
+    }
+
+    /// Installs apps, from Install App or dropped on the window. With more
+    /// than one device running, asks which to install on.
+    func install(paths: [String]) {
+        let apks = paths.filter { $0.lowercased().hasSuffix(".apk") }
+        guard !apks.isEmpty else {
+            announce("Only app packages, ending in .apk, can be installed.", tone: .failure)
+            return
+        }
+        let running = devices.filter(\.running)
+        switch running.count {
+        case 0:
+            announce("Start a device first, to install apps on it.", tone: .failure)
+        case 1:
+            install(apks, on: [running[0].id])
+        default:
+            let chosen = Set(running.map(\.id).filter { $0 == selection })
+            installQuestion = InstallQuestion(paths: apks, devices: running, chosen: chosen)
+        }
+    }
+
+    /// Installs apps on devices, one at a time. An app's parts are asked
+    /// about once, on the first device that hasn't an answer, and the same
+    /// answers are used on the others.
+    func install(_ paths: [String], on ids: [String]) {
+        installQuestion = nil
+        guard !ids.isEmpty else { return }
+        Task {
+            var answers: [String: [String: Bool]] = [:]
             for path in paths {
-                self?.announce("Installing \((path as NSString).lastPathComponent).")
-                let result = try await session.installApk(path: path)
-                await self?.afterInstall(result, session: session)
+                let file = (path as NSString).lastPathComponent
+                for id in ids {
+                    let name = devices.first { $0.id == id }?.name ?? "the device"
+                    do {
+                        let session = try await session(for: id)
+                        announce(ids.count > 1 ? "Installing \(file) on \(name)." : "Installing \(file).")
+                        let result = try await session.installApk(path: path)
+                        let known = answers[result.package] ?? [:]
+                        let made = await afterInstall(result, session: session, known: known)
+                        answers[result.package, default: [:]].merge(made) { $1 }
+                    } catch {
+                        announce("\(file) on \(name): \(error.localizedDescription)", tone: .failure)
+                    }
+                }
             }
         }
     }
 
-    /// Says what was installed, and asks about any of its parts the user
-    /// hasn't chosen about yet on this device.
-    private func afterInstall(_ result: InstallResult, session: Session) async {
+    /// Says what was installed, and asks about any of its parts not chosen
+    /// about yet on this device, unless `known` already answers them.
+    /// Returns the answers given, by component.
+    private func afterInstall(_ result: InstallResult, session: Session, known: [String: Bool]) async -> [String: Bool] {
         var said = ["Installed \(result.package)."]
         for part in result.parts {
             if let on = part.choice {
@@ -1107,11 +1150,15 @@ final class AppModel: ObservableObject {
         }
         announce(said.joined(separator: " "), tone: .success)
         let undecided = result.parts.filter { $0.choice == nil }
-        guard !undecided.isEmpty else { return }
-        let choices = await withCheckedContinuation { continuation in
-            partsQuestion = PartsQuestion(package: result.package, parts: undecided) { [weak self] choices in
-                self?.partsQuestion = nil
-                continuation.resume(returning: choices)
+        guard !undecided.isEmpty else { return [:] }
+        var choices = undecided.compactMap { part in known[part.component].map { AppChoice(part: part, on: $0) } }
+        let unknown = undecided.filter { known[$0.component] == nil }
+        if !unknown.isEmpty {
+            choices += await withCheckedContinuation { continuation in
+                partsQuestion = PartsQuestion(package: result.package, parts: unknown) { [weak self] choices in
+                    self?.partsQuestion = nil
+                    continuation.resume(returning: choices)
+                }
             }
         }
         do {
@@ -1121,6 +1168,7 @@ final class AppModel: ObservableObject {
         } catch {
             announce(error.localizedDescription, tone: .failure)
         }
+        return Dictionary(choices.map { ($0.part.component, $0.on) }, uniquingKeysWith: { $1 })
     }
 
     // MARK: - Snapshots
