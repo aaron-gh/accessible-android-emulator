@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Android 11 and later hide other apps' services unless an app says what
+         it looks for. The speech check needs to find speech engines. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:label="@string/app_name">
@@ -26,6 +34,8 @@
             android:permission="android.permission.DUMP">
             <intent-filter>
                 <action android:name="io.github.aaron_gh.aae.helper.SET_VOLUME" />
+                <action android:name="io.github.aaron_gh.aae.helper.KEY_TEST" />
+                <action android:name="io.github.aaron_gh.aae.helper.CHECK_SPEECH" />
             </intent-filter>
         </receiver>
         <!-- Offers the AAE full keyboard layout to Android. -->

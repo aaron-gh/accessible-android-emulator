@@ -14,11 +14,13 @@ pub mod device;
 pub mod emulator;
 pub mod error;
 pub mod keys;
+pub mod keytest;
 pub mod lifecycle;
 pub mod paths;
 pub mod provision;
 pub mod sdk;
 pub mod speech;
+pub mod tts;
 
 pub use error::{Error, Result};
 

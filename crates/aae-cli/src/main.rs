@@ -102,6 +102,8 @@ enum Command {
         #[arg(long)]
         attach: bool,
     },
+    /// Restart Android on a running device, keeping everything on it.
+    Restart { device: String },
     /// Stop a running device, saving its state for a quick start next time.
     Stop { device: String },
     /// Send this terminal's keyboard and play the device's audio. Control-] returns to the terminal.
@@ -115,6 +117,10 @@ enum Command {
     Listen { device: String },
     /// Say what a device is doing.
     Status { device: String },
+    /// Check that the device can speak, and repair it if it can't.
+    Speech { device: String },
+    /// Check that keys reach Android as the keys you pressed, Meta included.
+    Keytest { device: String },
     /// Measure the time from a key press to hearing the device respond.
     Latency {
         device: String,
@@ -426,6 +432,34 @@ async fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
+        Command::Speech { device } => {
+            let (device, _, adb) = ctx.connect(&device).await?;
+            provision::update_helper(&ctx.sdk, &adb).await?;
+            let status = aae_core::tts::check(&adb).await?;
+            if status.ok {
+                println!("{} can speak, with {}.", device.meta.name, status.engine);
+                return Ok(());
+            }
+            println!(
+                "{} can't speak: {}. Repairing it.",
+                device.meta.name, status.detail
+            );
+            let fix = provision::ensure_device_speech(&device, &adb).await?;
+            println!("{}", fix.describe().unwrap_or("Speech works now."));
+            Ok(())
+        }
+        Command::Restart { device } => {
+            let mut device = ctx.device(&device)?;
+            println!("Restarting Android on {}.", device.meta.name);
+            emulator::reboot(&ctx.sdk, &device, lifecycle::BOOT_TIMEOUT).await?;
+            start(
+                &ctx,
+                &mut device,
+                &StartOptions::default(),
+                &ProvisionOptions::default(),
+            )
+            .await
+        }
         Command::Stop { device } => {
             let device = ctx.device(&device)?;
             println!("Stopping {}.", device.meta.name);
@@ -438,6 +472,7 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Command::Listen { device } => attach::listen(&ctx.sdk, &ctx.device(&device)?).await,
         Command::Status { device } => status(&ctx, &device).await,
+        Command::Keytest { device } => keytest(&ctx, &device).await,
         Command::Latency {
             device,
             keys,
@@ -715,6 +750,48 @@ async fn start(
     })
     .await?;
     Ok(())
+}
+
+async fn keytest(ctx: &Ctx, name: &str) -> Result<()> {
+    let (device, controller, adb) = ctx.connect(name).await?;
+    println!(
+        "Testing {}'s keyboard. The keys go to AAE's helper, not to any app.",
+        device.meta.name
+    );
+    // The test runs in the helper's service. Turn it on for the test if this
+    // device doesn't keep it on.
+    let helper = provision::HELPER_COMPONENT.to_string();
+    let kept = device.meta.keep_enabled.contains(&helper);
+    // Only install when needed: Android stops sending keys to the helper if
+    // it is reinstalled while the device runs.
+    provision::update_helper(&ctx.sdk, &adb).await?;
+    adb.ensure_services(std::slice::from_ref(&helper), provision::SERVICE_TIMEOUT)
+        .await?;
+    let results = aae_core::keytest::run(&controller, &adb).await;
+    if !kept {
+        adb.disable_service(&helper).await?;
+    }
+    let results = results?;
+    let failed = results.iter().filter(|r| !r.passed).count();
+    for r in &results {
+        if r.passed {
+            println!("{}: works.", r.name);
+        } else {
+            println!("{}: doesn't work. Android received {}.", r.name, r.received);
+        }
+    }
+    if aae_core::keytest::received_nothing(&results) {
+        bail!(
+            "AAE's helper received no keys at all. Android stops sending keys to it after it is updated \
+             while the device runs. Restart Android with aae restart, then test again."
+        )
+    }
+    if failed == 0 {
+        println!("All {} keys work.", results.len());
+        Ok(())
+    } else {
+        bail!("{failed} of {} keys don't work.", results.len())
+    }
 }
 
 async fn latency(ctx: &Ctx, name: &str, names: &str, trials: usize) -> Result<()> {

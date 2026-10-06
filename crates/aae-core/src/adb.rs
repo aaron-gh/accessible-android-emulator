@@ -42,7 +42,7 @@ impl Adb {
             } else {
                 stderr.trim()
             };
-            return Err(Error::Adb(detail.to_string()));
+            return Err(Error::Adb(format!("{} ({})", detail, args.join(" "))));
         }
         Ok(stdout)
     }
@@ -89,6 +89,16 @@ impl Adb {
         Ok(out
             .lines()
             .any(|line| line.trim() == format!("package:{package}")))
+    }
+
+    /// The installed version code of a package, if it is installed.
+    pub async fn version_code(&self, package: &str) -> Result<Option<u64>> {
+        let dump = self.shell(&format!("dumpsys package {package}")).await?;
+        Ok(dump
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("versionCode="))
+            .filter_map(|rest| rest.split_whitespace().next()?.parse().ok())
+            .max())
     }
 
     pub async fn setting(&self, namespace: &str, key: &str) -> Result<Option<String>> {

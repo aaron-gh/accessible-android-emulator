@@ -167,6 +167,22 @@ pub async fn attach(sdk: &Sdk, device: &Device) -> Result<(RuntimeInfo, Controll
     Ok((info, controller, adb))
 }
 
+/// Restarts Android inside a running device and waits until it is back. Unlike
+/// stopping and cold booting, this keeps everything on the device's disk.
+pub async fn reboot(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
+    let info = running(device)?;
+    let adb = Adb::new(sdk.adb_bin()?, info.serial());
+    let _ = adb.shell("sync").await;
+    // The connection drops as Android goes down, so the result doesn't matter.
+    let _ = adb.raw(&["reboot"]).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    if adb.wait_for_boot(timeout).await {
+        Ok(())
+    } else {
+        Err(Error::BootTimeout(timeout.as_secs(), info.log.clone()))
+    }
+}
+
 /// The device's runtime record, if its emulator is still alive. Clears a stale record.
 pub fn running(device: &Device) -> Result<RuntimeInfo> {
     match device.runtime() {
@@ -184,6 +200,11 @@ pub fn running(device: &Device) -> Result<RuntimeInfo> {
 pub async fn stop(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
     let info = running(device)?;
     let adb = Adb::new(sdk.adb_bin()?, info.serial());
+    // Flush Android's disk writes first. "emu kill" saves memory in the
+    // quick-boot snapshot, and writes still in memory would be missing from
+    // the disk if the device were later cold booted: installed apps could be
+    // left half there.
+    let _ = tokio::time::timeout(Duration::from_secs(15), adb.shell("sync")).await;
     // "emu kill" asks the emulator to save its state and exit.
     let _ = tokio::time::timeout(Duration::from_secs(10), adb.raw(&["emu", "kill"])).await;
     let deadline = tokio::time::Instant::now() + timeout;

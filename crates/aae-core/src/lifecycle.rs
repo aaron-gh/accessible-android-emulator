@@ -26,6 +26,8 @@ pub enum Progress {
     Setup(Step),
     /// Android had turned off a service that AAE keeps on, and AAE turned it back on.
     ServiceRestored(String),
+    /// The device couldn't speak, and AAE repaired it. Holds what was done.
+    SpeechRepaired(String),
     /// The device is ready. Holds the screen reader's package, if there is one.
     Ready(Option<String>),
 }
@@ -47,6 +49,7 @@ impl Progress {
             Progress::ServiceRestored(component) => {
                 format!("Android had turned off {component}. It is back on.")
             }
+            Progress::SpeechRepaired(what) => what.clone(),
             Progress::Ready(Some(reader)) => format!("{device} is ready. {reader} is on."),
             Progress::Ready(None) => format!("{device} is ready. It has no screen reader."),
         }
@@ -89,9 +92,15 @@ pub async fn start_device(
         })
         .await?;
     } else {
-        provision::apply_keyboard_layout(&adb).await?;
+        provision::apply_keyboard_layout(sdk, &adb).await?;
         for component in provision::guard_services(device, &adb).await? {
             progress(Progress::ServiceRestored(component));
+        }
+        if let Some(what) = provision::ensure_device_speech(device, &adb)
+            .await?
+            .describe()
+        {
+            progress(Progress::SpeechRepaired(what.to_string()));
         }
     }
     let reader = device

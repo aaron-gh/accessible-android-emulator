@@ -50,6 +50,7 @@ pub struct Service {
 pub struct ApkInfo {
     pub path: PathBuf,
     pub package: String,
+    pub version_code: Option<u64>,
     pub services: Vec<Service>,
 }
 
@@ -76,9 +77,11 @@ impl ApkInfo {
         let package = run(&["dump", "packagename"])?.trim().to_string();
         let manifest = run(&["dump", "xmltree", "--file", "AndroidManifest.xml"])?;
         let services = parse_services(&manifest, &package);
+        let version_code = parse_plain_version(&manifest);
         Ok(ApkInfo {
             path: apk.to_path_buf(),
             package,
+            version_code,
             services,
         })
     }
@@ -141,6 +144,16 @@ fn parse_services(tree: &str, package: &str) -> Vec<Service> {
     services
 }
 
+/// aapt2 prints integer attributes without quotes, such as
+/// `android:versionCode(0x0101021b)=2`.
+fn parse_plain_version(tree: &str) -> Option<u64> {
+    let start = tree.find(&format!("{ANDROID_NS}versionCode("))?;
+    let rest = &tree[start..];
+    let value = rest.split_once(")=")?.1;
+    let digits: String = value.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
 /// Reads `ns:name(0x...)="value" (Raw: ...)` when the attribute has the given name.
 fn attribute(attr: &str, name: &str) -> Option<String> {
     let rest = attr.strip_prefix(ANDROID_NS)?.strip_prefix(name)?;
@@ -170,6 +183,12 @@ mod tests {
         A: http://schemas.android.com/apk/res/android:name(0x01010003)=".ime.Keys" (Raw: ".ime.Keys")
         A: http://schemas.android.com/apk/res/android:permission(0x01010006)="android.permission.BIND_INPUT_METHOD" (Raw: "android.permission.BIND_INPUT_METHOD")
 "#;
+
+    #[test]
+    fn reads_version_code() {
+        let tree = "E: manifest\n  A: http://schemas.android.com/apk/res/android:versionCode(0x0101021b)=2\n";
+        assert_eq!(parse_plain_version(tree), Some(2));
+    }
 
     #[test]
     fn finds_bound_services() {

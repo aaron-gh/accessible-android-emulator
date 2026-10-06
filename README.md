@@ -17,7 +17,10 @@ This is an early development build. It has a cross-platform core, the `aae` comm
 - Sending keys and text, rotating, battery, location, text messages, calls, clipboard, screenshots and snapshots.
 - `aae attach`: the device's audio plays and your terminal's keyboard goes to the device. Control-] brings it back. Plain Escape goes to the device. A terminal can't see the Command key, so Option is sent as Android's Meta key, the modifier TalkBack's current keymap uses. Pass `--keep-alt` to send it as Alt. macOS Terminal turns Option-Left and Option-Right into word movement before AAE sees them. To fix that, open Terminal's Settings, then Profiles, then Keyboard. Turn on "Use Option as Meta key". Set Option-Left to send `\033[1;3D` and Option-Right to send `\033[1;3C`. iTerm2, Ghostty, kitty and WezTerm report every key and need none of this. The Mac app captures keys directly, with none of these limits.
 - `aae latency`: measures the time from a key press to the device's speech.
-- A full PC keyboard in Android. The emulator's own keyboard layout is a phone layout with no Meta key, so TalkBack's keyboard shortcuts can't work, and Escape, Home and End act as phone buttons. AAE's helper supplies a full keyboard layout and selects it every time a device starts. This works on Android 15 and later for now.
+- A full PC keyboard in Android. The emulator's own keyboard layout is a phone layout with no Meta key, so TalkBack's keyboard shortcuts can't work, and Escape, Home and End act as phone buttons. AAE's helper supplies a full keyboard layout and selects it every time a device starts. Tested on Android 11, 14 and 16.
+- `aae keytest`: checks that 15 kinds of key, Meta included, reach Android as the keys pressed.
+- `aae restart`: restarts Android on a running device without losing anything on it.
+- Dependable speech. During setup and on every start, AAE's helper checks that the device's speech engine can actually speak. If Google's engine has downloaded voices that don't work, AAE resets it. If speech still fails, or the image has no engine, AAE installs its own build of eSpeak NG and makes it the default. That build speaks as soon as it's installed. `aae speech` runs the check by hand.
 - The Mac app (`macos/`): a device list, a New Device sheet, and a Device menu with shortcuts for starting, stopping and Android's buttons. In device mode (Command-Shift-E) every key goes to Android, with Command as Meta, until Control-Command-Escape brings the keyboard back. Announcements go through VoiceOver when it's running, and otherwise through the Mac's system voice.
 
 ## Building
@@ -43,7 +46,9 @@ The Mac app needs Xcode, or its command-line tools, and is built with:
 macos/build.sh
 ```
 
-That builds the Rust core, generates the Swift bindings, builds the helper app, and puts `macos/build/AAE.app` together.
+That builds the Rust core, generates the Swift bindings, builds the helper app and eSpeak NG, and puts `macos/build/AAE.app` together.
+
+eSpeak NG is built from its source, a git submodule in `android/third_party/espeak-ng`, by `android/build-espeak.sh`. The first build takes a few minutes and downloads the Android NDK version it needs. Clone AAE with `--recurse-submodules`, or the script fetches the submodule itself. eSpeak NG is under GPL v3.
 
 AAE finds the built helper on its own when you run it from this folder. Alternatively, put it next to the `aae` program as `aae-helper.apk`, or set `AAE_HELPER_APK` to its path.
 
@@ -79,4 +84,5 @@ Devices live in AAE's data folder, under `devices`. Set `AAE_HOME` to keep them 
 - `macos`: the Mac app, in Swift.
 - `crates/aae-core/proto`: the Android Emulator's gRPC definitions, under Apache 2.0.
 - `crates/aae-core/examples/audio_probe.rs`: prints how loud the device's audio stream is, in quarter seconds, while pressing keys. Use it to diagnose audio problems.
+- `android/espeak`: how AAE builds eSpeak NG: its own app ID, signed like the helper, with eSpeak NG's code unchanged.
 - `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume. It also carries the full keyboard layout, and a small tool AAE runs as the shell user to select it.

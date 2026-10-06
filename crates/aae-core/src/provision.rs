@@ -64,6 +64,7 @@ pub enum Step {
     ScreenReader,
     Volume,
     Verify,
+    Speech,
 }
 
 impl Step {
@@ -77,6 +78,7 @@ impl Step {
             Step::ScreenReader => "Installing and turning on the screen reader",
             Step::Volume => "Turning the screen reader's volume up to full",
             Step::Verify => "Checking the screen reader is on",
+            Step::Speech => "Checking the device can speak",
         }
     }
 }
@@ -124,27 +126,65 @@ pub async fn install_helper(adb: &Adb) -> Result<()> {
     adb.install(&helper).await
 }
 
+/// Installs AAE's helper if it is missing, or updates it if this AAE has a
+/// newer one. Returns true if it installed something.
+pub async fn update_helper(sdk: &Sdk, adb: &Adb) -> Result<bool> {
+    let installed = adb.version_code(HELPER_PACKAGE).await?;
+    let bundled = helper_apk()
+        .and_then(|apk| read_apk(sdk, &apk).ok())
+        .and_then(|info| info.version_code);
+    let needed = match (installed, bundled) {
+        (None, _) => true,
+        (Some(have), Some(new)) => new > have,
+        (Some(_), None) => false,
+    };
+    if needed {
+        install_helper(adb).await?;
+    }
+    Ok(needed)
+}
+
 /// Makes the emulator's keyboard behave like a PC keyboard, with the layout
 /// AAE's helper provides. Without it, Android gets no Meta key, so screen
 /// reader shortcuts can't work, and Escape, Home and End act as phone buttons.
 ///
 /// Android may forget the choice when it restarts, so AAE applies it every
 /// time a device starts.
-pub async fn apply_keyboard_layout(adb: &Adb) -> Result<()> {
-    if !adb.is_installed(HELPER_PACKAGE).await? {
-        install_helper(adb).await?;
+pub async fn apply_keyboard_layout(sdk: &Sdk, adb: &Adb) -> Result<()> {
+    update_helper(sdk, adb).await?;
+    // After a cold boot the package manager can take half a minute to list
+    // the helper again, and until then the tool can't start, so keep trying.
+    let mut last = String::new();
+    for _ in 0..45 {
+        match adb
+            .shell(&format!("{HELPER_SHELL_TOOL} keyboard-layout"))
+            .await
+        {
+            Ok(out) if out.contains("Keyboard layout set") => return Ok(()),
+            Ok(out) => last = out,
+            Err(e) => last = e.to_string(),
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    let out = adb
-        .shell(&format!("{HELPER_SHELL_TOOL} keyboard-layout"))
-        .await?;
-    if out.contains("Keyboard layout set") {
-        Ok(())
-    } else {
-        Err(Error::Adb(format!(
-            "The full keyboard could not be set up: {}",
-            out.trim()
-        )))
+    Err(Error::Adb(format!(
+        "The full keyboard could not be set up: {}",
+        last.trim()
+    )))
+}
+
+/// Makes sure the device can speak (see [`crate::tts`]). When AAE had to
+/// switch speech engines, the screen reader is restarted so it uses the new one.
+pub async fn ensure_device_speech(device: &Device, adb: &Adb) -> Result<crate::tts::SpeechFix> {
+    let fix = crate::tts::ensure_speech(adb).await?;
+    if fix == crate::tts::SpeechFix::InstalledEspeak {
+        if let Some(reader) = &device.meta.screen_reader {
+            adb.disable_service(reader).await?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            adb.ensure_services(std::slice::from_ref(reader), SERVICE_TIMEOUT)
+                .await?;
+        }
     }
+    Ok(fix)
 }
 
 /// Sets the screen reader's volume, from 0 to 100 percent, through AAE's helper.
@@ -232,6 +272,12 @@ pub async fn provision(
         .any(|c| c == HELPER_COMPONENT)
     {
         set_volume(adb, 100).await?;
+    }
+
+    progress(Step::Speech);
+    let fix = ensure_device_speech(device, adb).await?;
+    if let Some(what) = fix.describe() {
+        tracing::info!("{what}");
     }
 
     device.meta.provisioned = true;

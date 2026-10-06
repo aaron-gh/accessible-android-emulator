@@ -3,11 +3,15 @@
      It is an accessibility service only because Android lets accessibility
      services, and not the shell, set the accessibility volume. It also needs
      flagEnableAccessibilityVolume: Android only lets services that declare it
-     change that volume. -->
+     change that volume. It also filters keys, for AAE's keyboard test: it
+     looks at them only while the test runs, and otherwise passes every key
+     straight on. (Turning filtering on only for the test, at run time, didn't
+     work on Android 11.) -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeAnnouncement"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagEnableAccessibilityVolume"
+    android:accessibilityFlags="flagEnableAccessibilityVolume|flagRequestFilterKeyEvents"
+    android:canRequestFilterKeyEvents="true"
     android:canRetrieveWindowContent="false"
     android:description="@string/service_description"
     android:isAccessibilityTool="true"

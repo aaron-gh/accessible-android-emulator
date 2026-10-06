@@ -32,6 +32,10 @@ BIN=$(cd macos && swift build -c "$PROFILE" --show-bin-path)
 if [[ -x android/gradlew ]] && command -v java >/dev/null; then
     echo "Building AAE's helper app."
     (cd android && ./gradlew -q :helper:assembleRelease) || echo "The helper app did not build; the app will look for it elsewhere."
+    if [[ ! -f android/espeak/build/aae-espeak.apk ]]; then
+        echo "Building AAE's eSpeak NG. The first build takes a few minutes."
+        android/build-espeak.sh || echo "eSpeak NG did not build; the app will look for it elsewhere."
+    fi
 fi
 
 echo "Putting AAE.app together."
@@ -43,6 +47,9 @@ cp macos/Support/Info.plist "$APP/Contents/Info.plist"
 HELPER=android/helper/build/outputs/apk/release/helper-release.apk
 if [[ -f "$HELPER" ]]; then
     cp "$HELPER" "$APP/Contents/Resources/aae-helper.apk"
+fi
+if [[ -f android/espeak/build/aae-espeak.apk ]]; then
+    cp android/espeak/build/aae-espeak.apk "$APP/Contents/Resources/aae-espeak.apk"
 fi
 codesign --force --sign - "$APP" >/dev/null
 echo "Built $APP"

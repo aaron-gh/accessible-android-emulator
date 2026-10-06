@@ -1,0 +1,27 @@
+// Builds eSpeak NG, from the pinned source in third_party/espeak-ng, as AAE's
+// own copy. Only what's needed changes; eSpeak NG's code and build are used
+// as they are.
+//
+// - A distinct app ID, so AAE's copy never clashes with eSpeak NG installed
+//   from F-Droid or elsewhere, which is signed with a different key.
+// - Release builds signed with the debug key, like AAE's helper, until AAE
+//   has a release key.
+//
+// eSpeak NG's speech service unpacks its bundled voice data itself the first
+// time it starts, so it works as soon as it's installed, with no screen to open.
+
+allprojects {
+    pluginManager.withPlugin('com.android.application') {
+        android {
+            defaultConfig {
+                applicationId = 'io.github.aaron_gh.aae.espeak'
+                versionNameSuffix = '-aae'
+            }
+            buildTypes {
+                release {
+                    signingConfig = signingConfigs.debug
+                }
+            }
+        }
+    }
+}

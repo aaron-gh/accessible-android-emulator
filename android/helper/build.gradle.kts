@@ -11,8 +11,9 @@ android {
         // As old as AAE supports, so the helper works on every device.
         minSdk = 21
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // Raise versionCode with every change: AAE updates devices whose helper is older.
+        versionCode = 4
+        versionName = "0.4.0"
     }
 
     buildTypes {
