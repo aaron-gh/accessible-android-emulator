@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use aae_core::adb::Adb;
 use aae_core::audio::AudioPlayer;
+use aae_core::catalog::{self, Catalogue, InstallProgress};
 use aae_core::control::Controller;
 use aae_core::device::{Device, DeviceStore, Profile, human_size};
 use aae_core::emulator::{self, StartOptions};
@@ -85,6 +86,8 @@ pub struct DeviceInfo {
     pub running: bool,
     /// The screen reader's package, if one is set up.
     pub screen_reader: Option<String>,
+    /// The user chose to go without a screen reader; don't offer one again.
+    pub screen_reader_declined: bool,
 }
 
 impl DeviceInfo {
@@ -102,6 +105,7 @@ impl DeviceInfo {
                 .as_deref()
                 .and_then(|c| c.split('/').next())
                 .map(String::from),
+            screen_reader_declined: device.meta.screen_reader_declined,
         }
     }
 }
@@ -114,6 +118,46 @@ pub struct ImageInfo {
     pub api: u32,
     /// Such as "Android 16 (API 36), With Google Play".
     pub description: String,
+}
+
+/// An Android version AAE can create devices from: installed, or downloadable.
+#[derive(uniffi::Record)]
+pub struct VersionInfo {
+    pub api: u32,
+    /// The image type's tag, such as "google_apis".
+    pub tag: String,
+    /// Such as "Android 15 (API 35), With Google services".
+    pub description: String,
+    pub installed: bool,
+    /// The download size in words, such as "1.7 gigabytes". Empty when installed.
+    pub size: String,
+    /// Pass this to `create_device` when installed. Empty when not.
+    pub sysdir: String,
+}
+
+/// A licence the user has to accept before a download.
+#[derive(uniffi::Record)]
+pub struct LicenceInfo {
+    pub id: String,
+    pub text: String,
+}
+
+/// Receives download progress.
+#[uniffi::export(with_foreign)]
+pub trait DownloadListener: Send + Sync {
+    /// The percentage downloaded, from 0 to 100.
+    fn downloaded(&self, percent: u32);
+    /// A stage after the download, in words, such as "Checking the download."
+    fn stage(&self, message: String);
+}
+
+/// Where a screen reader comes from.
+#[derive(uniffi::Enum)]
+pub enum ScreenReaderSource {
+    /// Backtalk's latest development build, downloaded from its project.
+    Backtalk,
+    /// An APK on this computer.
+    Apk { path: String },
 }
 
 /// The kind of hardware a new device has.
@@ -188,6 +232,135 @@ impl Engine {
                 description: i.to_string(),
             })
             .collect()
+    }
+
+    /// Every Android version for this computer: installed ones, and ones Google
+    /// offers to download. Newest first. Reads Google's list at most once a day
+    /// unless `refresh` is true; works offline from the last list.
+    pub async fn versions(&self, refresh: bool) -> Result<Vec<VersionInfo>, AaeError> {
+        let sdk = self.sdk.clone();
+        on_runtime(async move {
+            let catalogue = tokio::task::spawn_blocking(move || Catalogue::load(refresh))
+                .await
+                .map_err(|e| AaeError::Failed {
+                    message: e.to_string(),
+                })?;
+            let mut versions: Vec<VersionInfo> = sdk
+                .system_images()
+                .into_iter()
+                .filter(|i| i.runs_natively())
+                .map(|i| VersionInfo {
+                    api: i.api,
+                    tag: i.tag.clone(),
+                    description: i.to_string(),
+                    installed: true,
+                    size: String::new(),
+                    sysdir: i.sysdir.clone(),
+                })
+                .collect();
+            // Without the internet, the installed versions are still offered.
+            if let Ok(catalogue) = catalogue {
+                for image in catalogue.images.iter().filter(|i| !i.is_installed(&sdk)) {
+                    versions.push(VersionInfo {
+                        api: image.api,
+                        tag: image.tag.clone(),
+                        description: image.describe(),
+                        installed: false,
+                        size: human_size(image.size),
+                        sysdir: String::new(),
+                    });
+                }
+            }
+            versions.sort_by(|a, b| b.api.cmp(&a.api).then(a.tag.cmp(&b.tag)));
+            Ok(versions)
+        })
+        .await
+    }
+
+    /// The licence that must be accepted before downloading this version, or
+    /// nothing if it's accepted already or the version is installed.
+    pub async fn licence_to_accept(
+        &self,
+        api: u32,
+        tag: String,
+    ) -> Result<Option<LicenceInfo>, AaeError> {
+        let sdk = self.sdk.clone();
+        on_runtime(async move {
+            let catalogue = load_catalogue().await?;
+            let Some(image) = catalogue.find(api, &tag) else {
+                return Ok(None);
+            };
+            if image.is_installed(&sdk) {
+                return Ok(None);
+            }
+            let text = catalogue
+                .licences
+                .get(&image.licence_id)
+                .cloned()
+                .unwrap_or_default();
+            Ok(
+                (!catalog::licence_accepted(&sdk, &image.licence_id, &text)).then(|| LicenceInfo {
+                    id: image.licence_id.clone(),
+                    text,
+                }),
+            )
+        })
+        .await
+    }
+
+    /// Records that the user accepted this licence text.
+    pub fn accept_licence(&self, licence: LicenceInfo) -> Result<(), AaeError> {
+        Ok(catalog::accept_licence(
+            &self.sdk,
+            &licence.id,
+            &licence.text,
+        )?)
+    }
+
+    /// Downloads and installs an Android version. Its licence must be accepted first.
+    pub async fn install_version(
+        &self,
+        api: u32,
+        tag: String,
+        listener: Arc<dyn DownloadListener>,
+    ) -> Result<ImageInfo, AaeError> {
+        let sdk = self.sdk.clone();
+        on_runtime(async move {
+            let catalogue = load_catalogue().await?;
+            let image = catalogue
+                .find(api, &tag)
+                .cloned()
+                .ok_or_else(|| AaeError::Failed {
+                    message: format!(
+                        "Google doesn't offer {} of that kind for this computer.",
+                        android_name(api)
+                    ),
+                })?;
+            let installed = tokio::task::spawn_blocking(move || {
+                let mut last = u32::MAX;
+                catalog::install(&sdk, &catalogue, &image, |p| match p {
+                    InstallProgress::Downloading { .. } => {
+                        let percent = p.percent().unwrap_or(0);
+                        if percent != last {
+                            last = percent;
+                            listener.downloaded(percent);
+                        }
+                    }
+                    InstallProgress::Verifying => listener.stage("Checking the download.".into()),
+                    InstallProgress::Unpacking => listener.stage("Unpacking.".into()),
+                })
+            })
+            .await
+            .map_err(|e| AaeError::Failed {
+                message: e.to_string(),
+            })??;
+            Ok(ImageInfo {
+                sysdir: installed.sysdir.clone(),
+                api: installed.api,
+                description: installed.to_string(),
+            })
+        })
+        .await
     }
 
     /// The screen reader APK used when none is chosen, if there is one.
@@ -280,6 +453,36 @@ impl Engine {
         Ok(DeviceInfo::from_device(&device))
     }
 
+    /// Installs a screen reader on a running device and makes it the device's
+    /// screen reader. Returns its package.
+    pub async fn add_screen_reader(
+        &self,
+        id: String,
+        source: ScreenReaderSource,
+    ) -> Result<String, AaeError> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        on_runtime(async move {
+            let mut device = store.get(&id)?;
+            let (_, _, adb) = emulator::attach(&sdk, &device).await?;
+            let apk = match source {
+                ScreenReaderSource::Backtalk => {
+                    provision::download_backtalk(&sdk, device.meta.api).await?
+                }
+                ScreenReaderSource::Apk { path } => PathBuf::from(path),
+            };
+            Ok(provision::add_screen_reader(&sdk, &mut device, &adb, &apk).await?)
+        })
+        .await
+    }
+
+    /// Records that the user wants no screen reader on this device, so AAE
+    /// doesn't offer one again.
+    pub fn decline_screen_reader(&self, id: String) -> Result<(), AaeError> {
+        let mut device = self.store.get(&id)?;
+        device.meta.screen_reader_declined = true;
+        Ok(device.save_meta()?)
+    }
+
     /// Connects to a running device, for its keyboard, audio and controls.
     pub async fn open_session(&self, id: String) -> Result<Arc<Session>, AaeError> {
         let (sdk, store) = (self.sdk.clone(), self.store.clone());
@@ -296,6 +499,15 @@ impl Engine {
 fn key_logging() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var("AAE_KEYLOG").as_deref() == Ok("1"))
+}
+
+async fn load_catalogue() -> Result<Catalogue, AaeError> {
+    tokio::task::spawn_blocking(|| Catalogue::load(false))
+        .await
+        .map_err(|e| AaeError::Failed {
+            message: e.to_string(),
+        })?
+        .map_err(AaeError::from)
 }
 
 enum KeyMessage {
@@ -370,12 +582,18 @@ impl Session {
     }
 
     /// Starts playing the device's audio on the Mac.
-    pub async fn start_audio(&self) -> Result<(), AaeError> {
+    /// Starts playing the device's audio. With `correct_pitch`, older Android
+    /// versions that play slowly have their pitch raised back to normal.
+    pub async fn start_audio(&self, correct_pitch: bool) -> Result<(), AaeError> {
         if self.audio.lock().unwrap().is_some() {
             return Ok(());
         }
         let controller = self.controller.clone();
-        let player = on_runtime(async move { Ok(AudioPlayer::start(&controller).await?) }).await?;
+        let measured = self.device.lock().unwrap().meta.audio_speed.unwrap_or(1.0);
+        let speed = if correct_pitch { measured } else { 1.0 };
+        let player =
+            on_runtime(async move { Ok(AudioPlayer::start_with_speed(&controller, speed).await?) })
+                .await?;
         *self.audio.lock().unwrap() = Some(player);
         Ok(())
     }

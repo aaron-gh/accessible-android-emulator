@@ -26,13 +26,29 @@ impl Adb {
 
     /// Runs adb with these arguments for this device and returns what it printed.
     pub async fn raw(&self, args: &[&str]) -> Result<String> {
-        let out = Command::new(&self.bin)
+        // Nothing AAE asks of a device should take long, except installing a
+        // large app. A command that never answers must become an error, not a
+        // device stuck "starting" forever.
+        let limit = if args.first() == Some(&"install") {
+            Duration::from_secs(300)
+        } else {
+            Duration::from_secs(60)
+        };
+        let run = Command::new(&self.bin)
             .arg("-s")
             .arg(&self.serial)
             .args(args)
             .kill_on_drop(true)
-            .output()
+            .output();
+        let out = tokio::time::timeout(limit, run)
             .await
+            .map_err(|_| {
+                Error::Adb(format!(
+                    "the device didn't answer within {} seconds ({})",
+                    limit.as_secs(),
+                    args.join(" ")
+                ))
+            })?
             .map_err(|e| Error::Adb(format!("adb could not run: {e}")))?;
         let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
         if !out.status.success() {
@@ -185,7 +201,13 @@ impl Adb {
     /// The accessibility services Android is running, from `dumpsys accessibility`.
     pub async fn running_services(&self) -> Result<Vec<String>> {
         let dump = self.shell("dumpsys accessibility").await?;
-        Ok(parse_running_services(&dump))
+        if dump.contains("Enabled services:") {
+            return Ok(parse_running_services(&dump));
+        }
+        // Android 10 and earlier list running services by label only, so use
+        // Android's record of which are on. The race this guards against, a
+        // service dropped right after an install, clears that record too.
+        self.enabled_services().await
     }
 
     pub async fn disable_service(&self, component: &str) -> Result<()> {

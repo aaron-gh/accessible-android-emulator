@@ -124,7 +124,21 @@ pub struct AudioPlayer {
 
 impl AudioPlayer {
     /// Starts playing the device's audio on the host's default output.
+    /// Starts playing the device's audio on the host's default output.
+    ///
+    /// `speed` is how fast the device really plays its audio, as
+    /// [`measure_speed`] finds: 1.0 when it's right. Some older Android images
+    /// play about 8% slow in the emulator, which lowers the pitch; for those,
+    /// AAE raises the pitch back by the same amount, keeping the timing.
+    pub async fn start_with_speed(controller: &Controller, speed: f64) -> Result<Self> {
+        Self::start_inner(controller, speed).await
+    }
+
     pub async fn start(controller: &Controller) -> Result<Self> {
+        Self::start_inner(controller, 1.0).await
+    }
+
+    async fn start_inner(controller: &Controller, speed: f64) -> Result<Self> {
         let controls = Arc::new(Controls {
             volume: AtomicU32::new(1.0f32.to_bits()),
             muted: AtomicBool::new(false),
@@ -172,6 +186,7 @@ impl AudioPlayer {
                 tracing::debug!("device audio stream started");
                 let mut resampler = Resampler::new(source_rate, output_rate);
                 let mut samples = Vec::new();
+                let mut pitch = PitchCorrection::new(speed, output_rate);
                 while let Some(Ok(packet)) = stream.next().await {
                     if controls.stop.load(Ordering::Relaxed) {
                         break;
@@ -182,6 +197,9 @@ impl AudioPlayer {
                         let left = i16::from_le_bytes([pair[0], pair[1]]);
                         let right = i16::from_le_bytes([pair[2], pair[3]]);
                         resampler.push(left, right, &mut samples);
+                    }
+                    if let Some(pitch) = pitch.as_mut() {
+                        pitch.process(&mut samples);
                     }
                     let pushed = producer.push_slice(&samples);
                     if pushed < samples.len() {
@@ -381,6 +399,135 @@ impl Playback {
     }
 }
 
+/// Raises the pitch of audio from a device that plays too slowly, keeping its
+/// timing, with Signalsmith Stretch.
+struct PitchCorrection {
+    stretch: signalsmith_stretch::Stretch,
+    input: Vec<f32>,
+    output: Vec<f32>,
+}
+
+impl PitchCorrection {
+    /// None when the speed is close enough to right that correcting it would
+    /// do more harm than good.
+    fn new(speed: f64, rate: u32) -> Option<Self> {
+        if !(0.5..2.0).contains(&speed) || (speed - 1.0).abs() < 0.01 {
+            return None;
+        }
+        // The default preset's larger blocks sound cleaner than the cheaper
+        // one, for a little more delay, and only old Android needs this.
+        let mut stretch = signalsmith_stretch::Stretch::preset_default(2, rate);
+        stretch.set_transpose_factor((1.0 / speed) as f32, None);
+        Some(PitchCorrection {
+            stretch,
+            input: Vec::new(),
+            output: Vec::new(),
+        })
+    }
+
+    /// Corrects interleaved stereo samples in place.
+    fn process(&mut self, samples: &mut [i16]) {
+        self.input.clear();
+        self.input
+            .extend(samples.iter().map(|&s| s as f32 / 32768.0));
+        self.output.resize(samples.len(), 0.0);
+        self.stretch.process(&self.input, &mut self.output);
+        for (out, &value) in samples.iter_mut().zip(&self.output) {
+            *out = (value * 32768.0).clamp(-32768.0, 32767.0) as i16;
+        }
+    }
+}
+
+/// The speed a known emulator fault plays at: images that mix at 48 kHz
+/// through the old goldfish audio device, which runs at 44.1 kHz.
+const GOLDFISH_SPEED: f64 = 44_100.0 / 48_000.0;
+
+/// Measures how fast the device really plays audio: 1.0 when it's right.
+///
+/// AAE's helper plays a 1,000 Hz tone inside the device while AAE listens to
+/// the audio stream and finds the frequency that actually arrives. Nobody
+/// hears it: call this only while AAE isn't playing the device's audio, and
+/// the emulator's own output is off. A result close to a known fault snaps to
+/// its exact value.
+pub async fn measure_speed(controller: &Controller, adb: &crate::adb::Adb) -> Result<f64> {
+    const TONE_HZ: f64 = 1000.0;
+    let reader = {
+        let controller = controller.clone();
+        tokio::spawn(async move {
+            let mut left = Vec::new();
+            // The stream only answers once the device makes a sound.
+            let Ok(Ok(mut stream)) = tokio::time::timeout(
+                Duration::from_secs(8),
+                controller.stream_audio(MAX_SOURCE_RATE, true),
+            )
+            .await
+            else {
+                return left;
+            };
+            while let Ok(Some(Ok(packet))) =
+                tokio::time::timeout(Duration::from_secs(3), stream.next()).await
+            {
+                for frame in packet.audio.chunks_exact(4) {
+                    left.push(i16::from_le_bytes([frame[0], frame[1]]) as f32);
+                }
+                if left.len() > MAX_SOURCE_RATE as usize * 3 {
+                    break;
+                }
+            }
+            left
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let out = adb
+        .shell(&format!(
+            "am broadcast -n io.github.aaron_gh.aae.helper/.CommandReceiver \
+             -a io.github.aaron_gh.aae.helper.PLAY_TONE --ei hz {TONE_HZ}"
+        ))
+        .await?;
+    if !out.contains("result=") || out.contains("result=0") {
+        return Err(Error::Audio(
+            "AAE's helper couldn't play its test tone.".into(),
+        ));
+    }
+    let samples = reader.await.map_err(|e| Error::Audio(e.to_string()))?;
+    if samples.len() < MAX_SOURCE_RATE as usize / 2 {
+        return Err(Error::Audio(
+            "The device's audio stream gave too little to measure.".into(),
+        ));
+    }
+    // Find which speed between 85% and 115% puts the most energy at the
+    // tone's frequency. Speech playing at the same time hardly moves it.
+    let mut best = (1.0, 0.0);
+    let mut speed = 0.85;
+    while speed <= 1.15 {
+        let energy = goertzel(&samples, TONE_HZ * speed, MAX_SOURCE_RATE as f64);
+        if energy > best.1 {
+            best = (speed, energy);
+        }
+        speed += 0.0025;
+    }
+    let measured = best.0;
+    Ok(if (measured - GOLDFISH_SPEED).abs() < 0.015 {
+        GOLDFISH_SPEED
+    } else if (measured - 1.0).abs() < 0.015 {
+        1.0
+    } else {
+        measured
+    })
+}
+
+/// The energy of one frequency in a signal (the Goertzel algorithm).
+fn goertzel(samples: &[f32], hz: f64, rate: f64) -> f64 {
+    let coefficient = 2.0 * (2.0 * std::f64::consts::PI * hz / rate).cos();
+    let (mut s1, mut s2) = (0.0f64, 0.0f64);
+    for &x in samples {
+        let s0 = x as f64 + coefficient * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    s1 * s1 + s2 * s2 - coefficient * s1 * s2
+}
+
 /// Linear-interpolation resampler for interleaved stereo, used only when the
 /// host output runs faster than the emulator can produce.
 struct Resampler {
@@ -492,6 +639,22 @@ fn level(audio: &[u8]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn goertzel_finds_the_tone() {
+        let rate = 48_000.0;
+        let tone: Vec<f32> = (0..48_000)
+            .map(|i| (2.0 * std::f64::consts::PI * 918.75 * i as f64 / rate).sin() as f32)
+            .collect();
+        assert!(goertzel(&tone, 918.75, rate) > 100.0 * goertzel(&tone, 1000.0, rate));
+    }
+
+    #[test]
+    fn pitch_correction_only_when_needed() {
+        assert!(PitchCorrection::new(1.0, 48_000).is_none());
+        assert!(PitchCorrection::new(1.005, 48_000).is_none());
+        assert!(PitchCorrection::new(GOLDFISH_SPEED, 48_000).is_some());
+    }
 
     #[test]
     fn resampler_passes_through_at_equal_rates() {

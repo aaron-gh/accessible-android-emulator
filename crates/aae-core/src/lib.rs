@@ -9,6 +9,7 @@
 pub mod adb;
 pub mod apk;
 pub mod audio;
+pub mod catalog;
 pub mod control;
 pub mod device;
 pub mod emulator;
@@ -18,6 +19,7 @@ pub mod keytest;
 pub mod lifecycle;
 pub mod paths;
 pub mod provision;
+pub mod screenreader;
 pub mod sdk;
 pub mod speech;
 pub mod tts;

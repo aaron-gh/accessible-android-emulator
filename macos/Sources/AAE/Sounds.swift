@@ -5,7 +5,7 @@ import SwiftUI
 /// words. AAE makes its own tones rather than using the Mac's alert sounds,
 /// any of which may be the user's "invalid key" sound.
 enum Tone {
-    case info, success, failure
+    case info, success, failure, progress
 
     /// Whether sounds play. Changed in Settings.
     static let enabledKey = "playSounds"
@@ -22,6 +22,7 @@ enum Tone {
         case .info: return [(880, 0.06)]
         case .success: return [(660, 0.06), (990, 0.08)]
         case .failure: return [(330, 0.09), (220, 0.14)]
+        case .progress: return [(1320, 0.03)]
         }
     }
 }
@@ -80,10 +81,15 @@ private final class TonePlayer {
 /// AAE's settings window.
 struct SettingsView: View {
     @AppStorage(Tone.enabledKey) private var playSounds = true
+    @AppStorage(AppModel.correctPitchKey) private var correctPitch = true
 
     var body: some View {
         Form {
             Toggle("Play a sound before each announcement", isOn: $playSounds)
+            Toggle("Correct the pitch of older Android versions", isOn: $correctPitch)
+            Text("In the emulator, Android 10 and earlier play about 8% slow, so they sound low. AAE raises the pitch back, which can add a slight processing sound.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
         .padding()
         .frame(width: 380)

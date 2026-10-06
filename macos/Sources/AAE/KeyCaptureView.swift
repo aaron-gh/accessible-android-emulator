@@ -58,6 +58,10 @@ final class KeyCaptureView: NSView {
             KeyLog.write("keyDown keyCode=\(event.keyCode) capturing=\(isCapturing)")
         }
         guard isCapturing else { return super.keyDown(with: event) }
+        if DeviceModeLock.isEscapeHatch(event) {
+            DeviceModeLock.shared.escapePressed()
+            return
+        }
         heldKeys.insert(event.keyCode)
         send?(event.keyCode, true)
     }
@@ -93,6 +97,10 @@ final class KeyCaptureView: NSView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if isCapturing, event.type == .keyDown, DeviceModeLock.isEscapeHatch(event) {
+            DeviceModeLock.shared.escapePressed()
+            return true
+        }
         if KeyLog.enabled {
             KeyLog.write("performKeyEquivalent keyCode=\(event.keyCode) capturing=\(isCapturing) firstResponder=\(window?.firstResponder === self)")
         }

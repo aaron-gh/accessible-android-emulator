@@ -30,9 +30,10 @@ use crossterm::terminal;
 /// A terminal never sees the Command key, so by default Option is sent as
 /// Android's Meta key, which TalkBack's current keymap uses as its modifier.
 /// With `keep_alt`, Option is sent as Alt.
-pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool) -> Result<()> {
+pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool, correct_pitch: bool) -> Result<()> {
     let (_, controller, _) = emulator::attach(sdk, device).await?;
-    let audio = AudioPlayer::start(&controller).await?;
+    let audio =
+        AudioPlayer::start_with_speed(&controller, playback_speed(device, correct_pitch)).await?;
     println!(
         "Keyboard is in {}. Press Control-right bracket to return to the terminal.",
         device.meta.name
@@ -115,10 +116,21 @@ pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool) -> Result<()> {
     }
 }
 
+/// The speed to correct the device's audio for: its measured speed, or none
+/// when the user turned pitch correction off.
+fn playback_speed(device: &Device, correct_pitch: bool) -> f64 {
+    if correct_pitch {
+        device.meta.audio_speed.unwrap_or(1.0)
+    } else {
+        1.0
+    }
+}
+
 /// Plays the device's audio until Control-C, then reports how it went.
-pub async fn listen(sdk: &Sdk, device: &Device) -> Result<()> {
+pub async fn listen(sdk: &Sdk, device: &Device, correct_pitch: bool) -> Result<()> {
     let (_, controller, _) = emulator::attach(sdk, device).await?;
-    let audio = AudioPlayer::start(&controller).await?;
+    let audio =
+        AudioPlayer::start_with_speed(&controller, playback_speed(device, correct_pitch)).await?;
     println!(
         "Playing {}'s audio at {} hertz. Press Control-C to stop.",
         device.meta.name, audio.output_rate

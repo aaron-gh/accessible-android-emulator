@@ -68,6 +68,23 @@ impl Sdk {
         versions.pop().map(|dir| dir.join(format!("aapt2{EXE}")))
     }
 
+    /// The newest `apksigner` in build-tools, used to check downloaded apps' signatures.
+    pub fn apksigner_bin(&self) -> Option<PathBuf> {
+        let name = if cfg!(windows) {
+            "apksigner.bat"
+        } else {
+            "apksigner"
+        };
+        let mut versions: Vec<PathBuf> = std::fs::read_dir(self.root.join("build-tools"))
+            .ok()?
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|dir| dir.join(name).is_file())
+            .collect();
+        versions
+            .sort_by_key(|dir| version_key(dir.file_name().and_then(|n| n.to_str()).unwrap_or("")));
+        versions.pop().map(|dir| dir.join(name))
+    }
+
     /// The emulator's version, such as "37.2.12".
     pub fn emulator_version(&self) -> Option<String> {
         read_properties(&self.root.join("emulator/source.properties"))
@@ -92,7 +109,7 @@ impl Sdk {
                     .flatten()
                     .flatten()
                 {
-                    if let Some(image) = SystemImage::read(&self.root, &abi.path()) {
+                    if let Some(image) = SystemImage::read_dir(&self.root, &abi.path()) {
                         images.push(image);
                     }
                 }
@@ -128,7 +145,8 @@ pub struct SystemImage {
 }
 
 impl SystemImage {
-    fn read(sdk_root: &Path, dir: &Path) -> Option<Self> {
+    /// Reads the image installed in `dir`, inside the SDK at `sdk_root`.
+    pub fn read_dir(sdk_root: &Path, dir: &Path) -> Option<Self> {
         let props = read_properties(&dir.join("source.properties")).ok()?;
         let api = props.get("AndroidVersion.ApiLevel")?.parse().ok()?;
         let tag = props.get("SystemImage.TagId")?.clone();

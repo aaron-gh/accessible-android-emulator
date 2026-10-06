@@ -22,6 +22,11 @@ ringbuf.workspace = true
 directories.workspace = true
 tracing.workspace = true
 prismer = { workspace = true, optional = true }
+ureq.workspace = true
+sha1.workspace = true
+roxmltree.workspace = true
+signalsmith-stretch.workspace = true
+zip.workspace = true
 
 [features]
 default = ["speech"]

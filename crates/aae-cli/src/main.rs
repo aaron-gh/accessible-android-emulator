@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use aae_core::adb::{Adb, same_component};
+use aae_core::catalog::{self, Catalogue, InstallProgress, RemoteImage};
 use aae_core::control::Orientation;
 use aae_core::device::{Device, DeviceStore, Profile, human_size};
 use aae_core::emulator::{self, StartOptions};
@@ -38,6 +39,26 @@ enum Command {
     Doctor,
     /// List the Android versions installed on this computer.
     Images,
+    /// List the Android versions you can download for this computer.
+    Available {
+        /// Fetch Google's list again, instead of using the copy from today.
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// Download and install an Android version.
+    Download {
+        /// The API level, such as 35.
+        #[arg(long)]
+        api: u32,
+        /// The kind of Android image. Defaults to Android with Google services,
+        /// which needs no account and includes Google's speech engine.
+        #[arg(long, value_enum)]
+        kind: Option<Kind>,
+        /// Accept Google's licence for the download. Read it first: AAE saves it
+        /// to a file and says where.
+        #[arg(long)]
+        accept_licence: bool,
+    },
     /// List your devices and whether each is running.
     List,
     /// Create a device, set it up with a screen reader, and start it.
@@ -55,6 +76,9 @@ enum Command {
         /// The screen reader APK to install, such as a Backtalk build.
         #[arg(long)]
         screen_reader: Option<PathBuf>,
+        /// If the Android image has no screen reader, download and install Backtalk.
+        #[arg(long)]
+        backtalk: bool,
         /// Turn off animations.
         #[arg(long)]
         no_animations: bool,
@@ -65,6 +89,9 @@ enum Command {
         /// Create the device without starting it.
         #[arg(long)]
         no_start: bool,
+        /// If the Android version has to be downloaded, accept Google's licence for it.
+        #[arg(long)]
+        accept_licence: bool,
         /// After it starts, send this terminal's keyboard and the device's audio to it.
         #[arg(long)]
         attach: bool,
@@ -89,6 +116,10 @@ enum Command {
         /// On a device's first start, the screen reader APK to install.
         #[arg(long)]
         screen_reader: Option<PathBuf>,
+        /// On a device's first start, if the Android image has no screen reader,
+        /// download and install Backtalk.
+        #[arg(long)]
+        backtalk: bool,
         /// On a device's first start, leave the screen reader's volume as Android sets it.
         #[arg(long)]
         no_volume_boost: bool,
@@ -112,11 +143,22 @@ enum Command {
         /// Send Option as Alt. By default it is sent as Meta, the screen reader's modifier.
         #[arg(long)]
         keep_alt: bool,
+        /// Play older Android versions' audio as it comes, without raising its pitch.
+        #[arg(long)]
+        no_pitch_correction: bool,
     },
     /// Play the device's audio until Control-C.
-    Listen { device: String },
+    Listen {
+        device: String,
+        /// Play older Android versions' audio as it comes, without raising its pitch.
+        #[arg(long)]
+        no_pitch_correction: bool,
+    },
     /// Say what a device is doing.
     Status { device: String },
+    /// Measure how fast the device plays audio, so AAE can correct its pitch.
+    /// AAE does this by itself on setup; use this to measure again.
+    AudioCheck { device: String },
     /// Check that the device can speak, and repair it if it can't.
     Speech { device: String },
     /// Check that keys reach Android as the keys you pressed, Meta included.
@@ -145,7 +187,10 @@ enum Command {
         no_services: bool,
     },
     /// Install a screen reader build and make it the device's screen reader.
-    ScreenReader { device: String, apk: PathBuf },
+    #[command(
+        after_help = "Use backtalk in place of an APK to download Backtalk's latest development build."
+    )]
+    ScreenReader { device: String, apk: String },
     /// List, turn on or turn off accessibility services.
     Services {
         device: String,
@@ -228,6 +273,15 @@ enum Kind {
 }
 
 impl Kind {
+    /// The image type's tag in Google's catalogue.
+    fn tag(self) -> &'static str {
+        match self {
+            Kind::Plain => "default",
+            Kind::Google => "google_apis",
+            Kind::Play => "google_apis_playstore",
+        }
+    }
+
     fn matches(self, tag: &str) -> bool {
         match self {
             Kind::Plain => matches!(tag, "default" | "aosp_atd"),
@@ -318,6 +372,30 @@ async fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new()?;
     match cli.command {
         Command::Doctor => doctor(&ctx),
+        Command::Available { refresh } => {
+            let catalogue = tokio::task::spawn_blocking(move || Catalogue::load(refresh)).await??;
+            if catalogue.images.is_empty() {
+                println!("Google offers no Android versions for this computer's processor.");
+            }
+            for image in &catalogue.images {
+                let state = if image.is_installed(&ctx.sdk) {
+                    "installed".to_string()
+                } else {
+                    format!("{} to download", human_size(image.size))
+                };
+                println!("{}, {state}.", image.describe());
+            }
+            Ok(())
+        }
+        Command::Download {
+            api,
+            kind,
+            accept_licence,
+        } => {
+            let image = download_image(&ctx, api, kind, accept_licence).await?;
+            println!("{image} is installed.");
+            Ok(())
+        }
         Command::Images => {
             let images = ctx.sdk.system_images();
             if images.is_empty() {
@@ -349,12 +427,19 @@ async fn run(cli: Cli) -> Result<()> {
             kind,
             profile,
             screen_reader,
+            backtalk,
             no_animations,
             no_volume_boost,
             no_start,
+            accept_licence,
             attach,
         } => {
-            let image = pick_image(&ctx.sdk, api, kind)?;
+            let image = match (pick_image(&ctx.sdk, api, kind), api) {
+                (Ok(image), _) => image,
+                // Not installed: download it.
+                (Err(_), Some(api)) => download_image(&ctx, api, kind, accept_licence).await?,
+                (Err(e), None) => return Err(e),
+            };
             let mut device = ctx.store.create(&name, &image, profile.into())?;
             println!("Created {}.", device.describe());
             if no_start {
@@ -362,13 +447,14 @@ async fn run(cli: Cli) -> Result<()> {
             }
             let options = ProvisionOptions {
                 screen_reader_apk: screen_reader,
+                backtalk,
                 disable_animations: no_animations,
                 full_volume: !no_volume_boost,
                 ..Default::default()
             };
             start(&ctx, &mut device, &StartOptions::default(), &options).await?;
             if attach {
-                attach::run(&ctx.sdk, &device, false).await?;
+                attach::run(&ctx.sdk, &device, false, true).await?;
             }
             Ok(())
         }
@@ -409,6 +495,7 @@ async fn run(cli: Cli) -> Result<()> {
             device,
             cold,
             screen_reader,
+            backtalk,
             no_volume_boost,
             emulator_args,
             emulator_audio,
@@ -417,6 +504,7 @@ async fn run(cli: Cli) -> Result<()> {
             let mut device = ctx.device(&device)?;
             let options = ProvisionOptions {
                 screen_reader_apk: screen_reader,
+                backtalk,
                 full_volume: !no_volume_boost,
                 ..Default::default()
             };
@@ -428,7 +516,27 @@ async fn run(cli: Cli) -> Result<()> {
             };
             start(&ctx, &mut device, &start_options, &options).await?;
             if attach {
-                attach::run(&ctx.sdk, &device, false).await?;
+                attach::run(&ctx.sdk, &device, false, true).await?;
+            }
+            Ok(())
+        }
+        Command::AudioCheck { device } => {
+            let (mut device, _, adb) = ctx.connect(&device).await?;
+            provision::update_helper(&ctx.sdk, &adb).await?;
+            device.meta.audio_speed = None;
+            provision::measure_audio(&mut device, &adb).await;
+            match device.meta.audio_speed {
+                Some(speed) if (speed - 1.0).abs() < 0.01 => {
+                    println!("{} plays audio at the right speed.", device.meta.name)
+                }
+                Some(speed) => println!(
+                    "{} plays audio at {:.1}% speed, which lowers its pitch. AAE corrects it when playing.",
+                    device.meta.name,
+                    speed * 100.0
+                ),
+                None => bail!(
+                    "The audio couldn't be measured. Try again with AAE_LOG=info for details."
+                ),
             }
             Ok(())
         }
@@ -467,10 +575,23 @@ async fn run(cli: Cli) -> Result<()> {
             println!("{} is stopped.", device.meta.name);
             Ok(())
         }
-        Command::Attach { device, keep_alt } => {
-            attach::run(&ctx.sdk, &ctx.device(&device)?, keep_alt).await
+        Command::Attach {
+            device,
+            keep_alt,
+            no_pitch_correction,
+        } => {
+            attach::run(
+                &ctx.sdk,
+                &ctx.device(&device)?,
+                keep_alt,
+                !no_pitch_correction,
+            )
+            .await
         }
-        Command::Listen { device } => attach::listen(&ctx.sdk, &ctx.device(&device)?).await,
+        Command::Listen {
+            device,
+            no_pitch_correction,
+        } => attach::listen(&ctx.sdk, &ctx.device(&device)?, !no_pitch_correction).await,
         Command::Status { device } => status(&ctx, &device).await,
         Command::Keytest { device } => keytest(&ctx, &device).await,
         Command::Latency {
@@ -517,31 +638,14 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Command::ScreenReader { device, apk } => {
             let (mut device, _, adb) = ctx.connect(&device).await?;
-            let info = provision::read_apk(&ctx.sdk, &apk)?;
-            let component = info
-                .accessibility_components()
-                .into_iter()
-                .next()
-                .ok_or_else(|| {
-                    anyhow!(
-                        "{} has no accessibility service, so it can't be a screen reader.",
-                        apk.display()
-                    )
-                })?;
-            adb.install(&apk).await?;
-            if let Some(old) = device.meta.screen_reader.take() {
-                if !same_component(&old, &component) {
-                    device.meta.keep_enabled.retain(|c| c != &old);
-                    adb.disable_service(&old).await?;
-                    println!("Turned off the previous screen reader, {old}.");
-                }
-            }
-            device.meta.screen_reader = Some(component.clone());
-            device.keep_service_enabled(&component);
-            device.save_meta()?;
-            adb.ensure_services(std::slice::from_ref(&component), provision::SERVICE_TIMEOUT)
-                .await?;
-            println!("{} is installed and on.", info.package);
+            let path = if apk.eq_ignore_ascii_case("backtalk") {
+                println!("Getting Backtalk's latest development build.");
+                provision::download_backtalk(&ctx.sdk, device.meta.api).await?
+            } else {
+                PathBuf::from(apk)
+            };
+            let package = provision::add_screen_reader(&ctx.sdk, &mut device, &adb, &path).await?;
+            println!("{package} is installed and on.");
             Ok(())
         }
         Command::Services { device, action } => {
@@ -712,6 +816,95 @@ async fn run(cli: Cli) -> Result<()> {
     }
 }
 
+/// Downloads and installs an Android version from Google, with progress every 10%.
+async fn download_image(
+    ctx: &Ctx,
+    api: u32,
+    kind: Option<Kind>,
+    accept_licence: bool,
+) -> Result<sdk::SystemImage> {
+    let kind = kind.unwrap_or(Kind::Google);
+    let catalogue = tokio::task::spawn_blocking(|| Catalogue::load(false)).await??;
+    let Some(image) = catalogue.find(api, kind.tag()).cloned() else {
+        let offered: Vec<String> = catalogue
+            .images
+            .iter()
+            .filter(|i| i.api == api)
+            .map(RemoteImage::describe)
+            .collect();
+        if offered.is_empty() {
+            bail!("Google offers no {} for this computer.", android_name(api));
+        }
+        bail!(
+            "Google doesn't offer that kind of {}. It offers: {}.",
+            android_name(api),
+            offered.join("; ")
+        );
+    };
+    let licence = catalogue
+        .licences
+        .get(&image.licence_id)
+        .cloned()
+        .unwrap_or_default();
+    if !catalog::licence_accepted(&ctx.sdk, &image.licence_id, &licence) {
+        if !accept_licence {
+            let path = aae_core::paths::data_dir()
+                .join("licences")
+                .join(format!("{}.txt", image.licence_id));
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&path, &licence)?;
+            bail!(
+                "{} is under Google's licence \"{}\", which you haven't accepted yet. \
+                 Read it in {}, then run this again with --accept-licence to accept it.",
+                image.describe(),
+                image.licence_id,
+                path.display()
+            );
+        }
+        catalog::accept_licence(&ctx.sdk, &image.licence_id, &licence)?;
+        println!("Accepted Google's licence {}.", image.licence_id);
+    }
+    if let (Some(needed), Some(have)) = (&image.min_emulator, ctx.sdk.emulator_version()) {
+        if version_less(&have, needed) {
+            println!(
+                "Warning: {} needs emulator version {needed} or later, and this one is {have}. \
+                 Update the Android Emulator in Android Studio.",
+                image.describe()
+            );
+        }
+    }
+    println!(
+        "Downloading {}, {}.",
+        image.describe(),
+        human_size(image.size)
+    );
+    let sdk = ctx.sdk.clone();
+    let installed = tokio::task::spawn_blocking(move || {
+        let mut last = 0;
+        catalog::install(&sdk, &catalogue, &image, |p| match p {
+            InstallProgress::Downloading { .. } => {
+                let percent = p.percent().unwrap_or(0);
+                if percent >= last + 10 {
+                    last = percent - percent % 10;
+                    println!("Downloaded {last}%.");
+                }
+            }
+            InstallProgress::Verifying => println!("Checking the download."),
+            InstallProgress::Unpacking => println!("Unpacking."),
+        })
+    })
+    .await??;
+    Ok(installed)
+}
+
+/// True if dotted version `a` is lower than `b`.
+fn version_less(a: &str, b: &str) -> bool {
+    let parts = |v: &str| -> Vec<u32> { v.split('.').map(|p| p.parse().unwrap_or(0)).collect() };
+    parts(a) < parts(b)
+}
+
 fn pick_image(sdk: &Sdk, api: Option<u32>, kind: Option<Kind>) -> Result<sdk::SystemImage> {
     let images = sdk.system_images();
     let fits = |i: &&sdk::SystemImage| {
@@ -745,11 +938,66 @@ async fn start(
     options: &ProvisionOptions,
 ) -> Result<()> {
     let name = device.meta.name.clone();
-    lifecycle::start_device(&ctx.sdk, &ctx.store, device, start_options, options, |p| {
-        println!("{}", p.describe(&name))
-    })
-    .await?;
+    let (_, adb) =
+        lifecycle::start_device(&ctx.sdk, &ctx.store, device, start_options, options, |p| {
+            println!("{}", p.describe(&name))
+        })
+        .await?;
+    if device.meta.screen_reader.is_none() && !device.meta.screen_reader_declined {
+        offer_screen_reader(ctx, device, &adb).await?;
+    }
     Ok(())
+}
+
+/// Asks what to do about a device with no screen reader. Without a terminal
+/// to ask in, says how to add one.
+async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Result<()> {
+    use std::io::{BufRead, IsTerminal, Write};
+    let name = device.meta.name.clone();
+    if !std::io::stdin().is_terminal() {
+        println!(
+            "{name} has no screen reader. Add one with: aae screen-reader \"{name}\" backtalk, \
+             or aae screen-reader \"{name}\" followed by the path to an APK."
+        );
+        return Ok(());
+    }
+    println!("{name} has no screen reader. What would you like to do?");
+    println!("1. Download and install Backtalk.");
+    println!("2. Install a screen reader APK from this computer.");
+    println!("3. Continue without a screen reader, and don't ask again.");
+    let stdin = std::io::stdin();
+    loop {
+        print!("Type 1, 2 or 3: ");
+        std::io::stdout().flush()?;
+        let mut answer = String::new();
+        if stdin.lock().read_line(&mut answer)? == 0 {
+            return Ok(());
+        }
+        let path = match answer.trim() {
+            "1" => {
+                println!("Getting Backtalk's latest development build.");
+                provision::download_backtalk(&ctx.sdk, device.meta.api).await?
+            }
+            "2" => {
+                print!("Type the path to the APK: ");
+                std::io::stdout().flush()?;
+                let mut path = String::new();
+                stdin.lock().read_line(&mut path)?;
+                // Finder's Copy as Pathname and dragging into Terminal can add quotes.
+                PathBuf::from(path.trim().trim_matches(|c| c == '"' || c == '\''))
+            }
+            "3" => {
+                device.meta.screen_reader_declined = true;
+                device.save_meta()?;
+                println!("{name} has no screen reader. AAE won't ask again.");
+                return Ok(());
+            }
+            _ => continue,
+        };
+        let package = provision::add_screen_reader(&ctx.sdk, device, adb, &path).await?;
+        println!("{package} is installed and on.");
+        return Ok(());
+    }
 }
 
 async fn keytest(ctx: &Ctx, name: &str) -> Result<()> {

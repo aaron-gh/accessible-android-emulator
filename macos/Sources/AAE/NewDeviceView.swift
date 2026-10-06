@@ -7,7 +7,7 @@ struct NewDeviceView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var name = ""
-    @State private var imageIndex = 0
+    @State private var versionIndex = 0
     @State private var profile = 1
     @State private var screenReader: String?
     @State private var volumeBoost = true
@@ -22,14 +22,14 @@ struct NewDeviceView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("New Device").font(.headline).accessibilityAddTraits(.isHeader)
 
-            if model.images.isEmpty {
-                Text("No Android versions are installed that run on this Mac. Install a system image with Android Studio's SDK Manager.")
+            if model.versions.isEmpty {
+                Text("No Android versions are available. Check your internet connection and try again.")
             } else {
                 TextField("Name", text: $name)
 
-                Picker("Android version", selection: $imageIndex) {
-                    ForEach(model.images.indices, id: \.self) { index in
-                        Text(model.images[index].description).tag(index)
+                Picker("Android version", selection: $versionIndex) {
+                    ForEach(model.versions.indices, id: \.self) { index in
+                        Text(versionLabel(model.versions[index])).tag(index)
                     }
                 }
 
@@ -54,16 +54,25 @@ struct NewDeviceView: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Create and Start", action: create)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || model.images.isEmpty)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || model.versions.isEmpty)
             }
         }
         .padding()
         .frame(width: 480)
-        .onAppear { screenReader = model.defaultScreenReader }
+        .onAppear {
+            screenReader = model.defaultScreenReader
+            // Start on the newest installed version, so nothing downloads by surprise.
+            versionIndex = model.versions.firstIndex(where: \.installed) ?? 0
+            model.loadVersions()
+        }
+    }
+
+    private func versionLabel(_ version: VersionInfo) -> String {
+        version.installed ? "\(version.description), installed" : "\(version.description), \(version.size) to download"
     }
 
     private var screenReaderText: String {
-        guard let screenReader else { return "TalkBack, if this Android version has it" }
+        guard let screenReader else { return "The Android image's own, if it has one. If not, AAE asks." }
         return (screenReader as NSString).lastPathComponent
     }
 
@@ -78,11 +87,11 @@ struct NewDeviceView: View {
 
     private func create() {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, model.images.indices.contains(imageIndex) else { return }
+        guard !trimmed.isEmpty, model.versions.indices.contains(versionIndex) else { return }
         dismiss()
         model.create(
             name: trimmed,
-            image: model.images[imageIndex],
+            version: model.versions[versionIndex],
             profile: profiles[profile].1,
             screenReader: screenReader,
             volumeBoost: volumeBoost

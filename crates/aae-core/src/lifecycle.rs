@@ -65,8 +65,14 @@ pub async fn start_device(
     device: &mut Device,
     start: &StartOptions,
     setup: &ProvisionOptions,
-    mut progress: impl FnMut(Progress),
+    mut report: impl FnMut(Progress),
 ) -> Result<(Controller, Adb)> {
+    // Every step goes to the log as well, so a start that stalls shows where.
+    let device_name = device.meta.name.clone();
+    let mut progress = |p: Progress| {
+        tracing::info!("{}", p.describe(&device_name));
+        report(p)
+    };
     let first_boot = !device.meta.provisioned;
     let info = match emulator::running(device) {
         Ok(info) => {
@@ -95,6 +101,9 @@ pub async fn start_device(
         provision::apply_keyboard_layout(sdk, &adb).await?;
         for component in provision::guard_services(device, &adb).await? {
             progress(Progress::ServiceRestored(component));
+        }
+        if device.meta.audio_speed.is_none() {
+            provision::measure_audio(device, &adb).await;
         }
         if let Some(what) = provision::ensure_device_speech(device, &adb)
             .await?

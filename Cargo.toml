@@ -31,3 +31,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 prismer = { version = "0.1.4", features = ["static"] }
 uniffi = "0.32"
+ureq = "3"
+sha1 = "0.11"
+roxmltree = "0.21"
+signalsmith-stretch = "0.1"
+zip = { version = "8.6", default-features = false, features = ["deflate"] }

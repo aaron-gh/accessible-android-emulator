@@ -15,11 +15,37 @@ final class ProgressRelay: ProgressListener, @unchecked Sendable {
     }
 }
 
+/// Passes download progress from the Rust core to the main thread.
+final class DownloadRelay: DownloadListener, @unchecked Sendable {
+    private let onPercent: @MainActor (UInt32) -> Void
+    private let onStage: @MainActor (String) -> Void
+
+    init(percent: @escaping @MainActor (UInt32) -> Void, stage: @escaping @MainActor (String) -> Void) {
+        onPercent = percent
+        onStage = stage
+    }
+
+    func downloaded(percent: UInt32) {
+        Task { @MainActor in onPercent(percent) }
+    }
+
+    func stage(message: String) {
+        Task { @MainActor in onStage(message) }
+    }
+}
+
 /// Everything the window shows and every action the user can take.
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var devices: [DeviceInfo] = []
     @Published private(set) var images: [ImageInfo] = []
+    /// Every Android version, installed or downloadable.
+    @Published private(set) var versions: [VersionInfo] = []
+    /// The version being downloaded and how far it has got.
+    @Published private(set) var download: (version: String, percent: UInt32)?
+    @Published var licenceRequest: LicenceRequest?
+    /// A device that has no screen reader, which the user is being asked about.
+    @Published var screenReaderQuestion: DeviceInfo?
     @Published var selection: String?
     /// What each busy device is doing, by device id.
     @Published private(set) var busy: [String: String] = [:]
@@ -33,6 +59,14 @@ final class AppModel: ObservableObject {
 
     let engine: Engine?
     let startupError: String?
+
+    /// Whether to correct older Android versions' pitch. Changed in Settings.
+    static let correctPitchKey = "correctPitch"
+    private var correctPitch: Bool {
+        UserDefaults.standard.object(forKey: Self.correctPitchKey) as? Bool ?? true
+    }
+    private var appliedCorrectPitch = true
+    private var defaultsObserver: NSObjectProtocol?
     private var sessions: [String: Session] = [:]
     /// First-start choices for devices just created, by device id.
     private var firstStart: [String: (screenReader: String?, volumeBoost: Bool)] = [:]
@@ -44,6 +78,12 @@ final class AppModel: ObservableObject {
         } catch {
             engine = nil
             startupError = error.localizedDescription
+        }
+        appliedCorrectPitch = correctPitch
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.correctPitchChanged() }
         }
         refresh()
     }
@@ -62,6 +102,11 @@ final class AppModel: ObservableObject {
             announce(error.localizedDescription, tone: .failure)
         }
         images = engine.images()
+        if versions.isEmpty {
+            versions = images.map {
+                VersionInfo(api: $0.api, tag: "", description: $0.description, installed: true, size: "", sysdir: $0.sysdir)
+            }
+        }
         if selected == nil {
             selection = devices.first?.id
         }
@@ -75,12 +120,84 @@ final class AppModel: ObservableObject {
 
     var defaultScreenReader: String? { engine?.defaultScreenReader() }
 
+    // MARK: - Android versions
+
+    /// Loads the list of Android versions, from Google's list at most once a day.
+    func loadVersions(refresh: Bool = false) {
+        guard let engine else { return }
+        Task {
+            do {
+                versions = try await engine.versions(refresh: refresh)
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+        }
+    }
+
+    /// Shows the licence and waits for the user's answer.
+    private func askLicence(_ licence: LicenceInfo, for version: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            licenceRequest = LicenceRequest(version: version, licence: licence) { [weak self] accepted in
+                self?.licenceRequest = nil
+                continuation.resume(returning: accepted)
+            }
+        }
+    }
+
+    /// Downloads a version, asking for its licence first if needed. Returns
+    /// where it's installed, or nil if the user declined or it failed.
+    private func installVersion(_ version: VersionInfo) async -> String? {
+        guard let engine else { return nil }
+        do {
+            if let licence = try await engine.licenceToAccept(api: version.api, tag: version.tag) {
+                guard await askLicence(licence, for: version.description) else {
+                    announce("Licence declined. \(version.description) was not downloaded.")
+                    return nil
+                }
+                try engine.acceptLicence(licence: licence)
+            }
+            download = (version.description, 0)
+            announce("Downloading \(version.description), \(version.size). Press Command Shift I to hear how far it's got.")
+            let relay = DownloadRelay(
+                percent: { [weak self] percent in
+                    guard let self, let current = self.download else { return }
+                    if percent / 10 > current.percent / 10 {
+                        Tone.progress.play()
+                    }
+                    self.download = (current.version, percent)
+                },
+                stage: { [weak self] message in self?.status = message }
+            )
+            let image = try await engine.installVersion(api: version.api, tag: version.tag, listener: relay)
+            download = nil
+            announce("\(version.description) is installed.", tone: .success)
+            loadVersions()
+            refresh()
+            return image.sysdir
+        } catch {
+            download = nil
+            announce(error.localizedDescription, tone: .failure)
+            return nil
+        }
+    }
+
     // MARK: - Devices
 
-    func create(name: String, image: ImageInfo, profile: DeviceProfile, screenReader: String?, volumeBoost: Bool) {
+    func create(name: String, version: VersionInfo, profile: DeviceProfile, screenReader: String?, volumeBoost: Bool) {
+        Task {
+            var sysdir = version.sysdir
+            if !version.installed {
+                guard let installed = await installVersion(version) else { return }
+                sysdir = installed
+            }
+            createInstalled(name: name, sysdir: sysdir, profile: profile, screenReader: screenReader, volumeBoost: volumeBoost)
+        }
+    }
+
+    private func createInstalled(name: String, sysdir: String, profile: DeviceProfile, screenReader: String?, volumeBoost: Bool) {
         guard let engine else { return }
         do {
-            let device = try engine.createDevice(name: name, sysdir: image.sysdir, profile: profile)
+            let device = try engine.createDevice(name: name, sysdir: sysdir, profile: profile)
             firstStart[device.id] = (screenReader, volumeBoost)
             refresh()
             selection = device.id
@@ -107,6 +224,11 @@ final class AppModel: ObservableObject {
                 firstStart[id] = nil
                 _ = try await session(for: id)
                 Tone.success.play()
+                refresh()
+                if let device = devices.first(where: { $0.id == id }),
+                   device.screenReader == nil, !device.screenReaderDeclined {
+                    screenReaderQuestion = device
+                }
             } catch {
                 announce(error.localizedDescription, tone: .failure)
             }
@@ -185,6 +307,49 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - Screen readers
+
+    /// Answers the question about a device with no screen reader.
+    func setUpScreenReader(_ device: DeviceInfo, source: ScreenReaderSource?) {
+        guard let engine else { return }
+        screenReaderQuestion = nil
+        guard let source else {
+            do {
+                try engine.declineScreenReader(id: device.id)
+                announce("\(device.name) has no screen reader. AAE won't ask again.")
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+            return
+        }
+        if case .backtalk = source {
+            announce("Downloading Backtalk.")
+        } else {
+            announce("Installing the screen reader.")
+        }
+        busy[device.id] = "Setting up the screen reader"
+        Task {
+            do {
+                let package = try await engine.addScreenReader(id: device.id, source: source)
+                announce("\(package) is installed and on.", tone: .success)
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+            busy[device.id] = nil
+            refresh()
+        }
+    }
+
+    /// Applies a change to the pitch correction setting to audio already playing.
+    private func correctPitchChanged() {
+        guard correctPitch != appliedCorrectPitch else { return }
+        appliedCorrectPitch = correctPitch
+        for session in sessions.values {
+            session.stopAudio()
+            Task { try? await session.startAudio(correctPitch: correctPitch) }
+        }
+    }
+
     // MARK: - Sessions
 
     private func session(for id: String) async throws -> Session {
@@ -193,7 +358,7 @@ final class AppModel: ObservableObject {
         }
         guard let engine else { throw AaeError.Failed(message: "AAE's core did not start.") }
         let session = try await engine.openSession(id: id)
-        try await session.startAudio()
+        try await session.startAudio(correctPitch: correctPitch)
         sessions[id] = session
         return session
     }
@@ -279,6 +444,10 @@ final class AppModel: ObservableObject {
     }
 
     func speakStatus() {
+        if let download {
+            announce("Downloading \(download.version): \(download.percent)%.")
+            return
+        }
         guard let device = selected else {
             announce("No device is selected.")
             return

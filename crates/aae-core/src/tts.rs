@@ -88,7 +88,13 @@ pub async fn check(adb: &Adb) -> Result<SpeechStatus> {
 /// Makes sure the device can speak, repairing it if not. Returns what it had
 /// to do, or an error if nothing worked.
 pub async fn ensure_speech(adb: &Adb) -> Result<SpeechFix> {
-    let status = check(adb).await?;
+    let mut status = check(adb).await?;
+    if !status.ok && status.detail.contains("in time") {
+        // Right after Android starts, an engine can be slow to answer the
+        // first time. Give it one more chance before repairing anything.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        status = check(adb).await?;
+    }
     if status.ok {
         return Ok(SpeechFix::None);
     }

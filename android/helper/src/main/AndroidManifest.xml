@@ -36,6 +36,7 @@
                 <action android:name="io.github.aaron_gh.aae.helper.SET_VOLUME" />
                 <action android:name="io.github.aaron_gh.aae.helper.KEY_TEST" />
                 <action android:name="io.github.aaron_gh.aae.helper.CHECK_SPEECH" />
+                <action android:name="io.github.aaron_gh.aae.helper.PLAY_TONE" />
             </intent-filter>
         </receiver>
         <!-- Offers the AAE full keyboard layout to Android. -->

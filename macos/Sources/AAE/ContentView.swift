@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
@@ -20,6 +21,13 @@ struct ContentView: View {
         .frame(minWidth: 560, minHeight: 380)
         .sheet(isPresented: $model.showingNewDevice) {
             NewDeviceView()
+        }
+        .sheet(item: $model.licenceRequest) { request in
+            LicenceView(request: request)
+                .interactiveDismissDisabled()
+        }
+        .sheet(item: $model.screenReaderQuestion) { device in
+            ScreenReaderQuestion(device: device)
         }
         .sheet(item: $model.renaming) { device in
             NamePrompt(
@@ -83,6 +91,13 @@ struct DeviceListView: View {
                 }
             }
 
+            if let download = model.download {
+                ProgressView(value: Double(download.percent), total: 100) {
+                    Text("Downloading \(download.version)")
+                }
+                .accessibilityValue("\(download.percent) percent")
+            }
+
             if !model.status.isEmpty {
                 Text(model.status)
                     .foregroundStyle(.secondary)
@@ -108,12 +123,16 @@ struct DeviceModeView: View {
             KeyCapture(capturing: model.inDeviceMode) { code, down in
                 model.sendKey(code, down)
             }
-            VStack(spacing: 8) {
+            VStack(spacing: 12) {
                 Text("The keyboard is in \(model.selected?.name ?? "Android").")
                     .font(.title2)
+                    .accessibilityHidden(true)
                 Text("Press Control Command Escape to return to the Mac.")
+                    .accessibilityHidden(true)
+                // A way out that doesn't depend on the keyboard: with VoiceOver
+                // on (Command-F5 still works), move to it and press VO-Space.
+                Button("Return to the Mac") { DeviceModeLock.shared.escapePressed() }
             }
-            .accessibilityHidden(true)
         }
         .padding()
     }
@@ -153,5 +172,41 @@ struct NamePrompt: View {
         guard !trimmed.isEmpty else { return }
         dismiss()
         done(trimmed)
+    }
+}
+
+/// Asks what to do about a device whose Android image has no screen reader.
+/// The user may have chosen such an image on purpose, to install their own.
+struct ScreenReaderQuestion: View {
+    @EnvironmentObject var model: AppModel
+    let device: DeviceInfo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(device.name) has no screen reader")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Text("This Android image doesn't include one. What would you like to do?")
+            HStack {
+                Button("Continue Without", role: .cancel) {
+                    model.setUpScreenReader(device, source: nil)
+                }
+                .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Choose a Screen Reader…") {
+                    let panel = NSOpenPanel()
+                    panel.message = "Choose a screen reader APK."
+                    panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data]
+                    if panel.runModal() == .OK, let url = panel.url {
+                        model.setUpScreenReader(device, source: .apk(path: url.path))
+                    }
+                }
+                Button("Download Backtalk") {
+                    model.setUpScreenReader(device, source: .backtalk)
+                }
+            }
+        }
+        .padding()
+        .frame(width: 520)
     }
 }

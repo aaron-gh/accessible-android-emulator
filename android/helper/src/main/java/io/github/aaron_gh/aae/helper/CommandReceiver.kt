@@ -21,7 +21,13 @@ import android.content.Intent
  *     am broadcast -n io.github.aaron_gh.aae.helper/.CommandReceiver \
  *         -a io.github.aaron_gh.aae.helper.CHECK_SPEECH
  *
- * checks the default speech engine can speak. The result code is 1 if it can,
+ * checks the default speech engine can speak.
+ *
+ * PLAY_TONE (extras: hz, rate) plays a test tone for a second and a half.
+ * The result code is the sample rate it plays at, and the data names the
+ * output's native rate.
+ *
+ * And for the check above: The result code is 1 if it can,
  * 0 if not, and the result data is "<engine package>|<what happened>".
  */
 class CommandReceiver : BroadcastReceiver() {
@@ -37,10 +43,17 @@ class CommandReceiver : BroadcastReceiver() {
                 // Synthesis takes a moment, so answer asynchronously. Android
                 // allows about ten seconds.
                 val pending = goAsync()
-                SpeechCheck(context) { result ->
+                // The receiver's own context may not bind to services, which
+                // Android 10 and earlier enforce, so use the app's.
+                SpeechCheck(context.applicationContext) { result ->
                     pending.setResult(if (result.ok) 1 else 0, "${result.engine}|${result.detail}", null)
                     pending.finish()
                 }.start(timeoutMs = 8000)
+            }
+            ACTION_PLAY_TONE -> {
+                val rate = intent.getIntExtra("rate", 0).takeIf { it > 0 } ?: TestTone.nativeRate()
+                TestTone.play(intent.getIntExtra("hz", 1000), rate, 1.5)
+                setResult(rate, "native=${TestTone.nativeRate()}", null)
             }
             ACTION_KEY_TEST -> {
                 val service = HelperService.instance
@@ -54,5 +67,6 @@ class CommandReceiver : BroadcastReceiver() {
         const val ACTION_SET_VOLUME = "io.github.aaron_gh.aae.helper.SET_VOLUME"
         const val ACTION_KEY_TEST = "io.github.aaron_gh.aae.helper.KEY_TEST"
         const val ACTION_CHECK_SPEECH = "io.github.aaron_gh.aae.helper.CHECK_SPEECH"
+        const val ACTION_PLAY_TONE = "io.github.aaron_gh.aae.helper.PLAY_TONE"
     }
 }

@@ -34,6 +34,9 @@ pub struct ProvisionOptions {
     /// [`default_screen_reader_apk`]) and otherwise uses TalkBack if the image has it.
     pub screen_reader_apk: Option<PathBuf>,
     pub disable_animations: bool,
+    /// When no screen reader is chosen, download and install Backtalk, rather
+    /// than using the image's own TalkBack or none.
+    pub backtalk: bool,
     /// Install AAE's helper and use it to turn the screen reader's volume to
     /// full. AAE controls loudness on the computer, so this gives the clearest sound.
     pub full_volume: bool,
@@ -47,6 +50,7 @@ impl Default for ProvisionOptions {
         ProvisionOptions {
             screen_reader_apk: None,
             disable_animations: false,
+            backtalk: false,
             full_volume: true,
             stay_awake: true,
         }
@@ -64,6 +68,7 @@ pub enum Step {
     ScreenReader,
     Volume,
     Verify,
+    Audio,
     Speech,
 }
 
@@ -75,9 +80,10 @@ impl Step {
             Step::SetupWizard => "Skipping the setup wizard",
             Step::StayAwake => "Keeping the screen on",
             Step::Animations => "Turning off animations",
-            Step::ScreenReader => "Installing and turning on the screen reader",
+            Step::ScreenReader => "Setting up the screen reader",
             Step::Volume => "Turning the screen reader's volume up to full",
-            Step::Verify => "Checking the screen reader is on",
+            Step::Verify => "Checking the services are on",
+            Step::Audio => "Checking the device's audio",
             Step::Speech => "Checking the device can speak",
         }
     }
@@ -204,6 +210,14 @@ pub async fn set_volume(adb: &Adb, percent: u8) -> Result<i32> {
         .ok_or_else(|| Error::Adb(format!("AAE's helper did not answer: {}", out.trim())))
 }
 
+/// What first-boot setup found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProvisionOutcome {
+    /// No screen reader was chosen and the Android image has none. The
+    /// device is otherwise set up; ask the user what to do (see [`add_screen_reader`]).
+    pub needs_screen_reader: bool,
+}
+
 /// Runs first-boot setup on a running device. `progress` is called as each step starts.
 pub async fn provision(
     sdk: &Sdk,
@@ -211,11 +225,15 @@ pub async fn provision(
     adb: &Adb,
     options: &ProvisionOptions,
     mut progress: impl FnMut(Step),
-) -> Result<()> {
+) -> Result<ProvisionOutcome> {
+    progress(Step::Helper);
+    update_helper(sdk, adb).await?;
+
     progress(Step::Keyboard);
     // Don't show the on-screen keyboard while a hardware keyboard is connected.
     adb.put_setting("secure", "show_ime_with_hard_keyboard", "0")
         .await?;
+    apply_keyboard_layout(sdk, adb).await?;
 
     progress(Step::SetupWizard);
     adb.put_setting("global", "device_provisioned", "1").await?;
@@ -246,20 +264,15 @@ pub async fn provision(
     }
 
     progress(Step::ScreenReader);
-    let component = install_screen_reader(sdk, adb, options).await?;
-    device.meta.screen_reader = Some(component.clone());
-    device.keep_service_enabled(&component);
+    let component = find_screen_reader(sdk, device.meta.api, adb, options).await?;
+    if let Some(component) = &component {
+        device.meta.screen_reader = Some(component.clone());
+        device.keep_service_enabled(component);
+    }
 
     if options.full_volume {
-        if let Some(helper) = helper_apk() {
-            progress(Step::Volume);
-            adb.install(&helper).await?;
-            device.keep_service_enabled(HELPER_COMPONENT);
-        } else {
-            tracing::warn!(
-                "AAE's helper app was not found, so the screen reader's volume was left as it is"
-            );
-        }
+        progress(Step::Volume);
+        device.keep_service_enabled(HELPER_COMPONENT);
     }
 
     progress(Step::Verify);
@@ -274,6 +287,9 @@ pub async fn provision(
         set_volume(adb, 100).await?;
     }
 
+    progress(Step::Audio);
+    measure_audio(device, adb).await;
+
     progress(Step::Speech);
     let fix = ensure_device_speech(device, adb).await?;
     if let Some(what) = fix.describe() {
@@ -281,39 +297,141 @@ pub async fn provision(
     }
 
     device.meta.provisioned = true;
-    device.save_meta()
+    device.save_meta()?;
+    Ok(ProvisionOutcome {
+        needs_screen_reader: component.is_none(),
+    })
 }
 
-async fn install_screen_reader(sdk: &Sdk, adb: &Adb, options: &ProvisionOptions) -> Result<String> {
-    let apk = options
+/// The screen reader for a new device: the one chosen, or Backtalk if asked
+/// for, or the image's own TalkBack. None if there is none of these.
+async fn find_screen_reader(
+    sdk: &Sdk,
+    api: u32,
+    adb: &Adb,
+    options: &ProvisionOptions,
+) -> Result<Option<String>> {
+    if let Some(apk) = options
         .screen_reader_apk
         .clone()
-        .or_else(default_screen_reader_apk);
-    if let Some(apk) = apk {
-        let info = read_apk(sdk, &apk)?;
-        let component = info
-            .accessibility_components()
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::Apk {
-                path: apk.clone(),
-                reason: "it has no accessibility service, so it can't be a screen reader".into(),
-            })?;
-        adb.install(&apk).await?;
-        return Ok(component);
+        .or_else(default_screen_reader_apk)
+    {
+        return Ok(Some(install_screen_reader_apk(sdk, adb, &apk).await?));
+    }
+    if options.backtalk {
+        let apk = download_backtalk(sdk, api).await?;
+        return Ok(Some(install_screen_reader_apk(sdk, adb, &apk).await?));
     }
     if adb
         .is_installed("com.google.android.marvin.talkback")
         .await?
     {
-        return Ok(TALKBACK_COMPONENT.to_string());
+        return Ok(Some(TALKBACK_COMPONENT.to_string()));
     }
-    Err(Error::Apk {
-        path: paths::data_dir().join("screen-readers/default.apk"),
-        reason: "no screen reader was given and this Android image has no TalkBack. \
-                 Give one with --screen-reader, or put it at this path"
-            .into(),
-    })
+    Ok(None)
+}
+
+/// Measures how fast the device plays audio and remembers it, so playback can
+/// correct the pitch of devices that play slowly. A failed measurement is
+/// logged and left for the next start: it must never stop a device starting.
+pub async fn measure_audio(device: &mut Device, adb: &Adb) {
+    // The check waits for sound from the device; never let it hold up a start.
+    if tokio::time::timeout(Duration::from_secs(20), measure_audio_inner(device, adb))
+        .await
+        .is_err()
+    {
+        tracing::warn!(
+            "the audio check took too long, so it was skipped; it will be tried on the next start"
+        );
+    }
+}
+
+async fn measure_audio_inner(device: &mut Device, adb: &Adb) {
+    let Ok(info) = crate::emulator::running(device) else {
+        return;
+    };
+    let token = crate::emulator::grpc_token(&info);
+    let controller =
+        match crate::control::Controller::connect(info.grpc_port, token.as_deref()).await {
+            Ok(controller) => controller,
+            Err(e) => {
+                tracing::warn!("couldn't measure the device's audio: {e}");
+                return;
+            }
+        };
+    match crate::audio::measure_speed(&controller, adb).await {
+        Ok(speed) => {
+            if (speed - 1.0).abs() > 0.01 {
+                tracing::info!(
+                    "{} plays audio at {:.1}% speed; AAE corrects the pitch",
+                    device.meta.name,
+                    speed * 100.0
+                );
+            }
+            device.meta.audio_speed = Some(speed);
+            if let Err(e) = device.save_meta() {
+                tracing::warn!("couldn't save the audio measurement: {e}");
+            }
+        }
+        Err(e) => tracing::warn!("couldn't measure the device's audio: {e}"),
+    }
+}
+
+/// Downloads Backtalk's latest development build, if this Android version can run it.
+pub async fn download_backtalk(sdk: &Sdk, api: u32) -> Result<PathBuf> {
+    if api < crate::screenreader::BACKTALK_MIN_API {
+        return Err(Error::Download(format!(
+            "Backtalk needs Android 8.0 or later, and this device is {}.",
+            crate::sdk::android_name(api)
+        )));
+    }
+    let sdk = sdk.clone();
+    tokio::task::spawn_blocking(move || crate::screenreader::backtalk_apk(&sdk))
+        .await
+        .map_err(|e| Error::Download(e.to_string()))?
+}
+
+/// Installs a screen reader APK and returns its accessibility service.
+async fn install_screen_reader_apk(sdk: &Sdk, adb: &Adb, apk: &std::path::Path) -> Result<String> {
+    let info = read_apk(sdk, apk)?;
+    let component = info
+        .accessibility_components()
+        .into_iter()
+        .next()
+        .ok_or_else(|| Error::Apk {
+            path: apk.to_path_buf(),
+            reason: "it has no accessibility service, so it can't be a screen reader".into(),
+        })?;
+    adb.install(apk).await?;
+    Ok(component)
+}
+
+/// Installs a screen reader on a set-up device and makes it the device's
+/// screen reader, turning off the one it had. Returns its package.
+pub async fn add_screen_reader(
+    sdk: &Sdk,
+    device: &mut Device,
+    adb: &Adb,
+    apk: &std::path::Path,
+) -> Result<String> {
+    let component = install_screen_reader_apk(sdk, adb, apk).await?;
+    if let Some(old) = device.meta.screen_reader.take() {
+        if !crate::adb::same_component(&old, &component) {
+            device.meta.keep_enabled.retain(|c| c != &old);
+            adb.disable_service(&old).await?;
+        }
+    }
+    device.meta.screen_reader = Some(component.clone());
+    device.meta.screen_reader_declined = false;
+    device.keep_service_enabled(&component);
+    device.save_meta()?;
+    adb.ensure_services(std::slice::from_ref(&component), SERVICE_TIMEOUT)
+        .await?;
+    Ok(component
+        .split('/')
+        .next()
+        .unwrap_or(&component)
+        .to_string())
 }
 
 /// Reads an APK's package name and services.

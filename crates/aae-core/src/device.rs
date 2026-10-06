@@ -79,6 +79,14 @@ pub struct DeviceMeta {
     /// The screen reader's accessibility service, as `package/class`.
     #[serde(default)]
     pub screen_reader: Option<String>,
+    /// The user chose to go without a screen reader on this device, so AAE
+    /// doesn't offer one again.
+    #[serde(default)]
+    pub screen_reader_declined: bool,
+    /// How fast the device really plays audio, as measured: 1.0 when right.
+    /// None until measured. See [`crate::audio::measure_speed`].
+    #[serde(default)]
+    pub audio_speed: Option<f64>,
     /// Accessibility services AAE turns back on after every boot and install,
     /// as `package/class`. Includes the screen reader.
     #[serde(default)]
@@ -221,6 +229,8 @@ impl DeviceStore {
             notes: String::new(),
             provisioned: false,
             screen_reader: None,
+            screen_reader_declined: false,
+            audio_speed: None,
             keep_enabled: Vec::new(),
         };
         let device = Device { id, dir, meta };
@@ -433,6 +443,9 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The disk space a folder really uses. Device disks are sparse files, which
+/// reserve their full size but take up only what has been written, so this
+/// counts allocated blocks where the platform reports them.
 fn dir_size(dir: &Path) -> u64 {
     std::fs::read_dir(dir)
         .into_iter()
@@ -440,10 +453,21 @@ fn dir_size(dir: &Path) -> u64 {
         .flatten()
         .map(|entry| match entry.metadata() {
             Ok(m) if m.is_dir() => dir_size(&entry.path()),
-            Ok(m) => m.len(),
+            Ok(m) => allocated(&m),
             Err(_) => 0,
         })
         .sum()
+}
+
+#[cfg(unix)]
+fn allocated(metadata: &std::fs::Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    metadata.blocks() * 512
+}
+
+#[cfg(not(unix))]
+fn allocated(metadata: &std::fs::Metadata) -> u64 {
+    metadata.len()
 }
 
 fn now() -> u64 {

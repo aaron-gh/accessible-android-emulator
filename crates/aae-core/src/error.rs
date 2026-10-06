@@ -45,6 +45,14 @@ pub enum Error {
     #[error("The emulator stopped while starting. The last lines of its log were:\n{0}")]
     EmulatorExited(String),
 
+    #[error("{0}")]
+    Download(String),
+
+    #[error(
+        "Google's licence for this download ({0}) hasn't been accepted yet. Read it and accept it first."
+    )]
+    LicenceNotAccepted(String),
+
     #[error("adb failed: {0}")]
     Adb(String),
 
