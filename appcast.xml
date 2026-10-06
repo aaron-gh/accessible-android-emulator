@@ -4,5 +4,26 @@
         <title>AAE Updates</title>
         <description>Updates for AAE, the Accessible Android Emulator.</description>
         <language>en</language>
+        <item>
+            <title>Version 0.1.0</title>
+            <pubDate>Tue, 06 Oct 2026 20:09:54 -0000</pubDate>
+            <sparkle:version>15</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>AAE 0.1.0</h2>
+<p>The first release of AAE, the Accessible Android Emulator: create, run and test Android virtual devices without sighted help.</p>
+<ul>
+<li>Sets up Google's Android emulator and tools itself, and downloads Android versions, with Google's licence shown for you to accept.</li>
+<li>Named devices, several of the same Android version, with a screen reader from first boot: Backtalk on Android 8 and later, or your own.</li>
+<li>Your whole keyboard in Android, with Command as Meta, and system shortcuts included. Control-Command-Escape returns to the Mac.</li>
+<li>Screen reader gestures from the keyboard, at any point on the screen.</li>
+<li>Dependable speech and sound, with older Android's pitch corrected.</li>
+<li>Testing tools: accessibility inspector and checks, speech log, device log and shell.</li>
+<li>Apps, snapshots, clipboard, battery, location, messages and calls.</li>
+</ul>
+<p>For Macs with Apple silicon, on macOS 13 or later.</p>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.1.0/AAE-0.1.0.dmg" sparkle:edSignature="JICVaV1Hu0YwRHogt9D9U03m1cZGvmci+/QwFZ8igRSV6INxe7O4A+f0zCUa8Ew3mI23CP9avHs8ajivb1RVAQ==" length="23575636" type="application/octet-stream" />
+        </item>
     </channel>
 </rss>
