@@ -14,6 +14,7 @@ pub mod control;
 pub mod device;
 pub mod emulator;
 pub mod error;
+pub mod gestures;
 pub mod inspector;
 pub mod keys;
 pub mod keytest;

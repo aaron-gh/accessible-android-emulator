@@ -209,6 +209,10 @@ enum Command {
         /// Print it as JSON, with every property.
         #[arg(long)]
         json: bool,
+        /// List only the things that can be touched, in the order gesture
+        /// mode's Tab visits them, with their centres.
+        #[arg(long)]
+        targets: bool,
     },
     /// Check the screen for common accessibility problems.
     Check { device: String },
@@ -227,6 +231,17 @@ enum Command {
     /// Press keys on the device, in order.
     #[command(after_help = keys::HELP)]
     Key { device: String, keys: Vec<String> },
+    /// Perform screen reader gestures on the device, in order, such as
+    /// swipe-right, swipe-up-then-left, double-tap or two-finger-swipe-down.
+    /// With no gestures, lists them all.
+    Gesture {
+        device: String,
+        gestures: Vec<String>,
+        /// Where to perform them, as X,Y in the pixel positions the
+        /// accessibility inspector reports. Defaults to the middle of the screen.
+        #[arg(long, value_parser = parse_point)]
+        at: Option<(i32, i32)>,
+    },
     /// Type text on the device.
     Type { device: String, text: String },
     /// Install apps, turning on any accessibility services they contain.
@@ -634,11 +649,20 @@ async fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
-        Command::Inspect { device, json } => {
+        Command::Inspect {
+            device,
+            json,
+            targets,
+        } => {
             let (device, _, adb) = ctx.connect(&device).await?;
             let tree =
                 with_helper(&ctx, &device, &adb, aae_core::inspector::read_tree(&adb)).await?;
-            if json {
+            if targets {
+                for target in aae_core::inspector::targets(&tree) {
+                    let (x, y) = target.centre();
+                    println!("{} (at {x}, {y})", target.label);
+                }
+            } else if json {
                 println!("{}", serde_json::to_string_pretty(&tree)?);
             } else {
                 print!("{}", aae_core::inspector::to_text(&tree));
@@ -901,6 +925,40 @@ async fn run(cli: Cli) -> Result<()> {
                 let key = keys::parse(name)
                     .ok_or_else(|| anyhow!("\"{name}\" is not a key name. {}", keys::HELP))?;
                 controller.press(&key).await?;
+            }
+            Ok(())
+        }
+        Command::Gesture {
+            device,
+            gestures,
+            at,
+        } => {
+            use aae_core::gestures::{self, Gesture, Screen};
+            if gestures.is_empty() {
+                println!("Gestures, named with hyphens or spaces:");
+                for gesture in Gesture::all() {
+                    println!("  {}", gesture.to_string().replace(' ', "-"));
+                }
+                return Ok(());
+            }
+            let parsed = gestures
+                .iter()
+                .map(|name| {
+                    Gesture::parse(name).ok_or_else(|| {
+                        anyhow!(
+                            "\"{name}\" is not a gesture. Run aae gesture with only a device to list them."
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let (_, controller, adb) = ctx.connect(&device).await?;
+            let screen = Screen::read(&adb).await?;
+            for (i, gesture) in parsed.iter().enumerate() {
+                if i > 0 {
+                    // Long enough that two gestures aren't read as one.
+                    tokio::time::sleep(Duration::from_millis(700)).await;
+                }
+                gestures::perform(&controller, &screen, gesture, at).await?;
             }
             Ok(())
         }
@@ -1476,6 +1534,13 @@ fn doctor(ctx: &Ctx) -> Result<()> {
     }
     println!("Devices are stored in {}.", ctx.store.root.display());
     Ok(())
+}
+
+/// Reads a point given as "X,Y".
+fn parse_point(text: &str) -> Result<(i32, i32), String> {
+    text.split_once(',')
+        .and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)))
+        .ok_or_else(|| format!("\"{text}\" is not a point. Give it as X,Y, such as 540,1200."))
 }
 
 /// Which devices use an Android version, in words.

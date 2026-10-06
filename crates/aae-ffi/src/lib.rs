@@ -17,6 +17,7 @@ use aae_core::catalog::{self, Catalogue, InstallProgress};
 use aae_core::control::Controller;
 use aae_core::device::{Device, DeviceStore, Profile, human_size};
 use aae_core::emulator::{self, StartOptions};
+use aae_core::gestures::{self, Gesture};
 use aae_core::logcat::{self, LogStream};
 use aae_core::provision::{self, ProvisionOptions};
 use aae_core::sdk::{Sdk, android_name, image_kind};
@@ -224,6 +225,36 @@ pub struct UtteranceInfo {
     pub text: String,
 }
 
+/// A point on the screen as the user sees it, in pixels.
+#[derive(uniffi::Record, Clone, Copy)]
+pub struct ScreenPoint {
+    pub x: i32,
+    pub y: i32,
+}
+
+/// Something on the screen that can be touched.
+#[derive(uniffi::Record)]
+pub struct TouchTarget {
+    /// What a screen reader would say, such as "Send, button".
+    pub label: String,
+    /// Its centre.
+    pub x: i32,
+    pub y: i32,
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+/// The things on the screen that can be touched, and the screen's size as
+/// the user sees it.
+#[derive(uniffi::Record)]
+pub struct TouchTargets {
+    pub width: i32,
+    pub height: i32,
+    pub targets: Vec<TouchTarget>,
+}
+
 /// What a shell command printed, and how it ended.
 #[derive(uniffi::Record)]
 pub struct CommandResult {
@@ -297,6 +328,50 @@ pub struct LogEntryInfo {
     pub spoken: String,
     /// The line as text, for copying and saving.
     pub line: String,
+}
+
+impl Session {
+    /// The screen, with its size cached and its rotation read fresh.
+    async fn screen(&self) -> Result<gestures::Screen, AaeError> {
+        let mut cached = self.screen.lock().await;
+        let mut screen = match *cached {
+            Some(screen) => screen,
+            None => gestures::Screen::read(&self.adb).await?,
+        };
+        screen.orientation = gestures::display_orientation(&self.adb).await;
+        *cached = Some(screen);
+        Ok(screen)
+    }
+
+    async fn gesture(
+        self: Arc<Self>,
+        name: String,
+        at: Option<ScreenPoint>,
+        hold: bool,
+    ) -> Result<(), AaeError> {
+        let at = at.map(|p| (p.x, p.y));
+        let gesture = Gesture::parse(&name).ok_or_else(|| AaeError::Failed {
+            message: format!("\"{name}\" is not a gesture."),
+        })?;
+        on_runtime(async move {
+            // Holding this lock for the whole gesture keeps gestures in order
+            // and stops two from mixing their fingers.
+            let mut held = self.held.lock().await;
+            // Fingers still down from a held gesture lift first.
+            if let Some(release) = held.take() {
+                gestures::lift(&self.controller, &release).await?;
+            }
+            let screen = self.screen().await?;
+            if hold {
+                let release = gestures::press(&self.controller, &screen, &gesture, at).await?;
+                *held = Some(release);
+            } else {
+                gestures::perform(&self.controller, &screen, &gesture, at).await?;
+            }
+            Ok(())
+        })
+        .await
+    }
 }
 
 /// The kind of hardware a new device has.
@@ -727,6 +802,10 @@ pub struct Session {
     keys: mpsc::UnboundedSender<KeyMessage>,
     audio: Mutex<Option<AudioPlayer>>,
     logs: Mutex<Option<LogStream>>,
+    /// The screen's size and density, read on the first gesture.
+    screen: tokio::sync::Mutex<Option<gestures::Screen>>,
+    /// The touches that lift fingers a held gesture left down.
+    held: tokio::sync::Mutex<Option<Vec<aae_core::control::TouchPoint>>>,
 }
 
 impl Session {
@@ -750,6 +829,8 @@ impl Session {
             keys: tx,
             audio: Mutex::new(None),
             logs: Mutex::new(None),
+            screen: tokio::sync::Mutex::new(None),
+            held: tokio::sync::Mutex::new(None),
         })
     }
 }
@@ -966,6 +1047,90 @@ impl Session {
                 .run_command(&command, std::time::Duration::from_secs(120))
                 .await?;
             Ok(CommandResult { output, status })
+        })
+        .await
+    }
+
+    /// Performs a screen reader gesture by name, such as "swipe-right",
+    /// "swipe-up-then-left", "double-tap" or "two-finger-swipe-down".
+    /// Gestures run one at a time, in the order asked for.
+    /// It happens at `at`, in pixels of the screen as the user sees it, or
+    /// in the middle of the screen.
+    pub async fn perform_gesture(
+        self: Arc<Self>,
+        name: String,
+        at: Option<ScreenPoint>,
+    ) -> Result<(), AaeError> {
+        self.gesture(name, at, false).await
+    }
+
+    /// Performs a gesture, such as "double-tap-hold", but leaves its last
+    /// touch down until `release_gesture`.
+    pub async fn press_gesture(
+        self: Arc<Self>,
+        name: String,
+        at: Option<ScreenPoint>,
+    ) -> Result<(), AaeError> {
+        self.gesture(name, at, true).await
+    }
+
+    /// The things on the screen that can be touched, in reading order, and
+    /// the screen's size as the user sees it. AAE's helper must be on; see
+    /// `use_helper`.
+    pub async fn touch_targets(self: Arc<Self>) -> Result<TouchTargets, AaeError> {
+        on_runtime(async move {
+            let screen = self.screen().await?;
+            let tree = inspector::read_tree(&self.adb).await?;
+            let (width, height) = gestures::user_size(&screen);
+            Ok(TouchTargets {
+                width: width as i32,
+                height: height as i32,
+                targets: inspector::targets(&tree)
+                    .into_iter()
+                    .map(|t| {
+                        let (x, y) = t.centre();
+                        let [left, top, right, bottom] = t.bounds;
+                        TouchTarget {
+                            label: t.label,
+                            x,
+                            y,
+                            left,
+                            top,
+                            right,
+                            bottom,
+                        }
+                    })
+                    .collect(),
+            })
+        })
+        .await
+    }
+
+    /// Turns AAE's helper on (true), for reading the screen, or back to how
+    /// the device keeps it (false).
+    pub async fn use_helper(&self, on: bool) -> Result<(), AaeError> {
+        let device = self.device.lock().unwrap().clone();
+        let adb = self.adb.clone();
+        on_runtime(async move {
+            let helper = provision::HELPER_COMPONENT.to_string();
+            if on {
+                adb.ensure_services(std::slice::from_ref(&helper), provision::SERVICE_TIMEOUT)
+                    .await?;
+            } else if !device.meta.keep_enabled.contains(&helper) {
+                adb.disable_service(&helper).await?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Lifts the fingers `press_gesture` left down, if any are.
+    pub async fn release_gesture(self: Arc<Self>) -> Result<(), AaeError> {
+        on_runtime(async move {
+            if let Some(release) = self.held.lock().await.take() {
+                gestures::lift(&self.controller, &release).await?;
+            }
+            Ok(())
         })
         .await
     }

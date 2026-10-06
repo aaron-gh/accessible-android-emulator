@@ -253,7 +253,7 @@ impl Node {
         lines
     }
 
-    fn is_control(&self) -> bool {
+    pub fn is_control(&self) -> bool {
         self.has("clickable")
             || self.has("long clickable")
             || self.has("checkable")
@@ -287,6 +287,91 @@ impl Window {
         }
         text
     }
+}
+
+/// Something on the screen that can be touched, for moving a touch point
+/// from item to item.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Target {
+    /// What a screen reader would say, such as "Send, button".
+    pub label: String,
+    /// Left, top, right, bottom, in pixels of the screen as the user sees it,
+    /// cut to what's on screen.
+    pub bounds: [i32; 4],
+}
+
+impl Target {
+    pub fn centre(&self) -> (i32, i32) {
+        let [l, t, r, b] = self.bounds;
+        ((l + r) / 2, (t + b) / 2)
+    }
+
+    fn contains(&self, x: i32, y: i32) -> bool {
+        let [l, t, r, b] = self.bounds;
+        (l..r).contains(&x) && (t..b).contains(&y)
+    }
+
+    fn area(&self) -> i64 {
+        let [l, t, r, b] = self.bounds;
+        (r - l) as i64 * (b - t) as i64
+    }
+}
+
+/// The things on the screen worth touching, in reading order: the active
+/// app first, then the rest, such as the keyboard and the system bars.
+///
+/// As a screen reader does, a control is one stop, with the text inside it
+/// part of its label; text outside any control is a stop of its own.
+/// Unlabelled controls are included, since finding them is the point of
+/// testing, but a control that covers most of the screen, usually a layout
+/// that happens to be clickable, is not.
+pub fn targets(tree: &Tree) -> Vec<Target> {
+    fn visible(node: &Node) -> bool {
+        let [l, t, r, b] = node.bounds;
+        r > l && b > t
+    }
+    fn walk(node: &Node, inside_control: bool, screen_area: i64, out: &mut Vec<Target>) {
+        let control = node.is_control() || node.has("focusable");
+        let target = Target {
+            label: node.summary(),
+            bounds: node.bounds,
+        };
+        let worth = visible(node)
+            && if control {
+                target.area() < screen_area * 8 / 10
+            } else {
+                !inside_control && node.own_label().is_some()
+            };
+        if worth {
+            out.push(target);
+        }
+        for child in &node.children {
+            walk(
+                child,
+                inside_control || (control && worth),
+                screen_area,
+                out,
+            );
+        }
+    }
+    let mut windows: Vec<&Window> = tree.windows.iter().collect();
+    // Stable sort: the active window, then other app windows, keep their order.
+    windows.sort_by_key(|w| (!w.active, w.kind != "application"));
+    let mut out = Vec::new();
+    for window in windows {
+        let [l, t, r, b] = window.root.bounds;
+        let area = ((r - l) as i64 * (b - t) as i64).max(1);
+        walk(&window.root, false, area, &mut out);
+    }
+    out
+}
+
+/// What's under a point: the smallest target containing it.
+pub fn target_at(targets: &[Target], x: i32, y: i32) -> Option<&Target> {
+    targets
+        .iter()
+        .filter(|t| t.contains(x, y))
+        .min_by_key(|t| t.area())
 }
 
 /// Reads the screen's accessibility tree through AAE's helper.

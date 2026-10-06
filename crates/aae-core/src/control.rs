@@ -31,6 +31,16 @@ impl Interceptor for Auth {
 
 type Svc = InterceptedService<Channel, Auth>;
 
+/// One finger on the touchscreen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TouchPoint {
+    pub id: i32,
+    pub x: i32,
+    pub y: i32,
+    /// False lifts the finger.
+    pub down: bool,
+}
+
 /// Device orientation, in the terms a user would use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Orientation {
@@ -242,6 +252,30 @@ impl Controller {
         Ok(())
     }
 
+    /// Moves, puts down or lifts fingers, each by its id, in one event.
+    /// Coordinates are touchscreen pixels, unrotated.
+    pub async fn touch_points(&self, points: &[TouchPoint]) -> Result<()> {
+        let touches = points
+            .iter()
+            .map(|p| pb::Touch {
+                x: p.x,
+                y: p.y,
+                identifier: p.id,
+                pressure: if p.down { 1 } else { 0 },
+                touch_major: if p.down { 8 } else { 0 },
+                ..Default::default()
+            })
+            .collect();
+        self.emu
+            .clone()
+            .send_touch(pb::TouchEvent {
+                touches,
+                display: 0,
+            })
+            .await?;
+        Ok(())
+    }
+
     // Device state.
 
     pub async fn orientation(&self) -> Result<Orientation> {
@@ -269,6 +303,10 @@ impl Controller {
                 value: Some(pb::ParameterValue {
                     data: vec![0.0, 0.0, orientation.degrees()],
                 }),
+                // Turn at once. A smooth turn takes a moment, and reading the
+                // orientation during it gives the old one, so a quick second
+                // rotation started from the wrong place.
+                interpolation: pb::physical_model_value::Interpolation::Step as i32,
                 ..Default::default()
             })
             .await?;

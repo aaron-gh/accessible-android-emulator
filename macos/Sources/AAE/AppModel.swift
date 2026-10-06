@@ -85,6 +85,20 @@ final class AppModel: ObservableObject {
     @Published private(set) var status = ""
     /// The device whose keyboard is captured, if any.
     @Published private(set) var deviceModeID: String?
+    /// In device mode, whether keys perform gestures instead of typing.
+    @Published private(set) var gestureMode = false
+    private let gestureKeys = GestureKeys()
+    /// Where gestures happen, in pixels of the screen as the user sees it;
+    /// nil is the middle of the screen.
+    private var touchPoint: ScreenPoint?
+    /// What was last said to be at the touch point.
+    private var touchLabel: String?
+    /// The item Tab last moved to. Items can share a centre, such as a
+    /// widget and the date inside it, so it's found again by its label and
+    /// edges, not by the touch point.
+    private var touchItem: TouchTarget?
+    /// The gesture being performed, so the next one waits for it.
+    private var gestureTask: Task<Void, Never>?
     @Published var showingNewDevice = false
     @Published var renaming: DeviceInfo?
     @Published var cloning: DeviceInfo?
@@ -112,6 +126,7 @@ final class AppModel: ObservableObject {
             startupError = error.localizedDescription
         }
         appliedCorrectPitch = correctPitch
+        setUpGestureKeys()
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -667,7 +682,9 @@ final class AppModel: ObservableObject {
 
     // MARK: - Device mode
 
-    func enterDeviceMode() {
+    /// Gives the keyboard to Android: to type (device mode), or with
+    /// `gestures`, to perform screen reader gestures (gesture mode).
+    func enterDeviceMode(gestures: Bool = false) {
         guard let device = selected, !inDeviceMode else { return }
         guard device.running else {
             announce("\(device.name) is not running. Start it first.", tone: .failure)
@@ -676,6 +693,15 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let session = try await session(for: device.id)
+                gestureMode = gestures
+                gestureKeys.reset()
+                touchPoint = nil
+                touchLabel = nil
+                touchItem = nil
+                if gestures {
+                    // Reading the screen, to move the touch point, needs AAE's helper.
+                    try await session.useHelper(on: true)
+                }
                 deviceModeID = device.id
                 activeSession = session
                 DeviceModeLock.shared.lock { [weak self] in self?.leaveDeviceMode() }
@@ -685,7 +711,11 @@ final class AppModel: ObservableObject {
                     announce("Couldn't give the keyboard to Android. The main window didn't take focus.", tone: .failure)
                     return
                 }
-                announce("Android keyboard on. Control Command Escape returns to the Mac.")
+                if gestures {
+                    announce("Gesture mode on. Arrows swipe, Space double taps, question mark lists the keys. Control Command Escape returns to the Mac.")
+                } else {
+                    announce("Android keyboard on. Control Command Escape returns to the Mac.")
+                }
             } catch {
                 announce(error.localizedDescription, tone: .failure)
             }
@@ -695,8 +725,14 @@ final class AppModel: ObservableObject {
     func leaveDeviceMode(quietly: Bool = false) {
         guard inDeviceMode else { return }
         DeviceModeLock.shared.unlock()
+        // Lifts any held touch, while the session is still there to lift it.
+        gestureKeys.reset()
+        if gestureMode {
+            queueGesture { session in try await session.useHelper(on: false) }
+        }
         deviceModeID = nil
         activeSession = nil
+        gestureMode = false
         if !quietly {
             announce("Mac keyboard on.")
         }
@@ -706,7 +742,157 @@ final class AppModel: ObservableObject {
     private(set) var activeSession: Session?
 
     func sendKey(_ keycode: UInt16, _ down: Bool) {
-        _ = activeSession?.macKey(keycode: keycode, down: down)
+        if gestureMode {
+            gestureKeys.handle(keycode, down)
+        } else {
+            _ = activeSession?.macKey(keycode: keycode, down: down)
+        }
+    }
+
+    private func setUpGestureKeys() {
+        gestureKeys.act = { [weak self] action in self?.gestureAction(action) }
+    }
+
+    private func gestureAction(_ action: GestureAction) {
+        if KeyLog.enabled {
+            KeyLog.write("gesture action \(action)")
+        }
+        switch action {
+        case let .gesture(name):
+            let at = touchPoint
+            queueGesture { session in try await session.performGesture(name: name, at: at) }
+        case let .press(name):
+            let at = touchPoint
+            queueGesture { session in try await session.pressGesture(name: name, at: at) }
+        case .release:
+            queueGesture { session in try await session.releaseGesture() }
+        case .nextItem, .previousItem:
+            queueGesture { [weak self] session in
+                try await self?.moveToItem(next: action == .nextItem, session: session)
+            }
+        case let .step(dx, dy):
+            queueGesture { [weak self] session in
+                try await self?.stepTouchPoint(dx: dx, dy: dy, session: session)
+            }
+        case .centre:
+            touchPoint = nil
+            touchItem = nil
+            queueGesture { [weak self] session in
+                try await self?.sayTouchPoint(session: session, prefix: "Middle of the screen.")
+            }
+        case .whereIsIt:
+            queueGesture { [weak self] session in
+                try await self?.sayTouchPoint(session: session, prefix: nil)
+            }
+        case .help:
+            announce(GestureKeys.helpText)
+        case .unknown:
+            Tone.failure.play()
+        }
+    }
+
+    /// Moves the touch point to the next or previous thing on the screen, in
+    /// reading order, and says what it is.
+    private func moveToItem(next: Bool, session: Session) async throws {
+        let screen = try await session.touchTargets()
+        let targets = screen.targets
+        guard !targets.isEmpty else {
+            announce("There's nothing on the screen to touch.", tone: .failure)
+            return
+        }
+        var index: Int
+        if let point = touchPoint {
+            let item = touchItem.flatMap { item in
+                targets.firstIndex { $0.label == item.label && $0.left == item.left && $0.top == item.top && $0.right == item.right && $0.bottom == item.bottom }
+            }
+            if let current = item ?? Self.targetIndex(at: point, in: targets) {
+                index = current + (next ? 1 : -1)
+            } else if next {
+                // Between items: the next one down the screen.
+                index = targets.firstIndex { $0.top >= point.y } ?? targets.count
+            } else {
+                index = targets.lastIndex { $0.bottom <= point.y } ?? -1
+            }
+        } else {
+            index = next ? 0 : targets.count - 1
+        }
+        guard targets.indices.contains(index) else {
+            announce(next ? "End of the screen." : "Start of the screen.", tone: .failure)
+            return
+        }
+        let target = targets[index]
+        touchPoint = ScreenPoint(x: target.x, y: target.y)
+        touchLabel = target.label
+        touchItem = target
+        announce(target.label)
+    }
+
+    /// Moves the touch point a step across the screen, saying what it reaches.
+    private func stepTouchPoint(dx: Int, dy: Int, session: Session) async throws {
+        let screen = try await session.touchTargets()
+        let step = max(min(screen.width, screen.height) / 10, 1)
+        let start = touchPoint ?? ScreenPoint(x: screen.width / 2, y: screen.height / 2)
+        let x = min(max(start.x + Int32(dx) * step, 0), screen.width - 1)
+        let y = min(max(start.y + Int32(dy) * step, 0), screen.height - 1)
+        let atEdge = x == start.x && y == start.y
+        let point = ScreenPoint(x: x, y: y)
+        touchPoint = point
+        touchItem = nil
+        let under = Self.targetIndex(at: point, in: screen.targets).map { screen.targets[$0] }
+        if atEdge {
+            Tone.failure.play()
+        }
+        if let under, under.label == touchLabel {
+            // Still on the same item: a tick, not the whole label again.
+            if !atEdge { Tone.progress.play() }
+        } else {
+            announce(under?.label ?? "Nothing. \(Self.position(point, screen))")
+        }
+        touchLabel = under?.label
+    }
+
+    /// Says what's at the touch point, and where it is.
+    private func sayTouchPoint(session: Session, prefix: String?) async throws {
+        let screen = try await session.touchTargets()
+        let point = touchPoint ?? ScreenPoint(x: screen.width / 2, y: screen.height / 2)
+        let under = Self.targetIndex(at: point, in: screen.targets).map { screen.targets[$0] }
+        touchLabel = under?.label
+        let parts = [prefix, under?.label ?? "Nothing.", prefix == nil ? Self.position(point, screen) : nil]
+        announce(parts.compactMap { $0 }.joined(separator: " "))
+    }
+
+    /// The smallest target containing a point.
+    private static func targetIndex(at point: ScreenPoint, in targets: [TouchTarget]) -> Int? {
+        targets.indices
+            .filter { i in
+                let t = targets[i]
+                return (t.left..<t.right).contains(point.x) && (t.top..<t.bottom).contains(point.y)
+            }
+            .min { a, b in
+                let area = { (t: TouchTarget) in (t.right - t.left) * (t.bottom - t.top) }
+                return area(targets[a]) < area(targets[b])
+            }
+    }
+
+    /// Where a point is, as percentages across and down the screen.
+    private static func position(_ point: ScreenPoint, _ screen: TouchTargets) -> String {
+        let across = point.x * 100 / max(screen.width, 1)
+        let down = point.y * 100 / max(screen.height, 1)
+        return "\(across) percent across, \(down) percent down."
+    }
+
+    /// Runs gesture work after any still going, so gestures happen in order.
+    private func queueGesture(_ work: @escaping (Session) async throws -> Void) {
+        guard let session = activeSession else { return }
+        let previous = gestureTask
+        gestureTask = Task { [weak self] in
+            await previous?.value
+            do {
+                try await work(session)
+            } catch {
+                self?.announce(error.localizedDescription, tone: .failure)
+            }
+        }
     }
 
     // MARK: - Device actions
@@ -752,7 +938,7 @@ final class AppModel: ObservableObject {
         } else {
             parts.append(device.running ? "Running." : "Stopped.")
         }
-        parts.append(inDeviceMode ? "The keyboard is in Android." : "The keyboard is on the Mac.")
+        parts.append(!inDeviceMode ? "The keyboard is on the Mac." : gestureMode ? "Gesture mode is on." : "The keyboard is in Android.")
         guard device.running, busy[device.id] == nil else {
             announce(parts.joined(separator: " "))
             return

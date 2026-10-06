@@ -97,5 +97,10 @@ struct DeviceModeMenuItem: View {
             model.enterDeviceMode()
         }
         .keyboardShortcut("e", modifiers: [.command, .shift])
+        Button("Use Gestures") {
+            openWindow(id: "main")
+            model.enterDeviceMode(gestures: true)
+        }
+        .keyboardShortcut("g", modifiers: [.command, .shift])
     }
 }

@@ -36,6 +36,17 @@ This is an early development build. It has a cross-platform core, the `aae` comm
 - `aae latency`: measures the time from a key press to the device's speech.
 - `aae attach`: the device's audio plays and your terminal's keyboard goes to the device. Control-] brings it back. Plain Escape goes to the device. A terminal can't see the Command key, so Option is sent as Android's Meta key, the modifier TalkBack's current keymap uses. Pass `--keep-alt` to send it as Alt. macOS Terminal turns Option-Left and Option-Right into word movement before AAE sees them. To fix that, open Terminal's Settings, then Profiles, then Keyboard. Turn on "Use Option as Meta key". Set Option-Left to send `\033[1;3D` and Option-Right to send `\033[1;3C`. iTerm2, Ghostty, kitty and WezTerm report every key and need none of this. The Mac app captures keys directly, with none of these limits.
 
+### Gestures
+
+- Screen reader gestures, performed with simulated fingers through the emulator's touchscreen, so the screen reader sees them as real touches: swipes in four directions, two-part swipes such as up then left, swipes with two, three or four fingers, single, double and triple taps, and double tap and hold. They follow the way the screen is turned. Tested with Backtalk on Android 8, 14 and 16.
+- Gesture mode in the Mac app (Command-Shift-G): the whole keyboard performs gestures until Control-Command-Escape.
+  - Arrows swipe; hold one arrow and press another for a two-part swipe.
+  - Space double taps, T taps, and R triple taps. H double taps and holds, and L touches and holds, for as long as the key is held.
+  - Hold 2, 3 or 4 while pressing a key to use that many fingers.
+  - Gestures happen at the touch point, which starts in the middle of the screen. Tab and Shift-Tab move it to the next or previous thing on the screen, read out through VoiceOver. Shift-arrows move it a step at a time, saying what's under it. C puts it back in the middle, and W says where it is. This is how to tap a particular control in an app with no screen reader running, or in a part of an app a screen reader can't see. AAE's helper reads the screen for this, so it works whether or not the device has a screen reader on.
+  - Question mark reads the keys out.
+- `aae gesture <device> swipe-right double-tap` performs gestures in order; with no gestures it lists them all. `--at X,Y` performs them at a point, in the pixel positions the accessibility inspector reports. `aae inspect <device> --targets` lists the things gesture mode's Tab visits, with their positions.
+
 ### Testing tools
 
 These are in the Mac app's Device menu and on the command line. The inspector, checks and speech log were checked on Android 8, 11, 14 and 16.
@@ -53,6 +64,7 @@ The Mac app is in `macos/`. Announcements go through VoiceOver when it's running
 - The main window lists your devices. New Device (Command-N) creates one, downloading its Android version if needed.
 - The File menu also has Android Versions (Option-Command-A), which lists installed versions with their size and the devices that use each one, and deletes the ones you no longer need.
 - The Device menu starts (Command-Shift-S) and stops (Command-Shift-.) the selected device. Speak Status (Command-Shift-I) says what it's doing. The menu also has Android's buttons, notifications and quick settings, rotation, muting, installing apps, screenshots, renaming, copying and deleting, and the testing tools.
+- Gesture mode (Command-Shift-G) turns the keyboard into screen reader gestures, described under Gestures above.
 - Device mode (Command-Shift-E) gives the keyboard to Android, from any AAE window. Every key goes to Android, with Command as Meta. That includes system shortcuts such as Spotlight's Command-Space and Mission Control. VoiceOver's own shortcuts, such as Command-F5, still work. Control-Command-Escape, or the "Return to the Mac" button, brings the keyboard back.
 
 ## Building

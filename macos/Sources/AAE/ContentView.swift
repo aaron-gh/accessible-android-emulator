@@ -124,9 +124,17 @@ struct DeviceModeView: View {
                 model.sendKey(code, down)
             }
             VStack(spacing: 12) {
-                Text("The keyboard is in \(model.selected?.name ?? "Android").")
+                Text(model.gestureMode
+                    ? "Keys perform gestures on \(model.selected?.name ?? "Android")."
+                    : "The keyboard is in \(model.selected?.name ?? "Android").")
                     .font(.title2)
                     .accessibilityHidden(true)
+                if model.gestureMode {
+                    Text(GestureKeys.helpText)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 520)
+                        .accessibilityHidden(true)
+                }
                 Text("Press Control Command Escape to return to the Mac.")
                     .accessibilityHidden(true)
                 // A way out that doesn't depend on the keyboard: with VoiceOver
