@@ -98,7 +98,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var loadingImages = false
     /// A device that has no screen reader, which the user is being asked about.
     @Published var screenReaderQuestion: DeviceInfo?
-    @Published var selection: String?
+    @Published var selection: String? {
+        didSet { if selection != oldValue { applyAudioFocus() } }
+    }
+    /// The window device mode is in: "main", or a device's own window by
+    /// the device's id.
+    @Published private(set) var deviceModeHost: String?
+    /// The device whose own window is in front, if one is.
+    var keyDeviceWindow: String?
+    static let playOnlyInUseKey = "playOnlyDeviceInUse"
     /// What each busy device is doing, by device id.
     @Published private(set) var busy: [String: String] = [:]
     /// The latest announcement, also shown in the window.
@@ -160,7 +168,10 @@ final class AppModel: ObservableObject {
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.correctPitchChanged() }
+            MainActor.assumeIsolated {
+                self?.correctPitchChanged()
+                self?.applyAudioFocus()
+            }
         }
         refresh()
     }
@@ -840,6 +851,7 @@ final class AppModel: ObservableObject {
         let session = try await engine.openSession(id: id)
         try await session.startAudio(correctPitch: correctPitch)
         sessions[id] = session
+        applyAudioFocus()
         return session
     }
 
@@ -863,7 +875,7 @@ final class AppModel: ObservableObject {
 
     /// Gives the keyboard to Android: to type (device mode), or with
     /// `gestures`, to perform screen reader gestures (gesture mode).
-    func enterDeviceMode(gestures: Bool = false) {
+    func enterDeviceMode(gestures: Bool = false, host: String = "main") {
         guard let device = selected, !inDeviceMode else { return }
         guard device.running else {
             announce("\(device.name) is not running. Start it first.", tone: .failure)
@@ -873,6 +885,7 @@ final class AppModel: ObservableObject {
             do {
                 let session = try await session(for: device.id)
                 gestureMode = gestures
+                deviceModeHost = host
                 gestureKeys.reset()
                 touchPoint = nil
                 touchLabel = nil
@@ -883,6 +896,7 @@ final class AppModel: ObservableObject {
                 }
                 deviceModeID = device.id
                 activeSession = session
+                applyAudioFocus()
                 DeviceModeLock.shared.lock { [weak self] in self?.leaveDeviceMode() }
                 // Only say the keyboard is Android's once keys really reach it.
                 guard await DeviceModeLock.shared.waitUntilCapturing() else {
@@ -910,8 +924,10 @@ final class AppModel: ObservableObject {
             queueGesture { session in try await session.useHelper(on: false) }
         }
         deviceModeID = nil
+        deviceModeHost = nil
         activeSession = nil
         gestureMode = false
+        applyAudioFocus()
         if !quietly {
             announce("Mac keyboard on.")
         }
@@ -1478,6 +1494,18 @@ final class AppModel: ObservableObject {
 
     // MARK: - Sound
 
+    /// With several devices playing, plays only the one in use: the one in
+    /// device mode, or else the selected one, whose window is in front. The
+    /// others are silenced, without touching the user's own mute. A setting
+    /// turns this off.
+    func applyAudioFocus() {
+        let onlyInUse = UserDefaults.standard.object(forKey: Self.playOnlyInUseKey) as? Bool ?? true
+        let inUse = deviceModeID ?? selection
+        for (id, session) in sessions {
+            session.setBackground(background: onlyInUse && sessions.count > 1 && id != inUse)
+        }
+    }
+
     /// Checks the selected device's sound reaches AAE, with a test tone
     /// nobody hears, and offers to restart AAE's audio if it doesn't.
     func checkAudio() {
@@ -1499,6 +1527,7 @@ final class AppModel: ObservableObject {
             alert.addButton(withTitle: "Not Now")
             guard alert.runModal() == .alertFirstButtonReturn else { return }
             try await session.restartAudio(correctPitch: self.correctPitch)
+            self.applyAudioFocus()
             let again = try await session.checkAudio(probe: true)
             if again.working {
                 self.soundProblems.remove(device.id)

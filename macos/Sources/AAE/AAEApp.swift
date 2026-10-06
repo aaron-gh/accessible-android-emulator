@@ -31,6 +31,7 @@ struct AAEApp: App {
                 Button("Restart") { model.restart() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 DeviceModeMenuItem(model: model)
+                DeviceWindowMenuItem(model: model)
                 Button("Speak Status") { model.speakStatus() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
                 InspectorMenuItem()
@@ -88,6 +89,12 @@ struct AAEApp: App {
                     .keyboardShortcut(.delete)
             }
         }
+        WindowGroup("Device", id: "device", for: String.self) { $id in
+            if let id {
+                DeviceWindowView(id: id)
+                    .environmentObject(model)
+            }
+        }
         Window("Accessibility Inspector", id: "inspector") {
             InspectorView()
                 .environmentObject(model)
@@ -133,15 +140,33 @@ struct DeviceModeMenuItem: View {
     let model: AppModel
 
     var body: some View {
-        Button("Use Android Keyboard") {
+        Button("Use Android Keyboard") { enter(gestures: false) }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+        Button("Use Gestures") { enter(gestures: true) }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+    }
+
+    /// In the device's own window if that's in front, otherwise in the main
+    /// window, which comes forward.
+    private func enter(gestures: Bool) {
+        if let id = model.keyDeviceWindow, id == model.selection {
+            model.enterDeviceMode(gestures: gestures, host: id)
+        } else {
             openWindow(id: "main")
-            model.enterDeviceMode()
+            model.enterDeviceMode(gestures: gestures)
         }
-        .keyboardShortcut("e", modifiers: [.command, .shift])
-        Button("Use Gestures") {
-            openWindow(id: "main")
-            model.enterDeviceMode(gestures: true)
+    }
+}
+
+/// The Device menu item that gives the selected device a window of its own.
+struct DeviceWindowMenuItem: View {
+    @Environment(\.openWindow) private var openWindow
+    let model: AppModel
+
+    var body: some View {
+        Button("Open in Own Window") {
+            if let id = model.selection { openWindow(id: "device", value: id) }
         }
-        .keyboardShortcut("g", modifiers: [.command, .shift])
+        .keyboardShortcut("o", modifiers: [.command, .option])
     }
 }

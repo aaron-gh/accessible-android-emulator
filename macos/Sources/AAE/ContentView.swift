@@ -15,7 +15,7 @@ struct ContentView: View {
                 .padding()
             } else if model.needsSetup {
                 SetupView()
-            } else if model.inDeviceMode {
+            } else if model.inDeviceMode && model.deviceModeHost == "main" {
                 DeviceModeView()
             } else {
                 DeviceListView()

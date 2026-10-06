@@ -1403,6 +1403,14 @@ impl Session {
         Ok(device.save_meta()?)
     }
 
+    /// Silences this device while another is the one in use, or plays it
+    /// again. Separate from the user's own mute.
+    pub fn set_background(&self, background: bool) {
+        if let Some(player) = self.audio.lock().unwrap().as_ref() {
+            player.set_background(background);
+        }
+    }
+
     /// Mutes or unmutes the device's audio. Returns true if now muted.
     pub fn toggle_mute(&self) -> bool {
         self.audio

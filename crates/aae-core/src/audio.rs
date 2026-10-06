@@ -119,6 +119,9 @@ struct Controls {
     /// Volume from 0.0 to 1.0, stored as f32 bits.
     volume: AtomicU32,
     muted: AtomicBool,
+    /// Silenced because another device is the one in use. Separate from
+    /// `muted`, which the user sets.
+    background: AtomicBool,
     stop: AtomicBool,
 }
 
@@ -153,6 +156,7 @@ impl AudioPlayer {
         let controls = Arc::new(Controls {
             volume: AtomicU32::new(1.0f32.to_bits()),
             muted: AtomicBool::new(false),
+            background: AtomicBool::new(false),
             stop: AtomicBool::new(false),
         });
         let stats = Arc::new(AudioStats::default());
@@ -249,6 +253,12 @@ impl AudioPlayer {
 
     pub fn is_muted(&self) -> bool {
         self.controls.muted.load(Ordering::Relaxed)
+    }
+
+    /// Silences this device while another is the one in use (true), or
+    /// plays it again (false). Doesn't touch the user's own mute.
+    pub fn set_background(&self, background: bool) {
+        self.controls.background.store(background, Ordering::Relaxed);
     }
 
     /// True while the receiving task is alive.
@@ -388,7 +398,9 @@ impl Playback {
         if !self.playing && self.consumer.occupied_len() >= self.prefill {
             self.playing = true;
         }
-        let gain = if self.controls.muted.load(Ordering::Relaxed) {
+        let gain = if self.controls.muted.load(Ordering::Relaxed)
+            || self.controls.background.load(Ordering::Relaxed)
+        {
             0.0
         } else {
             f32::from_bits(self.controls.volume.load(Ordering::Relaxed))

@@ -82,10 +82,12 @@ private final class TonePlayer {
 struct SettingsView: View {
     @AppStorage(Tone.enabledKey) private var playSounds = true
     @AppStorage(AppModel.correctPitchKey) private var correctPitch = true
+    @AppStorage(AppModel.playOnlyInUseKey) private var playOnlyInUse = true
 
     var body: some View {
         Form {
             Toggle("Play a sound before each announcement", isOn: $playSounds)
+            Toggle("When several devices are running, play only the one you're using", isOn: $playOnlyInUse)
             Toggle("Correct the pitch of older Android versions", isOn: $correctPitch)
             Text("In the emulator, Android 10 and earlier play about 8% slow, so they sound low. AAE raises the pitch back, which can add a slight processing sound.")
                 .font(.callout)
