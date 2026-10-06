@@ -1018,7 +1018,43 @@ impl Engine {
                 }
                 ScreenReaderSource::Apk { path } => PathBuf::from(path),
             };
-            Ok(provision::add_screen_reader(&sdk, &mut device, &adb, &apk).await?)
+            Ok(provision::add_screen_reader(&sdk, &mut device, &adb, &apk, false).await?)
+        })
+        .await
+    }
+
+    /// The package name of an app file.
+    pub fn apk_package(&self, path: String) -> Result<String, AaeError> {
+        Ok(provision::read_apk(&self.sdk, std::path::Path::new(&path))?.package)
+    }
+
+    /// Installs a screen reader build on a device and makes it its screen
+    /// reader; a new build of the same screen reader keeps its settings. A
+    /// stopped device gets it when it next starts. With `replace`, a copy
+    /// signed differently is removed first, losing its settings. Says what
+    /// happened.
+    pub async fn install_screen_reader_build(
+        &self,
+        id: String,
+        path: String,
+        replace: bool,
+    ) -> Result<String, AaeError> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        on_runtime(async move {
+            let mut device = store.get(&id)?;
+            let name = device.meta.name.clone();
+            let apk = PathBuf::from(path);
+            if emulator::running(&device).is_ok() {
+                let (_, _, adb) = emulator::attach(&sdk, &device).await?;
+                let package =
+                    provision::add_screen_reader(&sdk, &mut device, &adb, &apk, replace).await?;
+                Ok(format!("Installed {package} on {name}."))
+            } else {
+                let package = provision::queue_screen_reader(&sdk, &mut device, &apk)?;
+                Ok(format!(
+                    "{name} is stopped, so {package} will be installed when it next starts."
+                ))
+            }
         })
         .await
     }

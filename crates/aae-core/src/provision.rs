@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::adb::Adb;
 use crate::apk::{ApkInfo, ServiceKind};
 use crate::device::Device;
-use crate::error::{Error, Result};
+use crate::error::{Error, IoContext, Result};
 use crate::paths;
 use crate::sdk::Sdk;
 
@@ -328,11 +328,15 @@ async fn find_screen_reader(
         .clone()
         .or_else(default_screen_reader_apk)
     {
-        return Ok(Some(install_screen_reader_apk(sdk, adb, &apk).await?));
+        return Ok(Some(
+            install_screen_reader_apk(sdk, adb, &apk, false).await?,
+        ));
     }
     if options.backtalk {
         let apk = download_backtalk(sdk, api).await?;
-        return Ok(Some(install_screen_reader_apk(sdk, adb, &apk).await?));
+        return Ok(Some(
+            install_screen_reader_apk(sdk, adb, &apk, false).await?,
+        ));
     }
     if adb
         .is_installed("com.google.android.marvin.talkback")
@@ -404,7 +408,12 @@ pub async fn download_backtalk(sdk: &Sdk, api: u32) -> Result<PathBuf> {
 }
 
 /// Installs a screen reader APK and returns its accessibility service.
-async fn install_screen_reader_apk(sdk: &Sdk, adb: &Adb, apk: &std::path::Path) -> Result<String> {
+async fn install_screen_reader_apk(
+    sdk: &Sdk,
+    adb: &Adb,
+    apk: &std::path::Path,
+    replace: bool,
+) -> Result<String> {
     let info = read_apk(sdk, apk)?;
     let component = info
         .accessibility_components()
@@ -414,19 +423,38 @@ async fn install_screen_reader_apk(sdk: &Sdk, adb: &Adb, apk: &std::path::Path) 
             path: apk.to_path_buf(),
             reason: "it has no accessibility service, so it can't be a screen reader".into(),
         })?;
-    adb.install(apk).await?;
-    Ok(component)
+    if replace && adb.is_installed(&info.package).await? {
+        adb.uninstall(&info.package).await?;
+    }
+    // Installing over the same app keeps its data, so its settings stay.
+    match adb.install(apk).await {
+        Err(Error::Adb(message)) if message.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") => {
+            Err(Error::Apk {
+                path: apk.to_path_buf(),
+                reason: format!(
+                    "it's signed differently from the {} already on the device, so it can't be \
+                     installed over it. Replacing it removes the old one first, and with it the \
+                     screen reader's settings",
+                    info.package
+                ),
+            })
+        }
+        other => other.map(|_| component),
+    }
 }
 
 /// Installs a screen reader on a set-up device and makes it the device's
 /// screen reader, turning off the one it had. Returns its package.
+/// With `replace`, an installed copy of the same app is removed first, with
+/// its settings, for a build signed differently.
 pub async fn add_screen_reader(
     sdk: &Sdk,
     device: &mut Device,
     adb: &Adb,
     apk: &std::path::Path,
+    replace: bool,
 ) -> Result<String> {
-    let component = install_screen_reader_apk(sdk, adb, apk).await?;
+    let component = install_screen_reader_apk(sdk, adb, apk, replace).await?;
     if let Some(old) = device.meta.screen_reader.take() {
         if !crate::adb::same_component(&old, &component) {
             device.meta.keep_enabled.retain(|c| c != &old);
@@ -444,6 +472,41 @@ pub async fn add_screen_reader(
         .next()
         .unwrap_or(&component)
         .to_string())
+}
+
+/// Queues a screen reader build for a stopped device, to install when it
+/// next starts. The APK is copied, so it can be moved or rebuilt meanwhile.
+pub fn queue_screen_reader(
+    sdk: &Sdk,
+    device: &mut Device,
+    apk: &std::path::Path,
+) -> Result<String> {
+    let info = read_apk(sdk, apk)?;
+    let dir = crate::paths::data_dir()
+        .join("screen-readers")
+        .join("queued");
+    std::fs::create_dir_all(&dir).context(|| format!("Creating {}", dir.display()))?;
+    let copy = dir.join(format!("{}.apk", device.id));
+    std::fs::copy(apk, &copy).context(|| format!("Copying {}", apk.display()))?;
+    device.meta.pending_screen_reader = Some(copy);
+    device.save_meta()?;
+    Ok(info.package)
+}
+
+/// Installs a screen reader build queued while the device was stopped, if
+/// there is one. Returns its package, or the reason it couldn't be installed.
+pub async fn install_queued_screen_reader(
+    sdk: &Sdk,
+    device: &mut Device,
+    adb: &Adb,
+) -> Option<std::result::Result<String, String>> {
+    let apk = device.meta.pending_screen_reader.take()?;
+    let result = add_screen_reader(sdk, device, adb, &apk, false)
+        .await
+        .map_err(|e| e.to_string());
+    let _ = std::fs::remove_file(&apk);
+    let _ = device.save_meta();
+    Some(result)
 }
 
 /// Reads an APK's package name and services.

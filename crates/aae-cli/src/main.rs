@@ -276,10 +276,21 @@ enum Command {
         yes: bool,
     },
     /// Install a screen reader build and make it the device's screen reader.
+    /// Installing a new build of the same screen reader keeps its settings.
+    /// Stopped devices get it when they next start.
     #[command(
         after_help = "Use backtalk in place of an APK to download Backtalk's latest development build."
     )]
-    ScreenReader { device: String, apk: String },
+    ScreenReader {
+        /// The device, several separated by commas, or all, for every
+        /// device that uses this screen reader.
+        device: String,
+        apk: String,
+        /// For a build signed differently: remove the old one first, which
+        /// loses the screen reader's settings.
+        #[arg(long)]
+        replace: bool,
+    },
     /// List, turn on or turn off accessibility services.
     Services {
         device: String,
@@ -1066,16 +1077,71 @@ async fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
-        Command::ScreenReader { device, apk } => {
-            let (mut device, _, adb) = ctx.connect(&device).await?;
-            let path = if apk.eq_ignore_ascii_case("backtalk") {
-                println!("Getting Backtalk's latest development build.");
-                provision::download_backtalk(&ctx.sdk, device.meta.api).await?
+        Command::ScreenReader {
+            device,
+            apk,
+            replace,
+        } => {
+            let backtalk = apk.eq_ignore_ascii_case("backtalk");
+            let mut path = (!backtalk).then(|| PathBuf::from(&apk));
+            let devices: Vec<Device> = if device.trim().eq_ignore_ascii_case("all") {
+                let package = match &path {
+                    Some(path) => provision::read_apk(&ctx.sdk, path)?.package,
+                    None => aae_core::screenreader::BACKTALK_PACKAGE.to_string(),
+                };
+                let users: Vec<Device> = ctx
+                    .store
+                    .list()?
+                    .into_iter()
+                    .filter(|d| {
+                        d.meta
+                            .screen_reader
+                            .as_deref()
+                            .is_some_and(|c| c.split('/').next() == Some(package.as_str()))
+                    })
+                    .collect();
+                if users.is_empty() {
+                    bail!("No device uses {package} as its screen reader.");
+                }
+                users
             } else {
-                PathBuf::from(apk)
+                device
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|n| !n.is_empty())
+                    .map(|n| ctx.device(n))
+                    .collect::<Result<_>>()?
             };
-            let package = provision::add_screen_reader(&ctx.sdk, &mut device, &adb, &path).await?;
-            println!("{package} is installed and on.");
+            for mut device in devices {
+                let name = device.meta.name.clone();
+                let apk_path = match &path {
+                    Some(path) => path.clone(),
+                    None => {
+                        println!("Getting Backtalk's latest development build.");
+                        let downloaded =
+                            provision::download_backtalk(&ctx.sdk, device.meta.api).await?;
+                        path = Some(downloaded.clone());
+                        downloaded
+                    }
+                };
+                if emulator::running(&device).is_ok() {
+                    let (_, _, adb) = emulator::attach(&ctx.sdk, &device).await?;
+                    let package = provision::add_screen_reader(
+                        &ctx.sdk,
+                        &mut device,
+                        &adb,
+                        &apk_path,
+                        replace,
+                    )
+                    .await?;
+                    println!("{package} is installed and on, on {name}.");
+                } else {
+                    let package = provision::queue_screen_reader(&ctx.sdk, &mut device, &apk_path)?;
+                    println!(
+                        "{name} is stopped, so {package} will be installed when it next starts."
+                    );
+                }
+            }
             Ok(())
         }
         Command::Services { device, action } => {
@@ -1501,7 +1567,7 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
                 return Ok(());
             }
         };
-        let package = provision::add_screen_reader(&ctx.sdk, device, adb, &path).await?;
+        let package = provision::add_screen_reader(&ctx.sdk, device, adb, &path, false).await?;
         println!("{package} is installed and on.");
         return Ok(());
     }

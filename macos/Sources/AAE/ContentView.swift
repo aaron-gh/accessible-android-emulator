@@ -28,6 +28,9 @@ struct ContentView: View {
             LicenceView(request: request)
                 .interactiveDismissDisabled()
         }
+        .sheet(item: $model.screenReaderBuildQuestion) { question in
+            ScreenReaderBuildView(question: question)
+        }
         .sheet(item: $model.installQuestion) { question in
             InstallView(question: question)
         }

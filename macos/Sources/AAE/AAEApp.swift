@@ -64,6 +64,8 @@ struct AAEApp: App {
                 Divider()
                 Button("Install App…") { model.installApp() }
                     .keyboardShortcut("i")
+                Button("Install Screen Reader Build…") { model.installScreenReaderBuild() }
+                    .keyboardShortcut("i", modifiers: [.command, .shift, .option])
                 Button("Save Screenshot…") { model.screenshot() }
                     .keyboardShortcut("p", modifiers: [.command, .shift])
                 Divider()

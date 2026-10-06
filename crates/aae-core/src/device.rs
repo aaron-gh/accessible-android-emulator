@@ -83,6 +83,10 @@ pub struct DeviceMeta {
     /// doesn't offer one again.
     #[serde(default)]
     pub screen_reader_declined: bool,
+    /// A screen reader build waiting to be installed when the device next
+    /// starts, queued while it was stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_screen_reader: Option<PathBuf>,
     /// How fast the device really plays audio, as measured: 1.0 when right.
     /// None until measured. See [`crate::audio::measure_speed`].
     #[serde(default)]
@@ -239,6 +243,7 @@ impl DeviceStore {
             provisioned: false,
             screen_reader: None,
             screen_reader_declined: false,
+            pending_screen_reader: None,
             audio_speed: None,
             speech_log_engine: None,
             keep_enabled: Vec::new(),

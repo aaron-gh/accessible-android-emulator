@@ -45,6 +45,8 @@ final class AppModel: ObservableObject {
     /// The version being downloaded and how far it has got.
     @Published private(set) var download: (version: String, percent: UInt32)?
     @Published var licenceRequest: LicenceRequest?
+    /// A screen reader build waiting for the user to choose devices.
+    @Published var screenReaderBuildQuestion: ScreenReaderBuildQuestion?
     /// Apps waiting for the user to choose which devices to install them on.
     @Published var installQuestion: InstallQuestion?
     /// An installed app's parts waiting for the user to choose about.
@@ -1169,6 +1171,62 @@ final class AppModel: ObservableObject {
             announce(error.localizedDescription, tone: .failure)
         }
         return Dictionary(choices.map { ($0.part.component, $0.on) }, uniquingKeysWith: { $1 })
+    }
+
+    // MARK: - Screen reader builds
+
+    /// Chooses a screen reader build, then asks which devices to install it on.
+    func installScreenReaderBuild() {
+        guard let engine else { return }
+        let panel = NSOpenPanel()
+        panel.message = "Choose a screen reader build to install."
+        panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let package = try engine.apkPackage(path: url.path)
+            let users = Set(devices.filter { $0.screenReader == package }.map(\.id))
+            screenReaderBuildQuestion = ScreenReaderBuildQuestion(path: url.path, package: package, chosen: users)
+        } catch {
+            announce(error.localizedDescription, tone: .failure)
+        }
+    }
+
+    /// Installs a screen reader build on devices, one at a time. Stopped
+    /// devices get it when they next start.
+    func installScreenReaderBuild(_ path: String, on ids: [String]) {
+        screenReaderBuildQuestion = nil
+        guard let engine, !ids.isEmpty else { return }
+        Task {
+            for id in ids {
+                let name = devices.first { $0.id == id }?.name ?? "the device"
+                announce("Installing on \(name).")
+                do {
+                    let said = try await engine.installScreenReaderBuild(id: id, path: path, replace: false)
+                    announce(said, tone: .success)
+                } catch {
+                    let message = error.localizedDescription
+                    guard message.contains("signed differently") else {
+                        announce("\(name): \(message)", tone: .failure)
+                        continue
+                    }
+                    // A build signed differently can only replace the old one, losing its settings.
+                    let alert = NSAlert()
+                    alert.messageText = "Replace the screen reader on \(name)?"
+                    alert.informativeText = "This build is signed differently from the one on \(name), so it can't be installed over it. Replacing it removes the old one first, and with it the screen reader's settings."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "Skip \(name)")
+                    alert.addButton(withTitle: "Replace")
+                    guard alert.runModal() == .alertSecondButtonReturn else { continue }
+                    do {
+                        let said = try await engine.installScreenReaderBuild(id: id, path: path, replace: true)
+                        announce(said, tone: .success)
+                    } catch {
+                        announce("\(name): \(error.localizedDescription)", tone: .failure)
+                    }
+                }
+            }
+            refresh()
+        }
     }
 
     // MARK: - Snapshots

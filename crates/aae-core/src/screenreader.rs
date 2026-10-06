@@ -23,6 +23,8 @@ const ASSET: &str = "backtalk.apk";
 const CERTIFICATE_SHA256: &str = "8ddba1d5edf9b7470850b19f756e4755b6a4d99ee793d5d9b608918a91ba0eb0";
 /// Backtalk needs Android 8.0 or later.
 pub const BACKTALK_MIN_API: u32 = 26;
+/// The package of upstream Backtalk's builds.
+pub const BACKTALK_PACKAGE: &str = "fyi.quin.backtalk";
 const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Debug, Default, Serialize, Deserialize)]

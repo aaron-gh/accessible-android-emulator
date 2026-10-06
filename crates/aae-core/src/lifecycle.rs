@@ -28,6 +28,9 @@ pub enum Progress {
     ServiceRestored(String),
     /// The device couldn't speak, and AAE repaired it. Holds what was done.
     SpeechRepaired(String),
+    /// A screen reader build queued while the device was stopped was
+    /// installed (its package), or couldn't be (why).
+    QueuedScreenReader(std::result::Result<String, String>),
     /// The device is ready. Holds the screen reader's package, if there is one.
     Ready(Option<String>),
 }
@@ -50,6 +53,12 @@ impl Progress {
                 format!("Android had turned off {component}. It is back on.")
             }
             Progress::SpeechRepaired(what) => what.clone(),
+            Progress::QueuedScreenReader(Ok(package)) => {
+                format!("Installed the new build of {package} queued for {device}.")
+            }
+            Progress::QueuedScreenReader(Err(why)) => {
+                format!("The screen reader build queued for {device} couldn't be installed: {why}")
+            }
             Progress::Ready(Some(reader)) => format!("{device} is ready. {reader} is on."),
             Progress::Ready(None) => format!("{device} is ready. It has no screen reader."),
         }
@@ -99,6 +108,9 @@ pub async fn start_device(
         .await?;
     } else {
         provision::apply_keyboard_layout(sdk, &adb).await?;
+        if let Some(result) = provision::install_queued_screen_reader(sdk, device, &adb).await {
+            progress(Progress::QueuedScreenReader(result));
+        }
         for component in provision::guard_services(device, &adb).await? {
             progress(Progress::ServiceRestored(component));
         }
