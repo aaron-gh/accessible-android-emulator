@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::adb::Adb;
-use crate::apk::ApkInfo;
+use crate::apk::{ApkInfo, ServiceKind};
 use crate::device::Device;
 use crate::error::{Error, Result};
 use crate::paths;
@@ -467,30 +467,123 @@ pub async fn guard_services(device: &Device, adb: &Adb) -> Result<Vec<String>> {
         .await
 }
 
-/// Installs an app and, if asked, turns on its accessibility services and
-/// remembers to keep them on. Returns the app's details and the services turned on.
+/// One of an app's parts that needs the user's say before it runs, and what
+/// the user chose for it on this device.
+#[derive(Debug, Clone)]
+pub struct AppPart {
+    pub kind: ServiceKind,
+    /// `package/class`.
+    pub component: String,
+    /// The class name without its package.
+    pub name: String,
+    /// On or off, if the user has chosen; None if not asked yet.
+    pub choice: Option<bool>,
+}
+
+/// Installs or updates an app. Parts of it the user has already chosen
+/// about on this device, such as an accessibility service, are turned on or
+/// off again as chosen. Returns the app's details and all its parts; the
+/// ones with no choice yet are for asking about, then [`apply_choices`].
 pub async fn install_app(
     sdk: &Sdk,
     device: &mut Device,
     adb: &Adb,
     apk: &std::path::Path,
-    enable_services: bool,
-) -> Result<(ApkInfo, Vec<String>)> {
+) -> Result<(ApkInfo, Vec<AppPart>)> {
     let info = read_apk(sdk, apk)?;
     adb.install(apk).await?;
-    let mut enabled = Vec::new();
-    if enable_services {
-        let components = info.accessibility_components();
-        for component in &components {
-            device.keep_service_enabled(component);
-        }
-        device.save_meta()?;
-        adb.ensure_services(&components, SERVICE_TIMEOUT).await?;
-        enabled = components;
-    }
+    let parts: Vec<AppPart> = info
+        .services
+        .iter()
+        .map(|s| {
+            let component = s.component(&info.package);
+            AppPart {
+                kind: s.kind,
+                choice: device.meta.app_choices.get(&component).copied(),
+                name: s.short_name().to_string(),
+                component,
+            }
+        })
+        .collect();
+    let decided: Vec<(AppPart, bool)> = parts
+        .iter()
+        .filter_map(|p| p.choice.map(|on| (p.clone(), on)))
+        .collect();
+    apply_choices(device, adb, &decided).await?;
     // An update can turn other services off, so check them all.
     guard_services(device, adb).await?;
-    Ok((info, enabled))
+    Ok((info, parts))
+}
+
+/// Turns app parts on or off as the user chose, and remembers the choices
+/// for this device. Accessibility services that are on are kept on.
+pub async fn apply_choices(
+    device: &mut Device,
+    adb: &Adb,
+    choices: &[(AppPart, bool)],
+) -> Result<()> {
+    if choices.is_empty() {
+        return Ok(());
+    }
+    let mut turn_on = Vec::new();
+    for (part, on) in choices {
+        let component = &part.component;
+        device.meta.app_choices.insert(component.clone(), *on);
+        match (part.kind, on) {
+            (ServiceKind::Accessibility, true) => {
+                device.keep_service_enabled(component);
+                turn_on.push(component.clone());
+            }
+            (ServiceKind::Accessibility, false) => {
+                device.meta.keep_enabled.retain(|c| c != component);
+                adb.disable_service(component).await?;
+            }
+            (ServiceKind::InputMethod, on) => {
+                let verb = if *on { "enable" } else { "disable" };
+                adb.shell(&format!("ime {verb} {component}")).await?;
+            }
+            (ServiceKind::NotificationListener, on) => {
+                set_listed(adb, "enabled_notification_listeners", component, *on).await?;
+            }
+            (ServiceKind::DeviceAdmin, true) => {
+                let out = adb
+                    .shell(&format!("dpm set-active-admin --user 0 {component}"))
+                    .await?;
+                if !out.contains("Success") {
+                    return Err(Error::Adb(format!(
+                        "Android didn't make {component} a device administrator: {}",
+                        out.trim()
+                    )));
+                }
+            }
+            (ServiceKind::DeviceAdmin, false) => {
+                // Android only lets some administrators be removed this way;
+                // the rest are removed in the device's security settings.
+                let _ = adb
+                    .shell(&format!("dpm remove-active-admin --user 0 {component}"))
+                    .await;
+            }
+        }
+    }
+    device.save_meta()?;
+    if !turn_on.is_empty() {
+        adb.ensure_services(&turn_on, SERVICE_TIMEOUT).await?;
+    }
+    Ok(())
+}
+
+/// Adds a component to, or removes it from, a colon-separated secure setting.
+async fn set_listed(adb: &Adb, key: &str, component: &str, on: bool) -> Result<()> {
+    let current = adb.setting("secure", key).await?.unwrap_or_default();
+    let mut list: Vec<String> = current
+        .split(':')
+        .filter(|c| !c.is_empty() && !crate::adb::same_component(c, component))
+        .map(String::from)
+        .collect();
+    if on {
+        list.push(component.to_string());
+    }
+    adb.put_setting("secure", key, &list.join(":")).await
 }
 
 /// Installs AAE's helper if needed, keeps it on, and sets the screen reader's

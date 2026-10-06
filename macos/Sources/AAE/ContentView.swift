@@ -28,6 +28,10 @@ struct ContentView: View {
             LicenceView(request: request)
                 .interactiveDismissDisabled()
         }
+        .sheet(item: $model.partsQuestion) { question in
+            AppPartsView(question: question)
+                .interactiveDismissDisabled()
+        }
         .sheet(item: $model.screenReaderQuestion) { device in
             ScreenReaderQuestion(device: device)
         }

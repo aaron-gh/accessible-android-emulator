@@ -259,13 +259,18 @@ enum Command {
     },
     /// Type text on the device.
     Type { device: String, text: String },
-    /// Install apps, turning on any accessibility services they contain.
+    /// Install apps. The first time an app has an accessibility service, a
+    /// keyboard, a notification listener or a device administrator, AAE asks
+    /// whether to turn it on, and remembers the answer for that device.
     Install {
         device: String,
         apks: Vec<PathBuf>,
-        /// Don't turn on accessibility services.
+        /// Leave every such part off, without asking.
         #[arg(long)]
         no_services: bool,
+        /// Turn every such part on, without asking.
+        #[arg(long, conflicts_with = "no_services")]
+        yes: bool,
     },
     /// Install a screen reader build and make it the device's screen reader.
     #[command(
@@ -1010,19 +1015,39 @@ async fn run(cli: Cli) -> Result<()> {
             device,
             apks,
             no_services,
+            yes,
         } => {
             let (mut device, _, adb) = ctx.connect(&device).await?;
             for apk in apks {
                 println!("Installing {}.", apk.display());
-                let (info, enabled) =
-                    provision::install_app(&ctx.sdk, &mut device, &adb, &apk, !no_services).await?;
+                let (info, parts) =
+                    provision::install_app(&ctx.sdk, &mut device, &adb, &apk).await?;
                 println!("Installed {}.", info.package);
-                for service in &info.services {
-                    println!("It has {}: {}.", service.kind.describe(), service.class);
+                let mut choices = Vec::new();
+                for part in parts {
+                    match part.choice {
+                        Some(on) => println!(
+                            "{} is {}, as you chose before.",
+                            part.name,
+                            if on { "on" } else { "off" }
+                        ),
+                        None => {
+                            let on = if no_services {
+                                false
+                            } else if yes {
+                                true
+                            } else {
+                                ask_part(&part, &info.package)?
+                            };
+                            choices.push((part, on));
+                        }
+                    }
                 }
-                for component in enabled {
-                    println!("Turned on {component}, and will keep it on.");
+                for (part, on) in &choices {
+                    let state = if *on { "Turning on" } else { "Leaving off" };
+                    println!("{state} {}, {}.", part.name, part.kind.describe());
                 }
+                provision::apply_choices(&mut device, &adb, &choices).await?;
             }
             Ok(())
         }
@@ -1779,6 +1804,35 @@ fn doctor(ctx: &Ctx) -> Result<()> {
     }
     println!("Devices are stored in {}.", ctx.store.root.display());
     Ok(())
+}
+
+/// Asks whether to turn on part of an app, in a terminal. Without one, an
+/// accessibility service is turned on and anything else left off.
+fn ask_part(part: &provision::AppPart, package: &str) -> Result<bool> {
+    use std::io::{IsTerminal, Write};
+    let default = part.kind == aae_core::apk::ServiceKind::Accessibility;
+    if !std::io::stdin().is_terminal() {
+        return Ok(default);
+    }
+    let hint = if default { "Y/n" } else { "y/N" };
+    loop {
+        print!(
+            "{package} has {}, {}. Turn it on? [{hint}] ",
+            part.kind.describe(),
+            part.name
+        );
+        std::io::stdout().flush()?;
+        let mut answer = String::new();
+        if std::io::stdin().read_line(&mut answer)? == 0 {
+            return Ok(default);
+        }
+        match answer.trim().to_lowercase().as_str() {
+            "" => return Ok(default),
+            "y" | "yes" => return Ok(true),
+            "n" | "no" => return Ok(false),
+            _ => continue,
+        }
+    }
 }
 
 /// Reads a point given as "X,Y".

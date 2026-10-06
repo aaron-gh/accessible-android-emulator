@@ -14,6 +14,8 @@ pub enum ServiceKind {
     Accessibility,
     InputMethod,
     NotificationListener,
+    /// A device administrator, which can lock the device or wipe it.
+    DeviceAdmin,
 }
 
 impl ServiceKind {
@@ -24,6 +26,7 @@ impl ServiceKind {
             "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" => {
                 Some(Self::NotificationListener)
             }
+            "android.permission.BIND_DEVICE_ADMIN" => Some(Self::DeviceAdmin),
             _ => None,
         }
     }
@@ -33,16 +36,30 @@ impl ServiceKind {
             Self::Accessibility => "an accessibility service",
             Self::InputMethod => "a keyboard",
             Self::NotificationListener => "a notification listener",
+            Self::DeviceAdmin => "a device administrator",
         }
     }
 }
 
-/// A service declared in an app's manifest.
+/// A service (or, for a device administrator, a receiver) declared in an
+/// app's manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Service {
     pub kind: ServiceKind,
     /// The full class name.
     pub class: String,
+}
+
+impl Service {
+    /// As Android names it in settings, `package/class`.
+    pub fn component(&self, package: &str) -> String {
+        format!("{package}/{}", self.class)
+    }
+
+    /// The class name without its package, such as "TalkBackService".
+    pub fn short_name(&self) -> &str {
+        self.class.rsplit('.').next().unwrap_or(&self.class)
+    }
 }
 
 /// What AAE needs to know about an app package.
@@ -122,7 +139,11 @@ fn parse_services(tree: &str, package: &str) -> Vec<Service> {
             if current.as_ref().is_some_and(|(depth, ..)| indent <= *depth) {
                 finish(current.take());
             }
-            if element.starts_with("service ") || element == "service" {
+            let bound = ["service", "receiver"];
+            if bound
+                .iter()
+                .any(|e| element == *e || element.starts_with(&format!("{e} ")))
+            {
                 current = Some((indent, None, None));
             }
         } else if let Some(attr) = text.strip_prefix("A: ") {
@@ -183,6 +204,31 @@ mod tests {
         A: http://schemas.android.com/apk/res/android:name(0x01010003)=".ime.Keys" (Raw: ".ime.Keys")
         A: http://schemas.android.com/apk/res/android:permission(0x01010006)="android.permission.BIND_INPUT_METHOD" (Raw: "android.permission.BIND_INPUT_METHOD")
 "#;
+
+    #[test]
+    fn finds_device_administrators() {
+        let tree = r#"  E: manifest (line=2)
+    E: application (line=10)
+      E: receiver (line=20)
+        A: http://schemas.android.com/apk/res/android:name(0x01010003)=".Admin" (Raw: ".Admin")
+        A: http://schemas.android.com/apk/res/android:permission(0x01010006)="android.permission.BIND_DEVICE_ADMIN" (Raw: "android.permission.BIND_DEVICE_ADMIN")
+      E: receiver (line=30)
+        A: http://schemas.android.com/apk/res/android:name(0x01010003)=".Boot" (Raw: ".Boot")
+"#;
+        let services = parse_services(tree, "com.example");
+        assert_eq!(
+            services,
+            vec![Service {
+                kind: ServiceKind::DeviceAdmin,
+                class: "com.example.Admin".into()
+            }]
+        );
+        assert_eq!(
+            services[0].component("com.example"),
+            "com.example/com.example.Admin"
+        );
+        assert_eq!(services[0].short_name(), "Admin");
+    }
 
     #[test]
     fn reads_version_code() {

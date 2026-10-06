@@ -95,6 +95,11 @@ pub struct DeviceMeta {
     /// as `package/class`. Includes the screen reader.
     #[serde(default)]
     pub keep_enabled: Vec<String>,
+    /// What the user chose for each special part of an installed app, by
+    /// component: accessibility services, keyboards, notification listeners
+    /// and device administrators. Applied again when the app is reinstalled.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub app_choices: std::collections::BTreeMap<String, bool>,
 }
 
 /// One device in the store.
@@ -237,6 +242,7 @@ impl DeviceStore {
             audio_speed: None,
             speech_log_engine: None,
             keep_enabled: Vec::new(),
+            app_choices: Default::default(),
         };
         let device = Device { id, dir, meta };
         write_config_ini(&device)?;

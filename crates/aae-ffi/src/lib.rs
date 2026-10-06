@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use aae_core::adb::Adb;
+use aae_core::apk::ServiceKind;
 use aae_core::audio::AudioPlayer;
 use aae_core::catalog::{self, Catalogue, InstallProgress};
 use aae_core::control::Controller;
@@ -256,6 +257,76 @@ pub struct UtteranceInfo {
     /// The time as a local clock time, such as "17:42:06.250".
     pub clock: String,
     pub text: String,
+}
+
+/// What kind of special part an app has.
+#[derive(uniffi::Enum, Clone, Copy)]
+pub enum AppPartKind {
+    AccessibilityService,
+    Keyboard,
+    NotificationListener,
+    DeviceAdministrator,
+}
+
+/// A part of an app that needs the user's say before it runs.
+#[derive(uniffi::Record, Clone)]
+pub struct AppPartInfo {
+    pub kind: AppPartKind,
+    /// `package/class`.
+    pub component: String,
+    /// The class name without its package.
+    pub name: String,
+    /// In words, such as "an accessibility service".
+    pub kind_description: String,
+    /// What the user chose before on this device; None if not asked yet.
+    pub choice: Option<bool>,
+}
+
+impl From<provision::AppPart> for AppPartInfo {
+    fn from(part: provision::AppPart) -> Self {
+        AppPartInfo {
+            kind: match part.kind {
+                ServiceKind::Accessibility => AppPartKind::AccessibilityService,
+                ServiceKind::InputMethod => AppPartKind::Keyboard,
+                ServiceKind::NotificationListener => AppPartKind::NotificationListener,
+                ServiceKind::DeviceAdmin => AppPartKind::DeviceAdministrator,
+            },
+            kind_description: part.kind.describe().to_string(),
+            component: part.component,
+            name: part.name,
+            choice: part.choice,
+        }
+    }
+}
+
+impl From<AppPartInfo> for provision::AppPart {
+    fn from(part: AppPartInfo) -> Self {
+        provision::AppPart {
+            kind: match part.kind {
+                AppPartKind::AccessibilityService => ServiceKind::Accessibility,
+                AppPartKind::Keyboard => ServiceKind::InputMethod,
+                AppPartKind::NotificationListener => ServiceKind::NotificationListener,
+                AppPartKind::DeviceAdministrator => ServiceKind::DeviceAdmin,
+            },
+            component: part.component,
+            name: part.name,
+            choice: part.choice,
+        }
+    }
+}
+
+/// Whether to turn on an app part.
+#[derive(uniffi::Record)]
+pub struct AppChoice {
+    pub part: AppPartInfo,
+    pub on: bool,
+}
+
+/// An installed app and its special parts.
+#[derive(uniffi::Record)]
+pub struct InstallResult {
+    pub package: String,
+    pub parts: Vec<AppPartInfo>,
 }
 
 /// A saved snapshot of a device.
@@ -1608,21 +1679,37 @@ impl Session {
 
     /// Installs an app and turns on any accessibility services it has. Returns
     /// what happened, in words.
-    pub async fn install_apk(&self, path: String) -> Result<String, AaeError> {
+    pub async fn install_apk(&self, path: String) -> Result<InstallResult, AaeError> {
         let mut device = self.device.lock().unwrap().clone();
         let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
-        let (message, device) = on_runtime(async move {
-            let (info, enabled) =
-                provision::install_app(&sdk, &mut device, &adb, std::path::Path::new(&path), true)
+        let (result, device) = on_runtime(async move {
+            let (info, parts) =
+                provision::install_app(&sdk, &mut device, &adb, std::path::Path::new(&path))
                     .await?;
-            let mut message = format!("Installed {}.", info.package);
-            for service in enabled {
-                message.push_str(&format!(" Turned on {service}."));
-            }
-            Ok((message, device))
+            let result = InstallResult {
+                package: info.package,
+                parts: parts.into_iter().map(AppPartInfo::from).collect(),
+            };
+            Ok((result, device))
         })
         .await?;
         *self.device.lock().unwrap() = device;
-        Ok(message)
+        Ok(result)
+    }
+
+    /// Turns app parts on or off as the user chose, and remembers the
+    /// choices for this device.
+    pub async fn set_app_choices(&self, choices: Vec<AppChoice>) -> Result<(), AaeError> {
+        let mut device = self.device.lock().unwrap().clone();
+        let adb = self.adb.clone();
+        let device = on_runtime(async move {
+            let choices: Vec<(provision::AppPart, bool)> =
+                choices.into_iter().map(|c| (c.part.into(), c.on)).collect();
+            provision::apply_choices(&mut device, &adb, &choices).await?;
+            Ok(device)
+        })
+        .await?;
+        *self.device.lock().unwrap() = device;
+        Ok(())
     }
 }
