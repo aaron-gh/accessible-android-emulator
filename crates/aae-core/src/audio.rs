@@ -21,10 +21,16 @@ use crate::error::{Error, Result};
 
 /// The highest rate the emulator produces. Android itself rarely goes above 48 kHz.
 const MAX_SOURCE_RATE: u32 = 48_000;
-/// Audio buffered before playback starts, and after a gap. Smooths network jitter.
-const PREFILL: Duration = Duration::from_millis(30);
-/// If more than this is buffered, the oldest audio is dropped to catch up.
-const MAX_BUFFERED: Duration = Duration::from_millis(120);
+/// Audio buffered before playback starts, and after a gap. Smooths jitter:
+/// the emulator sends about 10 ms of audio every 11 ms, rarely more than
+/// 23 ms apart, so twice a packet is enough.
+const PREFILL: Duration = Duration::from_millis(20);
+/// If more than this is buffered, the oldest audio is dropped to catch up,
+/// so delay can't build up if the emulator runs slightly fast.
+const MAX_BUFFERED: Duration = Duration::from_millis(60);
+/// The Mac's output buffer, asked for in frames: about 5 ms at 48 kHz. The
+/// system default is about twice that.
+const OUTPUT_FRAMES: u32 = 256;
 
 /// Counters for the audio health check.
 #[derive(Debug, Default)]
@@ -281,7 +287,11 @@ fn run_output(
         let supported = device
             .default_output_config()
             .map_err(|e| Error::Audio(e.to_string()))?;
-        let config: cpal::StreamConfig = supported.config();
+        let mut config: cpal::StreamConfig = supported.config();
+        // A smaller output buffer, when the output allows it.
+        if let cpal::SupportedBufferSize::Range { min, max } = supported.buffer_size() {
+            config.buffer_size = cpal::BufferSize::Fixed(OUTPUT_FRAMES.clamp(*min, *max));
+        }
         let rate = config.sample_rate;
         let channels = config.channels;
 
@@ -689,14 +699,21 @@ fn lerp(a: i16, b: i16, t: f32) -> i16 {
 /// For each trial it waits for quiet, presses the next key in `keys` (cycling
 /// through them), and times how long it is until a loud packet arrives.
 /// Returns one result per trial; `None` means nothing was heard within `timeout`.
+/// Presses keys in turn and times how long until the device makes a sound,
+/// for each press. Before each press it waits for quiet, up to a few
+/// seconds. Stops early, keeping the results so far, once `limit` has passed
+/// or `stop` is set, so it can never run on.
 pub async fn measure_key_to_sound(
     controller: &Controller,
     keys: &[crate::keys::Key],
     trials: usize,
     timeout: Duration,
+    limit: Duration,
+    stop: &AtomicBool,
 ) -> Result<Vec<Option<Duration>>> {
     const THRESHOLD: f32 = 0.02;
     const QUIET: Duration = Duration::from_millis(500);
+    const MAX_WAIT_FOR_QUIET: Duration = Duration::from_secs(8);
 
     // Packets arrive only while the device makes sound, and the request itself
     // completes only with the first one, so read them on a task of their own.
@@ -715,13 +732,21 @@ pub async fn measure_key_to_sound(
         })
     };
 
+    let started = Instant::now();
     let mut results = Vec::with_capacity(trials);
     for key in keys.iter().cycle().take(trials) {
-        // Wait until nothing loud has arrived for a while, silence included.
-        loop {
+        if stop.load(Ordering::Relaxed) || started.elapsed() >= limit {
+            break;
+        }
+        // Wait for half a second without loud sound (silent packets count as
+        // quiet), but not for ever: speech with long hints can go on.
+        let waiting = Instant::now();
+        let mut quiet_since = Instant::now();
+        while quiet_since.elapsed() < QUIET && waiting.elapsed() < MAX_WAIT_FOR_QUIET {
             match tokio::time::timeout(QUIET, packets.recv()).await {
                 Err(_) => break,
                 Ok(None) => return Err(Error::Audio("the audio stream ended".into())),
+                Ok(Some(peak)) if peak > THRESHOLD => quiet_since = Instant::now(),
                 Ok(Some(_)) => {}
             }
         }
@@ -745,7 +770,6 @@ pub async fn measure_key_to_sound(
     Ok(results)
 }
 
-/// The peak level of 16-bit little-endian samples, from 0.0 to 1.0.
 fn level(audio: &[u8]) -> f32 {
     audio
         .chunks_exact(2)

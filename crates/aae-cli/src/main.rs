@@ -253,7 +253,9 @@ enum Command {
         /// TalkBack to the next item and back, so it never runs off the end.
         #[arg(long, default_value = "meta+right,meta+left")]
         keys: String,
-        #[arg(long, default_value_t = 10)]
+        /// How many presses. It stops after a minute whatever the number,
+        /// and Control-C stops it early, keeping the results so far.
+        #[arg(long, default_value_t = 5)]
         trials: usize,
     },
     /// Press keys on the device, in order.
@@ -1705,9 +1707,24 @@ async fn latency(ctx: &Ctx, name: &str, names: &str, trials: usize) -> Result<()
         "Pressing {names} on {} {trials} times, and timing each response.",
         device.meta.name
     );
-    let results =
-        aae_core::audio::measure_key_to_sound(&controller, &keys, trials, Duration::from_secs(3))
-            .await?;
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let stop = stop.clone();
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+    }
+    let results = aae_core::audio::measure_key_to_sound(
+        &controller,
+        &keys,
+        trials,
+        Duration::from_secs(3),
+        Duration::from_secs(60),
+        &stop,
+    )
+    .await?;
     let mut heard: Vec<u128> = results.iter().flatten().map(|d| d.as_millis()).collect();
     let silent = results.len() - heard.len();
     for (i, result) in results.iter().enumerate() {
