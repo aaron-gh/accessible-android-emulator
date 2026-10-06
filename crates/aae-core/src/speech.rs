@@ -90,7 +90,7 @@ fn run(rx: mpsc::Receiver<Message>, route: Route) {
             // Keep draining so senders never block or fail.
             for message in rx {
                 if let Message::Say(text, _) = message {
-                    tracing::info!("announcement (not spoken): {text}");
+                    tracing::debug!("announcement (not spoken): {text}");
                 }
             }
             return;
@@ -130,7 +130,7 @@ fn run(rx: mpsc::Receiver<Message>, route: Route) {
         }
         let result = match message {
             Message::Say(text, priority) => {
-                tracing::info!("announcement: {text}");
+                tracing::debug!("announcement: {text}");
                 backend.speak(&text, priority == Priority::Interrupt)
             }
             Message::Stop => backend.stop(),
@@ -162,7 +162,7 @@ fn system_voice_backend(prism: &prismer::Prism) -> Option<prismer::BackendId> {
 fn run(rx: mpsc::Receiver<Message>, _route: Route) {
     for message in rx {
         if let Message::Say(text, _) = message {
-            tracing::info!("announcement: {text}");
+            tracing::debug!("announcement: {text}");
         }
     }
 }

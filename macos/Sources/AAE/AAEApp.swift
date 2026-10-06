@@ -14,6 +14,9 @@ struct AAEApp: App {
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesMenuItem(updater: updater)
             }
+            CommandGroup(after: .help) {
+                Button("Save Diagnostic Report…") { model.saveDiagnosticReport() }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Device…") { model.showingNewDevice = true }
                     .keyboardShortcut("n")

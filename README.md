@@ -136,6 +136,8 @@ Android versions are installed into the Android SDK, where Android Studio sees t
 
 ## Diagnosing problems
 
+- To report a bug, attach a diagnostic report: Help, Save Diagnostic Report in the Mac app, or `aae report`. It's plain text: AAE's version, this computer, the SDK, your devices and the end of their emulator logs, and AAE's own log. Your home folder, computer name and full name are taken out, and it never includes what you typed on a device, your clipboard, or the device's own log.
+- AAE keeps its log in its data folder, under `logs`, at most about 4 megabytes. It records AAE's steps and problems, never keys, typed text or clipboards.
 - `AAE_LOG=info aae start "My device"` shows each step of starting a device. Use `debug` for more.
 - `AAE_KEYLOG=1` records every key the Mac app captures. Key codes reveal what you type, so leave it off otherwise.
 - `crates/aae-core/examples/audio_probe.rs` prints how loud the device's audio stream is, in quarter seconds, while pressing keys.

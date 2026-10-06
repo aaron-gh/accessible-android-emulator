@@ -38,6 +38,15 @@ struct Cli {
 enum Command {
     /// Check the Android SDK, emulator and audio, and say what is missing.
     Doctor,
+    /// Save a diagnostic report to attach to a bug report: AAE, this
+    /// computer, the SDK, your devices, and AAE's log. It never includes
+    /// what you typed on a device, and your home folder and account name are
+    /// taken out. Read it before sending, if you like: it's plain text.
+    Report {
+        /// Where to save it. Defaults to a dated file in this folder.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Download the emulator and Android SDK tools AAE needs, so Android
     /// Studio isn't needed. Checks this computer can run the emulator first.
     Setup {
@@ -467,10 +476,28 @@ enum SnapshotAction {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_env("AAE_LOG"))
-        .with_writer(std::io::stderr)
-        .init();
+    {
+        use aae_core::diagnostics::{LOG_FILTER, LogFile};
+        use tracing_subscriber::{EnvFilter, Layer, fmt, prelude::*};
+        // To the terminal as AAE_LOG asks, and always to AAE's log file,
+        // which a diagnostic report includes.
+        tracing_subscriber::registry()
+            .with(
+                fmt::layer()
+                    .with_writer(std::io::stderr)
+                    .with_filter(EnvFilter::from_env("AAE_LOG")),
+            )
+            .with(
+                fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(LogFile::open)
+                    .with_filter(EnvFilter::new(LOG_FILTER)),
+            )
+            .init();
+    }
+    // Only the command's name: its arguments can be text to type.
+    let command = std::env::args().nth(1).unwrap_or_default();
+    tracing::info!("aae {} {command}", env!("CARGO_PKG_VERSION"));
     if let Err(e) = run(Cli::parse()).await {
         eprintln!("Error: {e:#}");
         std::process::exit(1);
@@ -505,6 +532,22 @@ async fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new()?;
     match cli.command {
         Command::Doctor => doctor(&ctx),
+        Command::Report { out } => {
+            let version = format!("{} (aae command)", env!("CARGO_PKG_VERSION"));
+            let report = aae_core::diagnostics::report(&ctx.sdk, &ctx.store, &version);
+            let path = out.unwrap_or_else(|| {
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                PathBuf::from(format!("aae-report-{stamp}.txt"))
+            });
+            std::fs::write(&path, report)?;
+            println!(
+                "Saved the report to {}. It's plain text, if you'd like to read it before sending it.",
+                path.display()
+            );
+            Ok(())
+        }
         Command::Setup {
             accept_licence,
             update,

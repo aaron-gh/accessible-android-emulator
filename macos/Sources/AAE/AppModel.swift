@@ -183,6 +183,9 @@ final class AppModel: ObservableObject {
     }
 
     func announce(_ text: String, tone: Tone = .info) {
+        if tone == .failure {
+            engine?.logProblem(message: text)
+        }
         status = text
         tone.play()
         Announcer.shared.say(text, interrupt: tone == .failure)
@@ -1408,6 +1411,27 @@ final class AppModel: ObservableObject {
             case .resume: said = "Call taken off hold."
             }
             self?.announce(said)
+        }
+    }
+
+    /// Saves a diagnostic report for a bug report, where the user chooses.
+    func saveDiagnosticReport() {
+        guard let engine else { return }
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = "\(info["CFBundleShortVersionString"] as? String ?? "?") (build \(info["CFBundleVersion"] as? String ?? "?"), Mac app)"
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH.mm"
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "AAE report \(formatter.string(from: Date())).txt"
+        panel.allowedContentTypes = [.plainText]
+        panel.message = "The report has AAE's log and details of this Mac and your devices, with your home folder, computer name and full name taken out. It never includes what you typed on a device. It's plain text, so you can read it before sending it."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let report = engine.diagnosticReport(version: version)
+        do {
+            try report.write(to: url, atomically: true, encoding: .utf8)
+            announce("Saved \(url.lastPathComponent).", tone: .success)
+        } catch {
+            announce(error.localizedDescription, tone: .failure)
         }
     }
 

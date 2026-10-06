@@ -539,15 +539,42 @@ pub struct Engine {
 impl Engine {
     #[uniffi::constructor]
     pub fn new() -> Result<Arc<Self>, AaeError> {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_env("AAE_LOG"))
-            .with_writer(std::io::stderr)
-            .try_init();
+        {
+            use aae_core::diagnostics::{LOG_FILTER, LogFile};
+            use tracing_subscriber::{EnvFilter, Layer, fmt, prelude::*};
+            // To standard error as AAE_LOG asks, and always to AAE's log
+            // file, which a diagnostic report includes.
+            let _ = tracing_subscriber::registry()
+                .with(
+                    fmt::layer()
+                        .with_writer(std::io::stderr)
+                        .with_filter(EnvFilter::from_env("AAE_LOG")),
+                )
+                .with(
+                    fmt::layer()
+                        .with_ansi(false)
+                        .with_writer(LogFile::open)
+                        .with_filter(EnvFilter::new(LOG_FILTER)),
+                )
+                .try_init();
+        }
+        tracing::info!("the Mac app started");
         Ok(Arc::new(Engine {
             sdk: Sdk::locate_or_new(),
             store: DeviceStore::open_default()?,
             announcer: Announcer::new(Route::Best),
         }))
+    }
+
+    /// A diagnostic report for a bug report, as plain text with personal
+    /// details taken out. `version` is the app's version.
+    pub fn diagnostic_report(&self, version: String) -> String {
+        aae_core::diagnostics::report(&self.sdk, &self.store, &version)
+    }
+
+    /// Records a problem the app showed the user in AAE's log.
+    pub fn log_problem(&self, message: String) {
+        tracing::warn!("{message}");
     }
 
     /// Speaks through the user's screen reader, or a system voice when none is

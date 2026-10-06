@@ -12,6 +12,7 @@ pub mod audio;
 pub mod catalog;
 pub mod control;
 pub mod device;
+pub mod diagnostics;
 pub mod emulator;
 pub mod error;
 pub mod gestures;
