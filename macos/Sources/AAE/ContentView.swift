@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -124,6 +125,15 @@ struct DeviceListView: View {
             guard !apks.isEmpty else { return false }
             model.install(paths: apks.map(\.path))
             return true
+        }
+        // Or copy them in Finder and paste them here, which is easier than
+        // dragging with VoiceOver.
+        .onPasteCommand(of: [.fileURL]) { _ in
+            let urls = NSPasteboard.general.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]
+            ) as? [URL] ?? []
+            model.install(paths: urls.map(\.path))
         }
     }
 

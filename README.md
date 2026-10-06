@@ -28,7 +28,7 @@ This is an early development build. It has a cross-platform core, the `aae` comm
 - Choosing a screen reader. If the Android image has no screen reader and you didn't choose one, AAE asks whether to download Backtalk (its latest development build, checked against Backtalk's signing key), install your own APK, or go without. `aae screen-reader <device> backtalk` adds Backtalk later.
 - Keeping accessibility services on. Every start, and every app install, turns back on any service Android turned off.
 - Installing apps. The first time an app has an accessibility service, a keyboard, a notification listener or a device administrator, AAE asks whether to turn each one on, and remembers the answer for that device, so a reinstall or update applies it again without asking. `aae install` asks in the terminal; `--yes` turns them all on and `--no-services` leaves them off.
-- Installing on several devices at once. In the Mac app, Install App (Command-I) or dropping APKs on the window asks which running devices to install on; `aae install` takes devices separated by commas. An app's parts are asked about once, and the answers used on every device.
+- Installing on several devices at once. In the Mac app, Install App (Command-I), dropping APKs on the window, or copying them in Finder and pasting them into the window asks which running devices to install on; `aae install` takes devices separated by commas. An app's parts are asked about once, and the answers used on every device.
 - Sending keys and text, rotating, battery, location, text messages, calls, clipboard, screenshots, and named snapshots with notes (`aae snapshot <device> save "Before sign-in" --notes "…"`, then list, load, rename or delete).
 
 ### Speech and sound
