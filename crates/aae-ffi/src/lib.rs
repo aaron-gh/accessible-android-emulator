@@ -1356,6 +1356,18 @@ enum KeyMessage {
     Evdev(i32, bool),
 }
 
+/// A screen reader's name as people know it, from its package.
+fn screen_reader_name(package: &str) -> String {
+    match package {
+        p if p.contains("backtalk") => "Backtalk".into(),
+        "com.google.android.marvin.talkback" | "com.android.talkback" => "TalkBack".into(),
+        "com.samsung.android.accessibility.talkback" => "Samsung's TalkBack".into(),
+        "com.bjornloftis.jieshuo" | "com.nirenr.talkman" => "Jieshuo".into(),
+        "com.github.hasanoz.commentary" => "Commentary".into(),
+        other => other.into(),
+    }
+}
+
 /// A connection to one running device.
 #[derive(uniffi::Object)]
 pub struct Session {
@@ -1385,6 +1397,17 @@ impl Session {
 
     pub fn device_id(&self) -> String {
         self.device.lock().unwrap().id.clone()
+    }
+
+    /// Brings AAE's helper on the device up to date, as for its vibration
+    /// watching.
+    pub async fn update_helper(&self) -> Result<(), AaeError> {
+        let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
+        on_runtime(async move {
+            provision::update_helper(&sdk, &adb).await?;
+            Ok(())
+        })
+        .await
     }
 
     /// How fast the device really plays audio, as measured: 1.0 when right.
@@ -2247,15 +2270,16 @@ impl Session {
                 return Ok("No screen reader is set up.".to_string());
             };
             let running = adb.running_services().await?;
-            let package = reader.split('/').next().unwrap_or(&reader).to_string();
+            let package = reader.split('/').next().unwrap_or(&reader);
+            let name = screen_reader_name(package);
             Ok(
                 if running
                     .iter()
                     .any(|c| aae_core::adb::same_component(c, &reader))
                 {
-                    format!("{package} is on.")
+                    format!("{name} is on.")
                 } else {
-                    format!("{package} is off.")
+                    format!("{name} is off.")
                 },
             )
         })

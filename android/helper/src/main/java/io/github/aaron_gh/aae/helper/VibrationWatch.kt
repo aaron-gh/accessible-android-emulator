@@ -50,12 +50,41 @@ object VibrationWatch {
             if (code != FIRST_CALL_TRANSACTION) return super.onTransact(code, data, reply, flags)
             data.enforceInterface(LISTENER)
             val on = data.readInt() != 0
+            val time = SystemClock.elapsedRealtime()
+            // What's playing, so the phone can play the same, not a buzz.
+            val effect = if (on) currentEffect() else null
             synchronized(System.out) {
-                println("${if (on) "on" else "off"} ${SystemClock.elapsedRealtime()}")
+                println(listOfNotNull(if (on) "on" else "off", time.toString(), effect).joinToString(" "))
                 System.out.flush()
             }
             return true
         }
+    }
+
+    /**
+     * The effect the vibrator is playing now, as the vibrator service
+     * describes it in its dump: for example "Composed{segments=[Primitive{
+     * primitive=TICK, scale=0.59, delay=0}, ...]}". Read in this process, which
+     * takes milliseconds, where running dumpsys would take hundreds.
+     */
+    private fun currentEffect(): String? = try {
+        val binder = Class.forName("android.os.ServiceManager")
+            .getMethod("getService", String::class.java)
+            .invoke(null, "vibrator_manager") as? IBinder
+        if (binder == null) null else {
+            val (read, write) = android.os.ParcelFileDescriptor.createPipe()
+            // Asynchronously, so a large dump can't fill the pipe while this waits.
+            binder.dumpAsync(write.fileDescriptor, arrayOf())
+            write.close()
+            val dump = android.os.ParcelFileDescriptor.AutoCloseInputStream(read).bufferedReader().use { it.readText() }
+            val current = dump.substringAfter("CurrentVibration:", "")
+            current.lineSequence().takeWhile { !it.trim().startsWith("NextVibration") }
+                .firstOrNull { it.trim().startsWith("playedEffect") }
+                ?.substringAfter("=")?.trim()
+                ?.replace(Regex("\\s+"), " ")
+        }
+    } catch (_: Throwable) {
+        null
     }
 
     /** The binder wrapped in the hidden interface, which the service's methods take. */

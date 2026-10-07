@@ -10,18 +10,19 @@ use aae_core::adb::Adb;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::task::JoinHandle;
 
 use crate::server::Out;
 
 const WATCH: &str = "CLASSPATH=$(pm path io.github.aaron_gh.aae.helper | cut -d: -f2) \
      app_process / io.github.aaron_gh.aae.helper.ShellTool vibration-watch";
 
-/// Sends `{"type":"event","event":"vibration","on":true}` when the device
-/// starts vibrating, and `"on":false` with `"ms"`, how long it lasted, when
-/// it stops. Ends when the task is aborted.
-pub fn watch(adb: Adb, out: Out) -> JoinHandle<()> {
-    tokio::spawn(async move {
+/// Sends `{"type":"event","event":"vibration","on":true,"effect":…}` when
+/// the device starts vibrating, with what it's playing as Android describes
+/// it, such as its haptic primitives and their strengths, so the phone can
+/// play the same; and `"on":false` with `"ms"`, how long it lasted, when it
+/// stops. Ends when the task is aborted.
+pub async fn watch(adb: Adb, out: Out) {
+    {
         let child = Command::new(&adb.bin)
             .args(["-s", &adb.serial, "shell", WATCH])
             .stdin(Stdio::null())
@@ -42,17 +43,20 @@ pub fn watch(adb: Adb, out: Out) -> JoinHandle<()> {
         let mut lines = BufReader::new(stdout).lines();
         let mut started: Option<u64> = None;
         while let Ok(Some(line)) = lines.next_line().await {
-            let mut parts = line.split_whitespace();
+            // "on 6963878 Mono{mEffect=Composed{segments=[Primitive{…}]}}":
+            // the state, the time, and what's playing, if known.
+            let mut parts = line.splitn(3, ' ');
             let (Some(state), Some(time)) = (parts.next(), parts.next()) else {
                 continue;
             };
+            let effect = parts.next().unwrap_or("").trim().to_string();
             let Ok(time) = time.parse::<u64>() else {
                 continue;
             };
             match state {
                 "on" => {
                     started = Some(time);
-                    out.json(json!({"type": "event", "event": "vibration", "on": true}));
+                    out.json(json!({"type": "event", "event": "vibration", "on": true, "effect": effect}));
                 }
                 // The first "off" only says how it was when watching began.
                 "off" => {
@@ -76,5 +80,5 @@ pub fn watch(adb: Adb, out: Out) -> JoinHandle<()> {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-    })
+    }
 }

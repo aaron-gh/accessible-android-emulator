@@ -67,7 +67,8 @@ object Remote {
 
             override fun event(name: String, data: JSONObject) {
                 if (name == "vibration") {
-                    if (data.optBoolean("on")) haptics?.on() else haptics?.off(data.optLong("ms"))
+                    if (data.optBoolean("on")) haptics?.on(data.optString("effect").ifEmpty { null })
+                    else haptics?.off(data.optLong("ms"))
                 }
                 watchers.toList().forEach { it.event(name, data) }
             }

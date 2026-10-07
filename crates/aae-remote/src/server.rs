@@ -583,7 +583,28 @@ async fn call(
                 .await?;
             Value::Null
         }
-        "device.status" => json!(server.session(&id()?).await?.screen_reader_status().await?),
+        "device.status" => {
+            // As the desktop apps say it: the device, its state, then its screen reader.
+            let id = id()?;
+            let device = engine
+                .devices()?
+                .into_iter()
+                .find(|d| d.id == id)
+                .ok_or_else(|| failed("That device no longer exists."))?;
+            let mut parts = vec![
+                format!("{}, {}.", device.name, device.android),
+                if device.running {
+                    "Running."
+                } else {
+                    "Stopped."
+                }
+                .to_string(),
+            ];
+            if device.running {
+                parts.push(server.session(&id).await?.screen_reader_status().await?);
+            }
+            json!(parts.join(" "))
+        }
         "device.rotate" => json!(
             server
                 .session(&id()?)

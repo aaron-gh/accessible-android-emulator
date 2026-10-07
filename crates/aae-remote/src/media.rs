@@ -53,7 +53,14 @@ impl Attachment {
             }
         }));
 
-        tasks.push(crate::vibration::watch(session.adb(), out));
+        // The helper watches the vibrator; an older one can't say what played.
+        let (helper, adb) = (session.clone(), session.adb());
+        tasks.push(tokio::spawn(async move {
+            if let Err(e) = helper.update_helper().await {
+                tracing::warn!("couldn't update AAE's helper: {e}");
+            }
+            crate::vibration::watch(adb, out).await;
+        }));
 
         Attachment {
             session,
