@@ -30,6 +30,7 @@ pub mod network;
 pub mod paths;
 mod platform;
 pub mod provision;
+pub mod recording;
 pub mod screenreader;
 pub mod sdk;
 pub mod services;

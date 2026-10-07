@@ -43,6 +43,7 @@ pub const TYPE_CLIPBOARD: u16 = 232;
 pub const INSTALL_APP: u16 = 240;
 pub const INSTALL_SCREEN_READER: u16 = 241;
 pub const SCREENSHOT: u16 = 242;
+pub const RECORD: u16 = 244;
 pub const RENAME: u16 = 250;
 pub const COPY_DEVICE: u16 = 251;
 pub const WIPE: u16 = 252;
@@ -181,6 +182,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                     Some((cs | ALT, b'I' as u16)),
                 ),
                 Item(SCREENSHOT, "Save Screens&hot…", Some((cs, b'P' as u16))),
+                Item(RECORD, RECORD_START, Some((ca, b'R' as u16))),
                 SEPARATOR,
                 Item(RENAME, "Rena&me…", Some((0, VK_F2.0))),
                 Item(COPY_DEVICE, "Cop&y…", Some((c, b'D' as u16))),
@@ -204,6 +206,28 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
 
 const MICROPHONE_ON: &str = "Turn On Micr&ophone";
 const MICROPHONE_OFF: &str = "Turn Off Micr&ophone";
+
+const RECORD_START: &str = "Record Scree&n…";
+const RECORD_STOP: &str = "Stop Recordi&ng";
+
+/// Names the recording item for what it will do, as its menu opens.
+pub fn name_recording(menu: HMENU, recording: bool) {
+    let text = format!(
+        "{}\t{}",
+        if recording { RECORD_STOP } else { RECORD_START },
+        shortcut_name(CONTROL | ALT, b'R' as u16)
+    );
+    let text = ui::wide(&text);
+    unsafe {
+        let _ = ModifyMenuW(
+            menu,
+            RECORD as u32,
+            MF_BYCOMMAND | MF_STRING,
+            RECORD as usize,
+            PCWSTR(text.as_ptr()),
+        );
+    }
+}
 
 const PLAY_FILE_START: &str = "Play Audio &File into Microphone…";
 const PLAY_FILE_STOP: &str = "Stop Playing Audio &File";

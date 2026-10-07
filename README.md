@@ -107,6 +107,7 @@ The Mac app is in `macos/`. Announcements go through VoiceOver when it's running
 - Apps (Option-Command-P), Accessibility Services (Option-Command-U), Snapshots (Option-Command-S), Battery, Location, Phone and Network (Option-Command-B), and Display and Language (Option-Command-Comma).
 - Sound: Mute (Command-Shift-M), Turn Device Audio Up and Down (Option-Command-Up and Down), Check Audio (Option-Command-K), Turn On Microphone (Command-Shift-U), and a volume slider in the main window. The first time, macOS asks whether AAE may use the microphone.
 - Clipboard: Command-Shift-C copies the device's clipboard to the Mac, Command-Shift-V sends the Mac's clipboard to the device, and Option-Command-V types it on the device as key presses, for fields that block pasting.
+- Recording: Record Screen (Option-Command-R) records the screen and its sound into a WebM file, for up to three minutes, the emulator's limit; choose it again, Stop Recording, to stop. On Windows it's Control-Alt-R, and in the terminal `aae record <device> <file>`. AI agents have `start_recording` and `stop_recording`.
 - Installing: Install App (Command-I), or drop APKs on the window, or copy them in Finder and paste them into it. Install Screen Reader Build is Option-Shift-Command-I, and Open Link is Command-Shift-L.
 - Device mode sends every key to Android, with Command as Meta, including system shortcuts such as Spotlight's Command-Space and Mission Control. VoiceOver's own shortcuts, such as Command-F5, still work. Control-Command-Escape, or the "Return to the Mac" button, brings the keyboard back.
 - Several devices at once: Open in Own Window gives a device a window of its own. The device whose window is in front is the selected one, so the Device menu acts on it, and device or gesture mode started there stays in that window.
@@ -158,7 +159,7 @@ aae stop "Android 16 test"
 - Devices: `list`, `create`, `clone`, `rename`, `wipe`, `delete`, `start`, `restart`, `stop`, `status`, `snapshot`.
 - Keyboard, sound and speech: `attach`, `listen`, `playback-volume`, `volume` (the screen reader's own volume), `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `mic`, `speech`.
 - Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
-- Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`.
+- Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`, `record`.
 - Device conditions: `rotate`, `battery`, `fingerprint`, `shake`, `location`, `network`, `settings`, `sms`, `call`, `clipboard`.
 - AI agents: `mcp`, below.
 

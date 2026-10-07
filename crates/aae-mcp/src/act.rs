@@ -135,6 +135,14 @@ pub(crate) struct DeviceSettingsParam {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(crate) struct RecordingParam {
+    /// The device's name. Leave it out when only one device is running.
+    pub device: Option<String>,
+    /// The full path of the WebM file to record into.
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub(crate) struct FingerprintParam {
     /// The device's name. Leave it out when only one device is running.
     pub device: Option<String>,
@@ -604,6 +612,38 @@ impl AaeServer {
                     lines.push(format!("{} ({}): {}", setting.label, setting.name, label));
                 }
                 text(lines.join("\n"))
+            }
+            .await,
+        )
+    }
+
+    /// Starts recording the screen with its sound into a WebM file, for up
+    /// to three minutes, as evidence for a bug report. Stop it with
+    /// stop_recording.
+    #[tool(annotations(destructive_hint = false))]
+    async fn start_recording(
+        &self,
+        Parameters(p): Parameters<RecordingParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                text(session.start_recording(p.path).await?)
+            }
+            .await,
+        )
+    }
+
+    /// Stops recording the screen, and says where it was saved.
+    #[tool(annotations(destructive_hint = false))]
+    async fn stop_recording(
+        &self,
+        Parameters(p): Parameters<DeviceParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                text(session.stop_recording().await?)
             }
             .await,
         )

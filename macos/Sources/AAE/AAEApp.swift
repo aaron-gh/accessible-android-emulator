@@ -95,6 +95,7 @@ struct AAEApp: App {
                     .keyboardShortcut("i", modifiers: [.command, .shift, .option])
                 Button("Save Screenshot…") { model.screenshot() }
                     .keyboardShortcut("p", modifiers: [.command, .shift])
+                RecordMenuItem(model: model)
                 Divider()
                 Button("Rename…") { model.renaming = model.selected }
                     .keyboardShortcut("r")
@@ -172,6 +173,18 @@ struct AAEApp: App {
 
 /// Device mode captures keys in the main window, so it opens that window
 /// first, whichever AAE window the shortcut was pressed in.
+/// Records the selected device's screen and sound, or stops, named for what
+/// it will do.
+struct RecordMenuItem: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        let recording = model.selection.map { model.recordings.contains($0) } ?? false
+        Button(recording ? "Stop Recording" : "Record Screen…") { model.toggleRecording() }
+            .keyboardShortcut("r", modifiers: [.command, .option])
+    }
+}
+
 /// Turns the Mac's microphone into the selected device on or off, named for
 /// what it will do.
 struct MicrophoneMenuItems: View {

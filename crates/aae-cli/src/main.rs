@@ -498,10 +498,18 @@ enum Command {
     },
     /// Shake the device, as for apps that act on a shake.
     Shake { device: String },
-    /// The device's language, display and accessibility settings. With
-    /// nothing else, says them; otherwise sets pairs of name and value, such
-    /// as: aae settings Pixel font-size 150 dark-theme on language fr-FR.
-    /// aae settings --list says every setting and its choices.
+    /// Record the screen with its sound into a WebM file, until Control-C,
+    /// for up to three minutes.
+    Record {
+        device: String,
+        file: PathBuf,
+        /// Stop after this many seconds, up to 180.
+        #[arg(long)]
+        seconds: Option<u32>,
+    },
+    /// Show or change language, display and accessibility settings.
+    ///
+    /// Example: aae settings Pixel font-size 150 dark-theme on language fr-FR. --list prints every setting and its values.
     Settings {
         /// The device, unless listing.
         device: Option<String>,
@@ -2162,6 +2170,36 @@ async fn run(cli: Cli) -> Result<()> {
                     println!("{label}: {}", settings::label_of(name, &value));
                 }
             }
+            Ok(())
+        }
+        Command::Record {
+            device,
+            file,
+            seconds,
+        } => {
+            use aae_core::recording;
+            let (_, _, adb) = ctx.connect(&device).await?;
+            let limit = seconds
+                .unwrap_or(recording::LONGEST)
+                .clamp(1, recording::LONGEST);
+            // The emulator wants the whole path.
+            let file = std::path::absolute(&file)?;
+            let file = recording::start(&adb, &file, limit).await?;
+            println!(
+                "Recording into {} for up to {limit} seconds. Press Control-C to stop.",
+                file.display()
+            );
+            let started = std::time::Instant::now();
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = tokio::time::sleep(std::time::Duration::from_secs(limit as u64)) => {}
+            }
+            recording::stop(&adb).await?;
+            println!(
+                "Saved {}, {} seconds.",
+                file.display(),
+                started.elapsed().as_secs().min(limit as u64)
+            );
             Ok(())
         }
         Command::Shake { device } => {

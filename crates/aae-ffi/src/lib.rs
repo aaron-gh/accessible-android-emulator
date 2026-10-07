@@ -1462,6 +1462,8 @@ pub struct Session {
     microphone: Mutex<Option<aae_core::microphone::Microphone>>,
     /// A sound file waiting for, or playing into, the device's microphone.
     playing: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
+    /// The screen recording going on: its file, and when it started.
+    recording: Mutex<Option<(std::path::PathBuf, std::time::Instant)>>,
     /// The screen's size and density, read on the first gesture.
     screen: tokio::sync::Mutex<Option<gestures::Screen>>,
     /// The touches that lift fingers a held gesture left down.
@@ -1530,6 +1532,7 @@ impl Session {
             logs: Mutex::new(None),
             microphone: Mutex::new(None),
             playing: Arc::new(Mutex::new(None)),
+            recording: Mutex::new(None),
             screen: tokio::sync::Mutex::new(None),
             held: tokio::sync::Mutex::new(None),
         })
@@ -2222,6 +2225,63 @@ impl Session {
                 .await?)
         })
         .await
+    }
+
+    /// Starts recording the screen with its sound into a WebM file (the
+    /// path's ending is changed to .webm if need be), for up to three
+    /// minutes. Returns what to say.
+    pub async fn start_recording(&self, path: String) -> Result<String, AaeError> {
+        if self.recording_screen() {
+            return Err(AaeError::Failed {
+                message: "The screen is already being recorded.".into(),
+            });
+        }
+        let adb = self.adb.clone();
+        let file = on_runtime(async move {
+            Ok(aae_core::recording::start(
+                &adb,
+                std::path::Path::new(&path),
+                aae_core::recording::LONGEST,
+            )
+            .await?)
+        })
+        .await?;
+        let name = file
+            .file_name()
+            .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+        *self.recording.lock().unwrap() = Some((file, std::time::Instant::now()));
+        Ok(format!("Recording to {name}, three minutes at most."))
+    }
+
+    /// Whether the screen is being recorded.
+    pub fn recording_screen(&self) -> bool {
+        self.recording
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|(_, started)| {
+                started.elapsed().as_secs() < aae_core::recording::LONGEST as u64
+            })
+    }
+
+    /// Stops recording the screen. Returns what to say.
+    pub async fn stop_recording(&self) -> Result<String, AaeError> {
+        let Some((file, started)) = self.recording.lock().unwrap().take() else {
+            return Err(AaeError::Failed {
+                message: "The screen isn't being recorded.".into(),
+            });
+        };
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::recording::stop(&adb).await?) }).await?;
+        let name = file
+            .file_name()
+            .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+        let seconds = started.elapsed().as_secs();
+        Ok(if seconds >= aae_core::recording::LONGEST as u64 {
+            format!("The recording stopped by itself at three minutes. Saved {name}.")
+        } else {
+            format!("Saved {name}, {seconds} seconds.")
+        })
     }
 
     /// The device's language, display and accessibility settings, with their

@@ -75,6 +75,12 @@ fn close_session(id: &str) {
     if let Some(session) = session {
         session.stop_audio();
         session.stop_playing_into_microphone();
+        if session.recording_screen() {
+            let session = session.clone();
+            spawn(async move {
+                let _ = session.stop_recording().await;
+            });
+        }
         if session.microphone_on() {
             spawn(async move {
                 let _ = session.set_microphone(false).await;
@@ -795,6 +801,7 @@ pub fn command(id: u16, notification: u32) {
         INSTALL_APP => install_app(),
         INSTALL_SCREEN_READER => install_screen_reader_build(),
         SCREENSHOT => screenshot(),
+        RECORD => toggle_recording(),
         OPEN_LINK => crate::tools::links::open_link(),
         SEND_INTENT => crate::tools::links::send_intent(),
         CONDITIONS => crate::tools::conditions::show(),
@@ -2155,6 +2162,8 @@ pub fn menu_opening(menu: windows::Win32::UI::WindowsAndMessaging::HMENU) {
         .as_ref()
         .is_some_and(|s| s.playing_into_microphone());
     crate::menu::name_microphone(menu, on, playing);
+    let recording = session.as_ref().is_some_and(|s| s.recording_screen());
+    crate::menu::name_recording(menu, recording);
 }
 
 fn speak_status() {
@@ -2284,6 +2293,35 @@ fn screenshot() {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or(path);
         say(format!("Saved the screenshot as {name}."), Tone::Success);
+        Ok(())
+    });
+}
+
+/// Records the selected device's screen and sound into a WebM file, or
+/// stops.
+fn toggle_recording() {
+    let (device, hwnd) = selected();
+    let Some(device) = device else { return };
+    if let Some(session) = session_if_open(&device.id)
+        && session.recording_screen()
+    {
+        with_session(|s| async move {
+            say(s.stop_recording().await?, Tone::Success);
+            Ok(())
+        });
+        return;
+    }
+    let Some(path) = ui::save_file(
+        hwnd,
+        "Record the screen and its sound, for up to three minutes",
+        &format!("{} recording.webm", device.name),
+        &[("WebM videos", "*.webm")],
+        "webm",
+    ) else {
+        return;
+    };
+    with_session(move |s| async move {
+        say(s.start_recording(path).await?, Tone::Success);
         Ok(())
     });
 }

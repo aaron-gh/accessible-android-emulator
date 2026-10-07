@@ -943,6 +943,9 @@ final class AppModel: ObservableObject {
     private func endSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
         session.stopAudio()
+        if recordings.remove(id) != nil {
+            Task { _ = try? await session.stopRecording() }
+        }
         if playingFiles.remove(id) != nil {
             _ = session.stopPlayingIntoMicrophone()
         }
@@ -2041,6 +2044,42 @@ final class AppModel: ObservableObject {
             announce("Saved \(url.lastPathComponent).", tone: .success)
         } catch {
             announce(error.localizedDescription, tone: .failure)
+        }
+    }
+
+    /// Devices whose screen is being recorded.
+    @Published private(set) var recordings: Set<String> = []
+
+    /// Starts recording the selected device's screen and sound into a WebM
+    /// file, or stops.
+    func toggleRecording() {
+        guard let device = selected else { return }
+        let id = device.id
+        if recordings.contains(id) {
+            withSession { [weak self] session in
+                self?.recordings.remove(id)
+                let said = try await session.stopRecording()
+                self?.announce(said, tone: .success)
+            }
+            return
+        }
+        let panel = NSSavePanel()
+        panel.message = "Record the screen and its sound, for up to three minutes."
+        panel.nameFieldStringValue = "\(device.name) recording.webm"
+        panel.allowedContentTypes = [UTType(filenameExtension: "webm") ?? .movie]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        withSession { [weak self] session in
+            let said = try await session.startRecording(path: url.path)
+            self?.recordings.insert(id)
+            self?.announce(said, tone: .success)
+            // The emulator stops by itself at three minutes.
+            try? await Task.sleep(nanoseconds: 181_000_000_000)
+            if self?.recordings.contains(id) == true, !session.recordingScreen() {
+                self?.recordings.remove(id)
+                if let said = try? await session.stopRecording() {
+                    self?.announce(said)
+                }
+            }
         }
     }
 
