@@ -150,6 +150,15 @@ pub fn start(
     Ok(info)
 }
 
+/// How long the emulator may take to answer on gRPC before AAE decides it hung.
+const EMULATOR_ANSWER: Duration = Duration::from_secs(60);
+
+/// Whether the emulator's log says its graphics couldn't start, which it
+/// doesn't always exit after promptly.
+fn graphics_failed(log: &Path) -> bool {
+    std::fs::read_to_string(log).is_ok_and(|text| text.contains("OpenGL Core Profile not supported"))
+}
+
 /// Progress while a device starts, for announcing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootStage {
@@ -168,7 +177,8 @@ pub async fn wait_until_ready(
     timeout: Duration,
     mut progress: impl FnMut(BootStage),
 ) -> Result<(Controller, Adb)> {
-    let deadline = tokio::time::Instant::now() + timeout;
+    let started = tokio::time::Instant::now();
+    let deadline = started + timeout;
     let adb = Adb::new(sdk.adb_bin()?, info.serial());
     let mut stage = BootStage::WaitingForEmulator;
     progress(stage);
@@ -182,6 +192,30 @@ pub async fn wait_until_ready(
         }
         if tokio::time::Instant::now() > deadline {
             return Err(Error::BootTimeout(timeout.as_secs(), info.log.clone()));
+        }
+        // With a graphics driver it can't use, the emulator can take minutes
+        // to exit, or hang. It answers on gRPC within seconds otherwise.
+        if stage == BootStage::WaitingForEmulator {
+            let failed = graphics_failed(&info.log);
+            if failed || started.elapsed() > EMULATOR_ANSWER {
+                terminate(info.pid);
+                for _ in 0..40 {
+                    if !is_alive(info.pid) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+                let tail = log_tail(&info.log, 15);
+                let why = if failed {
+                    tail
+                } else {
+                    format!(
+                        "The emulator didn't answer within {} seconds.\n{tail}",
+                        EMULATOR_ANSWER.as_secs()
+                    )
+                };
+                return Err(Error::EmulatorExited(crate::diagnostics::redact(&why)));
+            }
         }
         if controller.is_none() {
             // The discovery file, and so the token, appears shortly after the process starts.
