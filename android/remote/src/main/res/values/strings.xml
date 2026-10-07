@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AAE Remote</string>
+    <string name="gesture_mode_service">AAE gesture mode</string>
+    <string name="gesture_mode_service_description">Lets your touches through to the Android device while AAE Remote\'s gesture mode is open, so the device\'s screen reader gets your gestures. In keyboard mode, it sends your keyboard\'s keys to the device before the phone\'s screen reader takes them. It does nothing anywhere else.</string>
+</resources>

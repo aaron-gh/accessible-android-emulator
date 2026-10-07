@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "aae-android"
 include(":helper")
+include(":remote")

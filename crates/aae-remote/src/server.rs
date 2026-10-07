@@ -474,6 +474,30 @@ async fn call(
                 .await?;
             Value::Null
         }
+        "device.notifications" => {
+            server
+                .session(&id()?)
+                .await?
+                .shell("cmd statusbar expand-notifications".into())
+                .await?;
+            Value::Null
+        }
+        "device.quick_settings" => {
+            server
+                .session(&id()?)
+                .await?
+                .shell("cmd statusbar expand-settings".into())
+                .await?;
+            Value::Null
+        }
+        "device.gesture" => {
+            server
+                .session(&id()?)
+                .await?
+                .perform_gesture(param(params, "gesture")?, None)
+                .await?;
+            Value::Null
+        }
         "device.status" => json!(server.session(&id()?).await?.screen_reader_status().await?),
         "device.rotate" => json!(
             server
