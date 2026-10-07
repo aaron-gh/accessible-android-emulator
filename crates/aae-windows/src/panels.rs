@@ -112,6 +112,16 @@ pub fn open_window(kind: &'static str) -> Option<HWND> {
     unsafe { IsWindow(Some(hwnd)) }.as_bool().then_some(hwnd)
 }
 
+/// Presses a button in a kind's open window, if it's open, such as Refresh
+/// once something has changed.
+pub fn press(kind: &'static str, id: u16) {
+    if let Some(hwnd) = open_window(kind) {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_COMMAND, WPARAM(id as usize), LPARAM(0));
+        }
+    }
+}
+
 /// Presses the button a key is a shortcut for, if it's one of the window's.
 pub fn shortcut(hwnd: HWND, msg: &MSG) -> bool {
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_MENU};

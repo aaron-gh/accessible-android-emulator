@@ -1,10 +1,12 @@
 //! The Mac app's tools beyond the main window: forms that act on the
 //! selected device, and tool windows that stay open beside the main one.
 
+pub mod apps;
 pub mod conditions;
 pub mod device_log;
 pub mod inspector;
 pub mod links;
+pub mod services;
 pub mod shell;
 pub mod speech_log;
 

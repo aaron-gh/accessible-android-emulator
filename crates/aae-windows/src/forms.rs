@@ -170,6 +170,11 @@ impl Handle {
         }
     }
 
+    /// A field's control, to change once the form's action has finished.
+    pub fn control(&self, field: usize) -> Option<HWND> {
+        self.controls.get(field).copied().flatten()
+    }
+
     pub fn checked(&self, field: usize) -> bool {
         matches!(self.controls.get(field), Some(Some(hwnd)) if ui::checked(*hwnd))
     }
@@ -374,13 +379,15 @@ fn handle(dialog: HWND, msg: u32, wparam: WPARAM, _: LPARAM) -> isize {
                 return 1;
             }
             let index = if id == IDCANCEL.0 as u16 {
-                // Escape: the cancel button, or a form's only button.
+                // Escape: the cancel button, or a form's only button, or
+                // its default, such as Done.
                 let s = state.borrow();
-                s.form
-                    .buttons
+                let buttons = &s.form.buttons;
+                buttons
                     .iter()
                     .position(|b| b.role == Role::Cancel)
-                    .or((s.form.buttons.len() == 1).then_some(0))
+                    .or((buttons.len() == 1).then_some(0))
+                    .or_else(|| buttons.iter().position(|b| b.role == Role::Default))
             } else {
                 state.borrow().button_ids.get(&id).copied()
             };

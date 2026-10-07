@@ -47,6 +47,8 @@ pub const SPEECH_LOG: u16 = 270;
 pub const SHELL: u16 = 271;
 pub const DEVICE_LOG: u16 = 272;
 pub const INSPECTOR: u16 = 273;
+pub const APPS: u16 = 274;
+pub const SERVICES: u16 = 275;
 
 pub const CHECK_UPDATES: u16 = 303;
 pub const SELF_TEST: u16 = 300;
@@ -128,6 +130,8 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                     Some((ca, b'V' as u16)),
                 ),
                 SEPARATOR,
+                Item(APPS, "A&pps", Some((ca, b'P' as u16))),
+                Item(SERVICES, "Accessibility Ser&vices", Some((ca, b'U' as u16))),
                 Item(OPEN_LINK, "Open &Link…", Some((cs, b'L' as u16))),
                 Item(SEND_INTENT, "Send Int&ent…", None),
                 Item(

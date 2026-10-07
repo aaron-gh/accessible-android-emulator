@@ -767,6 +767,8 @@ pub fn command(id: u16, notification: u32) {
         SHELL => crate::tools::shell::show(),
         DEVICE_LOG => crate::tools::device_log::show(),
         INSPECTOR => crate::tools::inspector::show(),
+        APPS => crate::tools::apps::show(),
+        SERVICES => crate::tools::services::show(),
         RENAME => rename(),
         COPY_DEVICE => copy_device(),
         WIPE => wipe(),
