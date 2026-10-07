@@ -31,7 +31,8 @@ use crossterm::terminal;
 /// Android's Meta key, which TalkBack's current keymap uses as its modifier.
 /// With `keep_alt`, Option is sent as Alt.
 pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool, correct_pitch: bool) -> Result<()> {
-    let (_, controller, _) = emulator::attach(sdk, device).await?;
+    let (_, controller, adb) = emulator::attach(sdk, device).await?;
+    aae_core::provision::reselect_keyboard_layout_quietly(&adb).await;
     let audio =
         AudioPlayer::start_with_speed(&controller, playback_speed(device, correct_pitch)).await?;
     audio.set_volume(device.meta.playback_volume.unwrap_or(1.0));

@@ -190,6 +190,34 @@ pub async fn apply_keyboard_layout(sdk: &Sdk, adb: &Adb) -> Result<()> {
     )))
 }
 
+/// Selects AAE's full keyboard again, in one quick try, when AAE connects to
+/// a device that's already running. Android has been seen to drop the
+/// choice while a device runs, for reasons not yet found, which leaves Meta
+/// and the Home button dead until it's selected again. Selecting it when
+/// it's still selected changes nothing.
+pub async fn reselect_keyboard_layout(adb: &Adb) -> Result<()> {
+    let out = adb
+        .shell(&format!("{HELPER_SHELL_TOOL} keyboard-layout"))
+        .await?;
+    if out.contains("Keyboard layout set") {
+        Ok(())
+    } else {
+        Err(Error::Adb(format!(
+            "The full keyboard could not be selected: {}",
+            out.trim()
+        )))
+    }
+}
+
+/// Same as [`reselect_keyboard_layout`], but a failure is only logged: the
+/// keyboard mostly works without it, and what AAE was connecting for
+/// shouldn't fail because of it.
+pub async fn reselect_keyboard_layout_quietly(adb: &Adb) {
+    if let Err(e) = reselect_keyboard_layout(adb).await {
+        tracing::warn!("{e}");
+    }
+}
+
 /// Makes sure the device can speak (see [`crate::tts`]). When AAE had to
 /// switch speech engines, the screen reader is restarted so it uses the new one.
 pub async fn ensure_device_speech(device: &Device, adb: &Adb) -> Result<crate::tts::SpeechFix> {

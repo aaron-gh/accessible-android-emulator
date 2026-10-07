@@ -1585,6 +1585,8 @@ fn enter_device_mode(gestures: bool) {
             Ok(s) => s,
             Err(e) => return say_error(e),
         };
+        // In case Android dropped AAE's full keyboard, which Meta needs.
+        let _ = session.ensure_keyboard_layout().await;
         if gestures {
             // Reading the screen, to move the touch point, needs AAE's helper.
             if let Err(e) = session.use_helper(true).await {

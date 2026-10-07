@@ -1258,6 +1258,7 @@ impl Engine {
         on_runtime(async move {
             let device = store.get(&id)?;
             let (_, controller, adb) = emulator::attach(&sdk, &device).await?;
+            provision::reselect_keyboard_layout_quietly(&adb).await;
             Ok(Session::new(sdk, device, controller, adb))
         })
         .await
@@ -1396,6 +1397,14 @@ impl Session {
             Some(code) => self.keys.send(KeyMessage::Evdev(code, down)).is_ok(),
             None => false,
         }
+    }
+
+    /// Selects AAE's full keyboard again, so Meta and the Home button work,
+    /// in case Android dropped it. Call it before giving the keyboard to
+    /// Android. Quick, and harmless when it's still selected.
+    pub async fn ensure_keyboard_layout(&self) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(provision::reselect_keyboard_layout(&adb).await?) }).await
     }
 
     /// Presses a key by name, such as "back", "home" or "meta+right".

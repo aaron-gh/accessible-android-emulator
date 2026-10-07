@@ -670,6 +670,14 @@ impl Ctx {
         Ok(self.store.get(name)?)
     }
 
+    /// Connects to send keys, selecting AAE's full keyboard again first, in
+    /// case Android dropped it.
+    async fn connect_keyboard(&self, name: &str) -> Result<(Device, Controller, Adb)> {
+        let (device, controller, adb) = self.connect(name).await?;
+        provision::reselect_keyboard_layout_quietly(&adb).await;
+        Ok((device, controller, adb))
+    }
+
     async fn connect(&self, name: &str) -> Result<(Device, Controller, Adb)> {
         let device = self.device(name)?;
         let (_, controller, adb) = emulator::attach(&self.sdk, &device).await?;
@@ -1253,7 +1261,7 @@ async fn run(cli: Cli) -> Result<()> {
             device,
             keys: names,
         } => {
-            let (_, controller, _) = ctx.connect(&device).await?;
+            let (_, controller, _) = ctx.connect_keyboard(&device).await?;
             for name in &names {
                 let key = keys::parse(name)
                     .ok_or_else(|| anyhow!("\"{name}\" is not a key name. {}", keys::HELP))?;
@@ -1296,7 +1304,7 @@ async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Type { device, text } => {
-            let (_, controller, _) = ctx.connect(&device).await?;
+            let (_, controller, _) = ctx.connect_keyboard(&device).await?;
             controller.type_text(&text).await?;
             Ok(())
         }
@@ -2108,7 +2116,7 @@ async fn with_helper<T>(
 }
 
 async fn keytest(ctx: &Ctx, name: &str) -> Result<()> {
-    let (device, controller, adb) = ctx.connect(name).await?;
+    let (device, controller, adb) = ctx.connect_keyboard(name).await?;
     println!(
         "Testing {}'s keyboard. The keys go to AAE's helper, not to any app.",
         device.meta.name
@@ -2157,7 +2165,7 @@ async fn latency(ctx: &Ctx, name: &str, names: &str, trials: usize) -> Result<()
                 .ok_or_else(|| anyhow!("\"{k}\" is not a key name. {}", keys::HELP))
         })
         .collect::<Result<Vec<_>>>()?;
-    let (device, controller, _) = ctx.connect(name).await?;
+    let (device, controller, _) = ctx.connect_keyboard(name).await?;
     println!(
         "Pressing {names} on {} {trials} times, and timing each response.",
         device.meta.name

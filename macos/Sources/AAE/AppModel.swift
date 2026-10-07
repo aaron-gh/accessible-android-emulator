@@ -899,6 +899,8 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let session = try await session(for: device.id)
+                // In case Android dropped AAE's full keyboard, which Meta needs.
+                try? await session.ensureKeyboardLayout()
                 gestureMode = gestures
                 deviceModeHost = host
                 gestureKeys.reset()
