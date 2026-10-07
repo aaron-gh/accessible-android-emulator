@@ -4,5 +4,18 @@
         <title>AAE Updates for Windows</title>
         <description>Updates for AAE, the Accessible Android Emulator, on Windows.</description>
         <language>en</language>
+        <item>
+            <title>Version 0.3.0</title>
+            <pubDate>Wed, 07 Oct 2026 09:25:28 -0000</pubDate>
+            <sparkle:version>62</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <description><![CDATA[<ul>
+<li>The Windows app now has the Mac app's windows: Accessibility Inspector (Control Alt I), Speech Log (Control Alt L), Device Log (Control Alt J), Shell (Control Alt T), Apps (Control Alt P), Accessibility Services (Control Alt U), Snapshots (Control Alt S), Battery, Location and Phone (Control Alt B), Android Versions (Control Alt A), Open Link (Control Shift L), Send Intent, and Watch for New Builds.</li>
+<li>Open in Own Window (Control Alt O) gives a device a window of its own; the menu's shortcuts act on it while it's in front.</li>
+<li>Tab no longer gets stuck in the set-up text or the last message, and the focus is never left nowhere when a button becomes unavailable.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.3.0/AAE-0.3.0-windows-x64-setup.exe" sparkle:edSignature="Bgk0kIEt8CPFQ1V8cyTHKacmT1PYLzOzrCNuDFYdIr14CvqtUqdp4axGV5U2fG48En3IlVtAFMMtS7r2ISODAw==" length="31832561" type="application/octet-stream" sparkle:os="windows-x64" sparkle:installerArguments="/S" />
+        </item>
     </channel>
 </rss>

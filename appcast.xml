@@ -5,6 +5,18 @@
         <description>Updates for AAE, the Accessible Android Emulator.</description>
         <language>en</language>
         <item>
+            <title>Version 0.3.0</title>
+            <pubDate>Wed, 07 Oct 2026 09:24:37 -0000</pubDate>
+            <sparkle:version>62</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<ul>
+<li>AAE 0.3.0 is the first version with a stable Windows app. Nothing has changed in the Mac app; it has the same version number as the Windows app.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.3.0/AAE-0.3.0.dmg" sparkle:edSignature="MStcsmL4W0LijUt+DFwoqD9tZ7awnFxYyCO+gbO39mIC9mrVIDbZUuA/GSfI74omDlKq+QM7UFG5h9g5A2hpBA==" length="31420968" type="application/octet-stream" />
+        </item>
+        <item>
             <title>Version 0.2.2</title>
             <pubDate>Wed, 07 Oct 2026 08:33:12 -0000</pubDate>
             <sparkle:version>49</sparkle:version>
