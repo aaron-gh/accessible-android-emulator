@@ -100,6 +100,10 @@ pub struct DeviceInfo {
     pub volume: f32,
     /// The computer's output it plays through, by name; None is the default.
     pub audio_output: Option<String>,
+    /// Which run of the emulator it is, while running: it changes when the
+    /// device is stopped and started again, by any of AAE's programs, so an
+    /// app can tell its connection is to one that's gone.
+    pub instance: Option<String>,
 }
 
 impl DeviceInfo {
@@ -111,6 +115,7 @@ impl DeviceInfo {
             kind: image_kind(&device.meta.tag).to_string(),
             profile: device.meta.profile.describe().to_string(),
             running: emulator::running(device).is_ok(),
+            instance: emulator::running(device).ok().map(|r| instance(&r)),
             screen_reader: device
                 .meta
                 .screen_reader
@@ -124,6 +129,11 @@ impl DeviceInfo {
             audio_output: device.meta.audio_output.clone(),
         }
     }
+}
+
+/// Names a run of the emulator, by its process and gRPC port.
+fn instance(runtime: &aae_core::device::RuntimeInfo) -> String {
+    format!("{} {}", runtime.pid, runtime.grpc_port)
 }
 
 /// An Android version installed on this computer.
@@ -1536,9 +1546,15 @@ impl Engine {
         let (sdk, store) = (self.sdk.clone(), self.store.clone());
         on_runtime(async move {
             let device = store.get(&id)?;
-            let (_, controller, adb) = emulator::attach(&sdk, &device).await?;
+            let (runtime, controller, adb) = emulator::attach(&sdk, &device).await?;
             provision::reselect_keyboard_layout_quietly(&adb).await;
-            Ok(Session::new(sdk, device, controller, adb))
+            Ok(Session::new(
+                sdk,
+                device,
+                controller,
+                adb,
+                instance(&runtime),
+            ))
         })
         .await
     }
@@ -1609,6 +1625,8 @@ fn screen_reader_name(package: &str) -> String {
 /// A connection to one running device.
 #[derive(uniffi::Object)]
 pub struct Session {
+    /// The run of the emulator it's connected to (see DeviceInfo::instance).
+    instance: String,
     sdk: Sdk,
     device: Mutex<Device>,
     controller: Controller,
@@ -1670,7 +1688,13 @@ impl Session {
 }
 
 impl Session {
-    fn new(sdk: Sdk, device: Device, controller: Controller, adb: Adb) -> Arc<Self> {
+    fn new(
+        sdk: Sdk,
+        device: Device,
+        controller: Controller,
+        adb: Adb,
+        instance: String,
+    ) -> Arc<Self> {
         // Keys go through one queue, sent one at a time, so they reach the
         // device in the order they were pressed however fast they come.
         let (tx, mut rx) = mpsc::unbounded_channel::<KeyMessage>();
@@ -1683,6 +1707,7 @@ impl Session {
             }
         });
         Arc::new(Session {
+            instance,
             sdk,
             device: Mutex::new(device),
             controller,
@@ -1704,6 +1729,13 @@ impl Session {
 impl Session {
     pub fn device_name(&self) -> String {
         self.device.lock().unwrap().meta.name.clone()
+    }
+
+    /// The run of the emulator this is connected to. When the device's
+    /// DeviceInfo::instance differs, it was stopped and started again since,
+    /// and this connection is to the old one.
+    pub fn instance(&self) -> String {
+        self.instance.clone()
     }
 
     /// Sends a key by its macOS virtual key code. Returns false if Android has

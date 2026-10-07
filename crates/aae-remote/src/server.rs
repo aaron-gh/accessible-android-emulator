@@ -106,7 +106,18 @@ impl Server {
     pub async fn session(&self, id: &str) -> Result<Arc<Session>, AaeError> {
         let mut sessions = self.sessions.lock().await;
         if let Some(session) = sessions.get(id) {
-            return Ok(session.clone());
+            // Unless the device was stopped and started again since, such
+            // as with the aae command, when this connection is to the old one.
+            let now = self
+                .engine
+                .devices()?
+                .into_iter()
+                .find(|d| d.id == id)
+                .and_then(|d| d.instance);
+            if now.as_deref() == Some(session.instance().as_str()) {
+                return Ok(session.clone());
+            }
+            sessions.remove(id);
         }
         let session = self.engine.open_session(id.to_string()).await?;
         sessions.insert(id.to_string(), session.clone());

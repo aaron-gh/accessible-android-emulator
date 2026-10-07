@@ -360,6 +360,7 @@ pub fn start_app(hwnd: HWND) {
         mention_updates();
     }
     watch_sound();
+    watch_devices();
     with(|app| {
         app.refresh();
         app.render();
@@ -2942,6 +2943,70 @@ fn check_sound_after_start(id: String) {
 
 /// Every half minute, checks each device AAE is playing without making a
 /// sound, and says once when one's sound has stopped reaching AAE.
+/// Every two seconds, notices devices started or stopped elsewhere, such as
+/// with the aae command. A device this app was connected to that was started
+/// again is reconnected, so its sound plays here again; one that's stopped
+/// is let go. Devices it's starting or stopping itself are left alone.
+fn watch_devices() {
+    spawn(async {
+        let mut shown = String::new();
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let Some(engine) = engine() else { continue };
+            let Ok(fresh) = engine.devices() else {
+                continue;
+            };
+            let signature = fresh
+                .iter()
+                .map(|d| format!("{} {:?}", d.id, d.instance))
+                .collect::<Vec<_>>()
+                .join(",");
+            if signature != shown {
+                shown = signature;
+                run_on_ui(|| {
+                    with(|app| {
+                        app.refresh();
+                        app.render();
+                    })
+                });
+            }
+            for (id, session) in open_sessions() {
+                let device = fresh.iter().find(|d| d.id == id);
+                if device.and_then(|d| d.instance.clone()) == Some(session.instance()) {
+                    continue;
+                }
+                let busy = {
+                    let id = id.clone();
+                    on_ui(move || with(|app| app.busy.contains_key(&id))).await
+                };
+                if busy {
+                    continue;
+                }
+                let name = device.map_or_else(|| "A device".to_string(), |d| d.name.clone());
+                let running = device.is_some_and(|d| d.running);
+                {
+                    let id = id.clone();
+                    on_ui(move || {
+                        if with(|app| app.device_mode.as_deref() == Some(id.as_str())) {
+                            leave_device_mode(true);
+                        }
+                        close_session(&id);
+                    })
+                    .await;
+                }
+                if !running {
+                    say(format!("{name} was stopped outside this app."), Tone::Info);
+                } else if session_for(id).await.is_ok() {
+                    say(
+                        format!("{name} was restarted outside this app. Reconnected."),
+                        Tone::Info,
+                    );
+                }
+            }
+        }
+    });
+}
+
 fn watch_sound() {
     spawn(async {
         loop {

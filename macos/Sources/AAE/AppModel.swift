@@ -179,6 +179,7 @@ final class AppModel: ObservableObject {
         appliedCorrectPitch = correctPitch
         setUpGestureKeys()
         watchSound()
+        watchDevices()
         needsSetup = engine?.needsSetup() ?? false
         if needsSetup {
             checkSetup()
@@ -2056,6 +2057,42 @@ final class AppModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 8_000_000_000)
             guard let result = try? await session.checkAudio(probe: false), !result.working else { return }
             reportSoundProblem(id, result.message)
+        }
+    }
+
+    private var deviceWatch: Task<Void, Never>?
+
+    /// Every two seconds, notices devices started or stopped elsewhere, such
+    /// as with the aae command. A device this app was connected to that was
+    /// started again is reconnected, so its sound plays here again; one
+    /// that's stopped is let go. Devices it's starting or stopping itself are
+    /// left alone.
+    private func watchDevices() {
+        deviceWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self, let engine = self.engine,
+                      let fresh = try? engine.devices() else { continue }
+                if fresh.map({ "\($0.id) \($0.instance ?? "")" }) != self.devices.map({ "\($0.id) \($0.instance ?? "")" }) {
+                    self.devices = fresh
+                }
+                for (id, session) in self.sessions where self.busy[id] == nil {
+                    let device = fresh.first { $0.id == id }
+                    if device?.instance == session.instance() { continue }
+                    let name = device?.name ?? "A device"
+                    if self.deviceModeID == id {
+                        self.leaveDeviceMode(quietly: true)
+                    }
+                    self.endSession(id)
+                    if let device, device.running {
+                        if (try? await self.session(for: id)) != nil {
+                            self.announce("\(name) was restarted outside this app. Reconnected.")
+                        }
+                    } else {
+                        self.announce("\(name) was stopped outside this app.")
+                    }
+                }
+            }
         }
     }
 
