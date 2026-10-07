@@ -30,11 +30,20 @@ object Remote {
 
     val isConnected get() = connection?.isOpen == true
 
+    private var app: Context? = null
+    private var attachedName = ""
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
     /** Connects to a paired computer, ending any other connection. */
     fun connect(context: Context, computer: Computer, ready: () -> Unit, failed: (String) -> Unit) {
         disconnect()
         this.computer = computer
-        val app = context.applicationContext
+        app = context.applicationContext
+        open(computer, ready, failed)
+        haptics = Haptics(context.applicationContext)
+    }
+
+    private fun open(computer: Computer, ready: () -> Unit, failed: (String) -> Unit) {
         var signedIn = false
         connection = Connection.connect(computer, object : Connection.Listener {
             override fun ready() {
@@ -43,10 +52,17 @@ object Remote {
             }
 
             override fun closed(reason: String) {
-                stopMedia()
+                val device = attached
+                stopSound()
                 attached = null
                 connection = null
-                if (!signedIn) failed(reason) else watchers.toList().forEach { it.closed(reason) }
+                when {
+                    !signedIn -> failed(reason)
+                    // Wi-Fi drops for a moment, or the computer's AAE
+                    // restarts: try again, and attach the same device.
+                    this@Remote.computer == computer -> reconnect(computer, device, reason, attempt = 1)
+                    else -> watchers.toList().forEach { it.closed(reason) }
+                }
             }
 
             override fun event(name: String, data: JSONObject) {
@@ -56,10 +72,24 @@ object Remote {
                 watchers.toList().forEach { it.event(name, data) }
             }
         })
-        haptics = Haptics(app)
+    }
+
+    private fun reconnect(computer: Computer, device: String?, reason: String, attempt: Int) {
+        if (attempt > 4 || this.computer != computer) {
+            stopMedia()
+            watchers.toList().forEach { it.closed(reason) }
+            return
+        }
+        main.postDelayed({
+            if (this.computer != computer || connection != null) return@postDelayed
+            open(computer, ready = {
+                if (device != null) attach(device) {}
+            }, failed = { reconnect(computer, device, reason, attempt + 1) })
+        }, 2000L * attempt)
     }
 
     fun disconnect() {
+        computer = null
         stopMedia()
         attached = null
         connection?.close()
@@ -67,6 +97,11 @@ object Remote {
     }
 
     /** Plays a device's sound and vibrations here, and sends it keys and touches. */
+    fun attach(id: String, name: String, done: (Result<Unit>) -> Unit) {
+        attachedName = name
+        attach(id, done)
+    }
+
     fun attach(id: String, done: (Result<Unit>) -> Unit) {
         val connection = connection ?: return done(Result.failure(Exception("Not connected to the computer.")))
         if (attached == id) return done(Result.success(Unit))
@@ -80,6 +115,7 @@ object Remote {
                 val out = SoundOut()
                 sound = out
                 connection.sound = { bytes, offset, length -> out.write(bytes, offset, length) }
+                app?.let { AttachedService.start(it, attachedName.ifEmpty { "A device" }, computer?.name ?: "the computer") }
                 done(Result.success(Unit))
             }.onFailure { done(Result.failure(it)) }
         }
@@ -96,6 +132,7 @@ object Remote {
         connection?.sound = null
         sound?.release()
         sound = null
+        app?.let { AttachedService.stop(it) }
     }
 
     private fun stopMedia() {

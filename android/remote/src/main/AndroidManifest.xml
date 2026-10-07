@@ -9,6 +9,10 @@
         android:usesPermissionFlags="neverForLocation" />
     <!-- The device's vibrations. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Keeping the device's sound and the connection going with the screen off. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="@string/app_name"
@@ -44,6 +48,11 @@
             android:name=".GestureActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
+        <service
+            android:name=".AttachedService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
 
         <!-- Lets touches through to the device while gesture mode is open. -->
         <service

@@ -82,7 +82,7 @@ class DeviceActivity : ConnectedActivity() {
 
     /** Plays the device's sound and vibrations here while it runs. */
     private fun attach() {
-        Remote.attach(id) { result ->
+        Remote.attach(id, device?.optString("name") ?: "") { result ->
             result.onFailure { ui.say("The device's sound can't play here: ${it.message}") }
         }
     }
