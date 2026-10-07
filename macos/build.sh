@@ -33,6 +33,9 @@ GEN="$ROOT/target/uniffi-swift"
 rm -rf "$GEN"
 "$CARGO" run ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} -q -p aae-ffi --bin uniffi-bindgen -- \
     generate --library "target/$PROFILE/libaae_ffi.a" --language swift --out-dir "$GEN"
+# Both folders hold only generated files, which git ignores, so a fresh
+# clone doesn't have them yet.
+mkdir -p macos/Sources/AAE/Generated macos/Sources/aae_ffiFFI/include
 cp "$GEN/aae_ffi.swift" macos/Sources/AAE/Generated/
 cp "$GEN/aae_ffiFFI.h" macos/Sources/aae_ffiFFI/include/
 
