@@ -24,6 +24,7 @@ pub mod keys;
 pub mod keytest;
 pub mod lifecycle;
 pub mod logcat;
+pub mod network;
 pub mod paths;
 mod platform;
 pub mod provision;

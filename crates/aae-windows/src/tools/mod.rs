@@ -23,6 +23,7 @@ use crate::{panels, ui};
 
 /// Keeps tool windows' titles naming the selected device.
 pub fn device_changed(name: Option<&str>) {
+    conditions::device_changed(name);
     if let Some(hwnd) = panels::open_window(conditions::KIND) {
         let title = conditions::title(name);
         if ui::text(hwnd) != title {

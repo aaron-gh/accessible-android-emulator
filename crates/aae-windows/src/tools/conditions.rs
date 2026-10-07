@@ -24,14 +24,35 @@ const HOLD: u16 = 1012;
 const RESUME: u16 = 1013;
 const ANSWER: u16 = 1014;
 const BUSY: u16 = 1015;
+const AIRPLANE: u16 = 1020;
+const WIFI: u16 = 1021;
+const DATA: u16 = 1022;
+const SPEED: u16 = 1023;
+const SET_SPEED: u16 = 1024;
+
+/// The network controls, to show what the device reports after a change.
+#[derive(Clone, Copy)]
+struct Network {
+    airplane: HWND,
+    wifi: HWND,
+    data: HWND,
+    speed: HWND,
+    status: HWND,
+}
+
+thread_local! {
+    static NETWORK: std::cell::Cell<Option<Network>> = const { std::cell::Cell::new(None) };
+    /// The device the network controls show, by name.
+    static SHOWN: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
 
 /// Numbers the emulator answers to, when none is given.
 const NUMBER: &str = "5551234";
 
 pub fn title(device: Option<&str>) -> String {
     match device {
-        Some(name) => format!("Battery, Location and Phone: {name}"),
-        None => "Battery, Location and Phone".into(),
+        Some(name) => format!("Battery, Location, Phone and Network: {name}"),
+        None => "Battery, Location, Phone and Network".into(),
     }
 }
 
@@ -82,6 +103,33 @@ pub fn show() {
         &[("Answer the Device's Call", ANSWER), ("Be Busy", BUSY)],
         None,
     );
+    panel.text("Network");
+    let airplane = panel.check("Airplane mode", AIRPLANE, false);
+    let wifi = panel.check("Wi-Fi", WIFI, true);
+    let data = panel.check("Mobile data", DATA, true);
+    let speeds: Vec<String> = aae_ffi::network_speeds()
+        .into_iter()
+        .map(|s| {
+            let mut d = s.description;
+            if let Some(first) = d.get_mut(0..1) {
+                first.make_ascii_uppercase();
+            }
+            d
+        })
+        .collect();
+    let speed = panel.choice("Speed", SPEED, &speeds, 0);
+    panel.buttons(&[("Set Speed", SET_SPEED)], None);
+    let status = panel.text("Start the device to change its network.");
+    NETWORK.with(|n| {
+        n.set(Some(Network {
+            airplane,
+            wifi,
+            data,
+            speed,
+            status,
+        }))
+    });
+    load_network();
     panel.show(
         Conditions {
             level,
@@ -96,6 +144,10 @@ pub fn show() {
 }
 
 impl Handler for Conditions {
+    fn closed(&mut self) {
+        NETWORK.with(|n| n.set(None));
+    }
+
     fn command(&mut self, _panel: &Panel, id: u16) {
         match id {
             SET_BATTERY => {
@@ -110,6 +162,26 @@ impl Handler for Conditions {
             RESUME => phone_call(CallAction::Resume, &ui::text(self.number)),
             ANSWER => phone_call(CallAction::Answer, &ui::text(self.number)),
             BUSY => phone_call(CallAction::Busy, &ui::text(self.number)),
+            AIRPLANE | WIFI | DATA => {
+                let Some(n) = NETWORK.with(|n| n.get()) else {
+                    return;
+                };
+                let (control, kind) = match id {
+                    AIRPLANE => (n.airplane, Setting::Airplane),
+                    WIFI => (n.wifi, Setting::Wifi),
+                    _ => (n.data, Setting::Data),
+                };
+                change_network(kind, ui::checked(control), String::new());
+            }
+            SET_SPEED => {
+                let Some(n) = NETWORK.with(|n| n.get()) else {
+                    return;
+                };
+                let speeds = aae_ffi::network_speeds();
+                if let Some(chosen) = ui::combo_selection(n.speed).and_then(|i| speeds.get(i)) {
+                    change_network(Setting::Speed, true, chosen.name.clone());
+                }
+            }
             // Enter acts on the field it was pressed in.
             id if id == IDOK.0 as u16 => {
                 let focus = unsafe { GetFocus() };
@@ -126,6 +198,83 @@ impl Handler for Conditions {
             _ => {}
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum Setting {
+    Airplane,
+    Wifi,
+    Data,
+    Speed,
+}
+
+/// Shows how the selected device's network is, if it's running.
+pub fn load_network() {
+    let device = crate::app::selected().0;
+    SHOWN.with(|s| *s.borrow_mut() = device.as_ref().map(|d| d.name.clone()));
+    let Some(n) = NETWORK.with(|n| n.get()) else {
+        return;
+    };
+    let Some(device) = device.filter(|d| d.running) else {
+        crate::panels::set_text(n.status, "Start the device to change its network.");
+        return;
+    };
+    crate::app::spawn(async move {
+        let Ok(session) = crate::app::session_for(device.id).await else {
+            return;
+        };
+        if let Ok(info) = session.network().await {
+            crate::ui::run_on_ui(move || show_network(&info));
+        }
+    });
+}
+
+/// Shows the network again when another device is selected.
+pub fn device_changed(name: Option<&str>) {
+    let changed = SHOWN.with(|s| s.borrow().as_deref() != name);
+    if changed && NETWORK.with(|n| n.get()).is_some() {
+        crate::ui::run_on_ui(load_network);
+    }
+}
+
+fn show_network(info: &aae_ffi::NetworkInfo) {
+    let Some(n) = NETWORK.with(|n| n.get()) else {
+        return;
+    };
+    ui::set_checked(n.airplane, info.airplane);
+    ui::set_checked(n.wifi, info.wifi);
+    ui::set_checked(n.data, info.data);
+    if let Some(i) = info.speed.as_ref().and_then(|name| {
+        aae_ffi::network_speeds()
+            .iter()
+            .position(|s| &s.name == name)
+    }) {
+        ui::send(
+            n.speed,
+            windows::Win32::UI::WindowsAndMessaging::CB_SETCURSEL,
+            i,
+            0,
+        );
+    }
+    crate::panels::set_text(n.status, &info.description);
+}
+
+/// Changes the network, then says how it is now, and shows it.
+fn change_network(setting: Setting, on: bool, speed: String) {
+    with_session(move |session| async move {
+        match setting {
+            Setting::Airplane => session.set_airplane_mode(on).await?,
+            Setting::Wifi => session.set_wifi(on).await?,
+            Setting::Data => session.set_mobile_data(on).await?,
+            Setting::Speed => session.set_network_speed(speed).await?,
+        }
+        // Android takes a moment to report changes.
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        let info = session.network().await?;
+        say(info.description.clone(), Tone::Success);
+        crate::ui::run_on_ui(move || show_network(&info));
+        Ok(())
+    });
 }
 
 fn set_battery(level: u32, charging: bool) {

@@ -107,6 +107,13 @@ pub fn part(p: &AppPartInfo) -> Value {
     })
 }
 
+fn network(info: &aae_ffi::NetworkInfo) -> Value {
+    json!({
+        "airplane": info.airplane, "wifi": info.wifi, "data": info.data,
+        "speed": info.speed, "description": info.description,
+    })
+}
+
 /// Runs a testing tool's method, or returns None if it isn't one.
 pub async fn call(
     server: &Arc<Server>,
@@ -350,6 +357,32 @@ pub async fn call(
                 session.phone_call(action, number).await?;
                 Value::Null
             }
+
+            // The network.
+            "tools.network" => network(&session.network().await?),
+            "tools.network.set" => {
+                if let Some(on) = params["airplane"].as_bool() {
+                    session.set_airplane_mode(on).await?;
+                }
+                if let Some(on) = params["wifi"].as_bool() {
+                    session.set_wifi(on).await?;
+                }
+                if let Some(on) = params["data"].as_bool() {
+                    session.set_mobile_data(on).await?;
+                }
+                if let Some(speed) = optional(params, "speed") {
+                    session.set_network_speed(speed).await?;
+                }
+                // Android takes a moment to report changes.
+                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                network(&session.network().await?)
+            }
+            "tools.network.speeds" => json!(
+                aae_ffi::network_speeds()
+                    .iter()
+                    .map(|s| json!({"name": s.name, "description": s.description}))
+                    .collect::<Vec<_>>()
+            ),
 
             // Links, intents and the clipboard.
             "tools.link" => {

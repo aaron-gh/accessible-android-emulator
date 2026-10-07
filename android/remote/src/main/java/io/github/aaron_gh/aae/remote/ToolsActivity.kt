@@ -25,7 +25,7 @@ class ToolsActivity : ToolActivity() {
         open("Apps", AppsActivity::class.java)
         open("Accessibility Services", ServicesActivity::class.java)
         open("Snapshots", SnapshotsActivity::class.java)
-        open("Battery, Location and Phone", ConditionsActivity::class.java)
+        open("Battery, Location, Phone and Network", ConditionsActivity::class.java)
         open("Open Link or Send Intent", LinkActivity::class.java)
         ui.button("Install App") { chooseApk() }
         ui.button("Send Phone Clipboard to Device") { sendClipboard(type = false) }

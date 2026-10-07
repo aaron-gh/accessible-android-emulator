@@ -1664,6 +1664,36 @@ final class AppModel: ObservableObject {
 
     // MARK: - Battery, location and phone
 
+    /// The selected device's network, for the conditions window.
+    @Published var network: NetworkInfo?
+
+    func loadNetwork() {
+        guard selected?.running == true else {
+            network = nil
+            return
+        }
+        withSession { [weak self] session in
+            self?.network = try await session.network()
+        }
+    }
+
+    /// Changes the network, says how it is now, and shows it.
+    private func changeNetwork(_ change: @escaping (Session) async throws -> Void) {
+        withSession { [weak self] session in
+            try await change(session)
+            // Android takes a moment to report changes.
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            let now = try await session.network()
+            self?.network = now
+            self?.announce(now.description, tone: .success)
+        }
+    }
+
+    func setAirplaneMode(_ on: Bool) { changeNetwork { try await $0.setAirplaneMode(on: on) } }
+    func setWifi(_ on: Bool) { changeNetwork { try await $0.setWifi(on: on) } }
+    func setMobileData(_ on: Bool) { changeNetwork { try await $0.setMobileData(on: on) } }
+    func setNetworkSpeed(_ name: String) { changeNetwork { try await $0.setNetworkSpeed(name: name) } }
+
     func setBattery(level: Int, charging: Bool) {
         withSession { [weak self] session in
             try await session.setBattery(level: UInt32(max(0, min(level, 100))), charging: charging)

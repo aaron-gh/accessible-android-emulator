@@ -458,6 +458,37 @@ pub struct SnapshotInfo {
     pub compatible: bool,
 }
 
+/// The device's network.
+#[derive(uniffi::Record, Clone)]
+pub struct NetworkInfo {
+    pub airplane: bool,
+    pub wifi: bool,
+    pub data: bool,
+    /// The speed's name, such as "edge", or none if it was set elsewhere.
+    pub speed: Option<String>,
+    /// All of it in words.
+    pub description: String,
+}
+
+/// A network speed to choose: its name for `set_network_speed`, and in words.
+#[derive(uniffi::Record, Clone)]
+pub struct NetworkSpeedInfo {
+    pub name: String,
+    pub description: String,
+}
+
+/// The speeds a device's network can be set to, fastest first.
+#[uniffi::export]
+pub fn network_speeds() -> Vec<NetworkSpeedInfo> {
+    aae_core::network::Speed::ALL
+        .iter()
+        .map(|s| NetworkSpeedInfo {
+            name: s.name().into(),
+            description: s.describe().into(),
+        })
+        .collect()
+}
+
 /// What the other end of a phone call does.
 #[derive(uniffi::Enum, Clone)]
 pub enum CallAction {
@@ -1956,6 +1987,46 @@ impl Session {
     pub async fn type_text(&self, text: String) -> Result<(), AaeError> {
         let controller = self.controller.clone();
         on_runtime(async move { Ok(controller.type_text(&text).await?) }).await
+    }
+
+    /// The device's network: airplane mode, Wi-Fi, mobile data and speed.
+    pub async fn network(&self) -> Result<NetworkInfo, AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move {
+            let status = aae_core::network::status(&adb).await?;
+            Ok(NetworkInfo {
+                airplane: status.airplane,
+                wifi: status.wifi,
+                data: status.data,
+                speed: status.speed.map(|s| s.name().to_string()),
+                description: status.describe(),
+            })
+        })
+        .await
+    }
+
+    pub async fn set_airplane_mode(&self, on: bool) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::network::set_airplane(&adb, on).await?) }).await
+    }
+
+    pub async fn set_wifi(&self, on: bool) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::network::set_wifi(&adb, on).await?) }).await
+    }
+
+    pub async fn set_mobile_data(&self, on: bool) -> Result<(), AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::network::set_data(&adb, on).await?) }).await
+    }
+
+    /// Sets the connection's speed and delay, by a name from `network_speeds`.
+    pub async fn set_network_speed(&self, name: String) -> Result<(), AaeError> {
+        let speed = aae_core::network::Speed::parse(&name).ok_or_else(|| AaeError::Failed {
+            message: format!("{name} isn't a network speed AAE knows."),
+        })?;
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::network::set_speed(&adb, speed).await?) }).await
     }
 
     /// Sets the battery level, from 0 to 100, and whether it's charging.

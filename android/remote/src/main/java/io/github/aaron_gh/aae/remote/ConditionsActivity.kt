@@ -11,7 +11,7 @@ class ConditionsActivity : ToolActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (isFinishing) return
-        ui.heading("Battery, Location and Phone")
+        ui.heading("Battery, Location, Phone and Network")
         ui.addStatus()
 
         ui.heading("Battery")
@@ -54,6 +54,50 @@ class ConditionsActivity : ToolActivity() {
             call("tools.sms", params().put("from", from.text.toString()).put("text", message.text.toString())) {
                 ui.say("Sent a text message from ${from.text}.")
             }
+        }
+
+        ui.heading("Network")
+        val airplane = CheckBox(this).apply { text = "Airplane mode"; ui.column.addView(this) }
+        val wifi = CheckBox(this).apply { text = "Wi-Fi"; isChecked = true; ui.column.addView(this) }
+        val data = CheckBox(this).apply { text = "Mobile data"; isChecked = true; ui.column.addView(this) }
+        val speedLabel = ui.text("Speed")
+        val speedNames = mutableListOf<String>()
+        val speedRows = ArrayAdapter<String>(this, android.R.layout.simple_spinner_item).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        val speed = Spinner(this).apply {
+            id = android.view.View.generateViewId()
+            speedLabel.labelFor = id
+            adapter = speedRows
+            ui.column.addView(this)
+        }
+        val networkStatus = ui.text("")
+        fun show(json: JSONObject) {
+            airplane.isChecked = json.optBoolean("airplane")
+            wifi.isChecked = json.optBoolean("wifi")
+            data.isChecked = json.optBoolean("data")
+            speedNames.indexOf(json.optString("speed")).takeIf { it >= 0 }?.let { speed.setSelection(it) }
+            networkStatus.text = json.optString("description")
+        }
+        fun change(setting: String, value: Any) {
+            call("tools.network.set", params().put(setting, value)) { result ->
+                val json = result as JSONObject
+                show(json)
+                ui.say(json.optString("description"))
+            }
+        }
+        airplane.setOnClickListener { change("airplane", airplane.isChecked) }
+        wifi.setOnClickListener { change("wifi", wifi.isChecked) }
+        data.setOnClickListener { change("data", data.isChecked) }
+        ui.button("Set Speed") { speedNames.getOrNull(speed.selectedItemPosition)?.let { change("speed", it) } }
+        call("tools.network.speeds", params()) { result ->
+            val array = result as? org.json.JSONArray ?: return@call
+            for (i in 0 until array.length()) {
+                val s = array.getJSONObject(i)
+                speedNames += s.optString("name")
+                speedRows.add(s.optString("description").replaceFirstChar { it.uppercase() })
+            }
+            call("tools.network", params()) { show(it as JSONObject) }
         }
 
         ui.heading("Phone Call")

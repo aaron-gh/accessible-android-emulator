@@ -142,7 +142,7 @@ struct AAEApp: App {
             SnapshotsView()
                 .environmentObject(model)
         }
-        Window("Battery, Location and Phone", id: "conditions") {
+        Window("Battery, Location, Phone and Network", id: "conditions") {
             ConditionsView()
                 .environmentObject(model)
         }

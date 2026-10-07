@@ -116,6 +116,20 @@ pub(crate) struct BatteryParam {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(crate) struct NetworkParam {
+    /// The device's name. Leave it out when only one device is running.
+    pub device: Option<String>,
+    /// Turns airplane mode on or off. Leave out to keep it as it is.
+    pub airplane: Option<bool>,
+    /// Turns Wi-Fi on or off.
+    pub wifi: Option<bool>,
+    /// Turns mobile data on or off.
+    pub data: Option<bool>,
+    /// The connection's speed and delay: full, lte, 3g, slow-3g, edge or gprs.
+    pub speed: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub(crate) struct LocationParam {
     /// The device's name. Leave it out when only one device is running.
     pub device: Option<String>,
@@ -445,6 +459,43 @@ impl AaeServer {
                         "not charging"
                     }
                 ))
+            }
+            .await,
+        )
+    }
+
+    /// The device's network: turns airplane mode, Wi-Fi or mobile data on
+    /// or off, or sets the connection's speed, to test an app offline or on a
+    /// poor connection. With nothing to change, says how the network is.
+    #[tool(annotations(destructive_hint = false, idempotent_hint = true))]
+    async fn network(
+        &self,
+        Parameters(p): Parameters<NetworkParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                let changing = p.airplane.is_some()
+                    || p.wifi.is_some()
+                    || p.data.is_some()
+                    || p.speed.is_some();
+                if let Some(on) = p.airplane {
+                    session.set_airplane_mode(on).await?;
+                }
+                if let Some(on) = p.wifi {
+                    session.set_wifi(on).await?;
+                }
+                if let Some(on) = p.data {
+                    session.set_mobile_data(on).await?;
+                }
+                if let Some(speed) = p.speed {
+                    session.set_network_speed(speed).await?;
+                }
+                if changing {
+                    // Android takes a moment to report changes.
+                    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                }
+                text(session.network().await?.description)
             }
             .await,
         )

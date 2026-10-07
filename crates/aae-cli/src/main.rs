@@ -470,6 +470,15 @@ enum Command {
         #[arg(long)]
         charging: bool,
     },
+    /// The device's network: with nothing else, says how it is. Turn airplane
+    /// mode, Wi-Fi or mobile data on or off, or set the speed: full, lte,
+    /// 3g, slow-3g, edge or gprs. For example: aae network Pixel wifi off speed edge
+    Network {
+        device: String,
+        /// Pairs of setting and value: airplane on|off, wifi on|off,
+        /// data on|off, speed <name>.
+        settings: Vec<String>,
+    },
     /// Set the device's location.
     Location {
         device: String,
@@ -1933,6 +1942,42 @@ async fn run(cli: Cli) -> Result<()> {
             };
             controller.set_orientation(next).await?;
             println!("{}.", next.describe());
+            Ok(())
+        }
+        Command::Network { device, settings } => {
+            use aae_core::network;
+            let (_, _, adb) = ctx.connect(&device).await?;
+            let on = |value: &str| -> Result<bool> {
+                match value {
+                    "on" | "yes" | "true" => Ok(true),
+                    "off" | "no" | "false" => Ok(false),
+                    other => bail!("Use on or off, not {other}."),
+                }
+            };
+            for pair in settings.chunks(2) {
+                let [what, value] = pair else {
+                    bail!("{} needs a value, such as on or off.", pair[0]);
+                };
+                match what.as_str() {
+                    "airplane" => network::set_airplane(&adb, on(value)?).await?,
+                    "wifi" => network::set_wifi(&adb, on(value)?).await?,
+                    "data" => network::set_data(&adb, on(value)?).await?,
+                    "speed" => {
+                        let speed = network::Speed::parse(value).ok_or_else(|| {
+                            anyhow::anyhow!("Speeds are full, lte, 3g, slow-3g, edge and gprs.")
+                        })?;
+                        network::set_speed(&adb, speed).await?
+                    }
+                    other => {
+                        bail!("{other} isn't a network setting: use airplane, wifi, data or speed.")
+                    }
+                }
+            }
+            // Android takes a moment to report changes.
+            if !settings.is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            }
+            println!("{}", network::status(&adb).await?.describe());
             Ok(())
         }
         Command::Battery {

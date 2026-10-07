@@ -44,7 +44,7 @@ These open in windows of their own, which stay open beside AAE's main window. Ta
 - Apps (Control Alt P): open, stop, clear, uninstall, and change an app's permissions and special access.
 - Accessibility Services (Control Alt U): choose the screen reader, and turn other services on or off.
 - Snapshots (Control Alt S): save the device as it is, and go back to it later.
-- Battery, Location and Phone (Control Alt B): set the battery, set the location from a place, an address, or latitude and longitude, send a text message, and make or answer phone calls. Places and addresses are looked up on OpenStreetMap, which gets only the text you typed.
+- Battery, Location, Phone and Network (Control Alt B): set the battery, set the location from a place, an address, or latitude and longitude, send a text message, and make or answer phone calls. Places and addresses are looked up on OpenStreetMap, which gets only the text you typed.
 - Android Versions (Control Alt A, in the File menu): the installed Android versions, and updates for the emulator and tools.
 - Open Link (Control Shift L) and Send Intent, to test how apps answer them.
 - Watch for New Builds: installs each new build of an app on your devices as it's made.

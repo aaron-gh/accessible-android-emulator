@@ -149,7 +149,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 Item(SNAPSHOTS, "Snaps&hots", Some((ca, b'S' as u16))),
                 Item(
                     CONDITIONS,
-                    "Batter&y, Location and Phone",
+                    "Batter&y, Location, Phone and Network",
                     Some((ca, b'B' as u16)),
                 ),
                 SEPARATOR,

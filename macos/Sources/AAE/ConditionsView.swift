@@ -39,6 +39,36 @@ struct ConditionsView: View {
                 Text("Text Message").accessibilityAddTraits(.isHeader)
             }
             Section {
+                Toggle("Airplane mode", isOn: Binding(
+                    get: { model.network?.airplane ?? false },
+                    set: { model.setAirplaneMode($0) }
+                ))
+                Toggle("Wi-Fi", isOn: Binding(
+                    get: { model.network?.wifi ?? true },
+                    set: { model.setWifi($0) }
+                ))
+                Toggle("Mobile data", isOn: Binding(
+                    get: { model.network?.data ?? true },
+                    set: { model.setMobileData($0) }
+                ))
+                Picker("Speed", selection: Binding(
+                    get: { model.network?.speed ?? "" },
+                    set: { model.setNetworkSpeed($0) }
+                )) {
+                    if model.network?.speed == nil {
+                        Text("Set elsewhere").tag("")
+                    }
+                    ForEach(networkSpeeds(), id: \.name) { speed in
+                        Text(speed.description.prefix(1).uppercased() + speed.description.dropFirst()).tag(speed.name)
+                    }
+                }
+                Text(model.network?.description ?? "Start the device to change its network.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Network").accessibilityAddTraits(.isHeader)
+            }
+            Section {
                 TextField("Number", text: $number)
                 HStack {
                     Button("Call the Device") { model.phoneCall(.ring, number: number) }
@@ -60,7 +90,9 @@ struct ConditionsView: View {
         .formStyle(.grouped)
         .disabled(!(model.selected?.running ?? false))
         .frame(minWidth: 520, minHeight: 560)
-        .navigationTitle(model.selected.map { "Battery, Location and Phone: \($0.name)" } ?? "Battery, Location and Phone")
+        .navigationTitle(model.selected.map { "Battery, Location, Phone and Network: \($0.name)" } ?? "Battery, Location, Phone and Network")
+        .onAppear { model.loadNetwork() }
+        .onChange(of: model.selection) { _ in model.loadNetwork() }
     }
 }
 
@@ -69,7 +101,7 @@ struct ConditionsMenuItem: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Battery, Location and Phone") { openWindow(id: "conditions") }
+        Button("Battery, Location, Phone and Network") { openWindow(id: "conditions") }
             .keyboardShortcut("b", modifiers: [.command, .option])
     }
 }
