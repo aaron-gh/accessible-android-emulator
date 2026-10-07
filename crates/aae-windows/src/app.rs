@@ -735,12 +735,18 @@ impl App {
 }
 
 /// Says something, with its tone, and shows it as the last message.
+/// Failures also go in AAE's log.
 pub fn announce(text: &str, tone: Tone) {
     if tone == Tone::Failure
         && let Some(engine) = engine()
     {
         engine.log_problem(text.to_string());
     }
+    announce_unlogged(text, tone);
+}
+
+/// As `announce`, for an expected failure, such as the end of the screen.
+pub fn announce_unlogged(text: &str, tone: Tone) {
     with(|app| {
         app.status = text.to_string();
         app.render();
@@ -2008,14 +2014,12 @@ async fn move_to_item(next: bool, session: Arc<Session>) -> Result<(), AaeError>
     };
     if index < 0 || index as usize >= targets.len() {
         drop(touch);
-        say(
-            if next {
-                "End of the screen."
-            } else {
-                "Start of the screen."
-            },
-            Tone::Failure,
-        );
+        let edge = if next {
+            "End of the screen."
+        } else {
+            "Start of the screen."
+        };
+        run_on_ui(move || announce_unlogged(edge, Tone::Failure));
         return Ok(());
     }
     let target = targets[index as usize].clone();

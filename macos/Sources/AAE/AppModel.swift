@@ -224,8 +224,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func announce(_ text: String, tone: Tone = .info) {
-        if tone == .failure {
+    /// `log`: failures go in AAE's log unless they're expected, such as the
+    /// end of the screen.
+    func announce(_ text: String, tone: Tone = .info, log: Bool = true) {
+        if tone == .failure && log {
             engine?.logProblem(message: text)
         }
         status = text
@@ -1195,7 +1197,7 @@ final class AppModel: ObservableObject {
             index = next ? 0 : targets.count - 1
         }
         guard targets.indices.contains(index) else {
-            announce(next ? "End of the screen." : "Start of the screen.", tone: .failure)
+            announce(next ? "End of the screen." : "Start of the screen.", tone: .failure, log: false)
             return
         }
         let target = targets[index]
