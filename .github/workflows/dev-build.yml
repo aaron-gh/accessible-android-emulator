@@ -1,7 +1,8 @@
-# Builds AAE for Windows from every push to master and publishes it as the
-# "dev" prerelease, replacing the last one, so it can be tried before a
-# stable release. The download link stays the same:
+# Builds AAE for Windows and the Mac from every push to master and publishes
+# them as the "dev" prerelease, replacing the last one, so they can be tried
+# before a stable release. The download links stay the same:
 # https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64.zip
+# https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev.dmg
 name: Development build
 
 on:
@@ -74,24 +75,127 @@ jobs:
           # Only apps signed with AAE's key go out.
           grep -qx aae android/espeak/build/signed-with
 
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: windows/dist/AAE-dev-windows-x64.zip
+          if-no-files-found: error
+
+  mac:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          # The build number is the number of commits, which Sparkle compares,
+          # so it needs the whole history.
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mac
+
+      - name: Find eSpeak NG's version
+        id: espeak
+        run: echo "commit=$(git -C android/third_party/espeak-ng rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: android/espeak/build
+          key: espeak-${{ steps.espeak.outputs.commit }}-${{ hashFiles('android/espeak/aae.init.gradle', 'android/build-espeak.sh') }}
+
+      - name: Set up AAE's Android signing key
+        env:
+          KEYSTORE: ${{ secrets.AAE_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/aae.keystore"
+          echo "AAE_ANDROID_KEYSTORE=$RUNNER_TEMP/aae.keystore" >> "$GITHUB_ENV"
+
+      # The same "AAE Code Signing" certificate as Aaron's own builds, so
+      # macOS keeps AAE's permissions when a dev build replaces a stable one.
+      - name: Set up AAE's code signing certificate
+        env:
+          P12: ${{ secrets.AAE_CODESIGN_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.AAE_CODESIGN_P12_PASSWORD }}
+        run: |
+          if [[ -z "$P12" ]]; then
+            echo "The AAE_CODESIGN_P12_BASE64 secret is missing, so the app can't be signed." >&2
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/aae-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/aae.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/aae.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/aae.p12"
+
+      - name: Build
+        env:
+          AAE_ANDROID_KEY_PASSWORD: ${{ secrets.AAE_ANDROID_KEY_PASSWORD }}
+          AAE_SIGN_IDENTITY: AAE Code Signing
+        run: |
+          BASE=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          export AAE_VERSION="$BASE-dev.${GITHUB_RUN_NUMBER}"
+          macos/build.sh
+          grep -qx aae android/espeak/build/signed-with
+          # Signed with AAE's certificate, not just for this machine.
+          codesign --verify --deep macos/build/AAE.app
+          codesign -dvv macos/build/AAE.app 2>&1 | grep -qx "Authority=AAE Code Signing"
+          codesign -d -r- macos/build/AAE.app
+          macos/dmg.sh macos/build/AAE.app macos/dist/AAE-dev.dmg "AAE $AAE_VERSION"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mac
+          path: macos/dist/AAE-dev.dmg
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
       - name: Publish the dev prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           SHORT=${GITHUB_SHA::7}
           SUBJECT=$(git log -1 --format=%s)
+          BASE=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           cat > "$RUNNER_TEMP/notes.md" <<NOTES
-          A development build of AAE for Windows, made from the latest change on master. It's for testing, before a stable release, and is replaced by each new change.
+          Development build ${GITHUB_RUN_NUMBER} of AAE, made from the latest change on master. It's for testing, before a stable release, and is replaced by each new change.
 
           Built from [$SHORT](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}): $SUBJECT
 
-          Download AAE-dev-windows-x64.zip below, unzip it and run AccessibleAndroidEmulator.exe. README.txt in the zip explains what's needed and how it works. Help, About AAE, says which build you have; please include that, or a diagnostic report, when reporting a problem.
+          Help, About AAE, says which build you have; please include that, or a diagnostic report, when reporting a problem.
 
-          In PowerShell, this fetches and unzips the latest one into your Downloads folder:
+          ### Windows
+
+          Download AAE-dev-windows-x64.zip below, unzip it and run AccessibleAndroidEmulator.exe. README.txt in the zip explains what's needed and how it works. In PowerShell, this fetches and unzips the latest one into your Downloads folder:
 
           \`\`\`
           irm https://github.com/${GITHUB_REPOSITORY}/releases/download/dev/AAE-dev-windows-x64.zip -OutFile ~/Downloads/AAE-dev.zip; Expand-Archive ~/Downloads/AAE-dev.zip ~/Downloads -Force
           \`\`\`
+
+          ### Mac
+
+          Download AAE-dev.dmg below, open it, and drag AAE to Applications, replacing the AAE you have. It's version $BASE-dev.${GITHUB_RUN_NUMBER}. It's signed like stable releases, so AAE keeps its permissions. Check for Updates doesn't offer development builds; it offers the next stable release when there is one. The first time, macOS may say it can't check AAE: go to System Settings, Privacy & Security, and choose Open Anyway.
           NOTES
           git tag -f dev "$GITHUB_SHA"
           git push -f origin refs/tags/dev
@@ -100,4 +204,4 @@ jobs:
           else
             gh release create dev --prerelease --latest=false --title "Development build ($SHORT)" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
           fi
-          gh release upload dev windows/dist/AAE-dev-windows-x64.zip --clobber
+          gh release upload dev dist/AAE-dev-windows-x64.zip dist/AAE-dev.dmg --clobber

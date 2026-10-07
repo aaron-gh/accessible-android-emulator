@@ -38,12 +38,7 @@ fi
 echo "Making the disk image."
 DIST="$ROOT/macos/dist"
 DMG="$DIST/AAE-$VERSION.dmg"
-STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
-cp -R "$APP" "$STAGE/"
-ln -s /Applications "$STAGE/Applications"
-mkdir -p "$DIST"
-hdiutil create -quiet -volname "AAE $VERSION" -srcfolder "$STAGE" -format UDZO -ov "$DMG"
+macos/dmg.sh "$APP" "$DMG" "AAE $VERSION"
 if [[ "${AAE_SIGN_IDENTITY:-}" == "Developer ID Application"* ]]; then
     codesign --force --sign "$AAE_SIGN_IDENTITY" --timestamp "$DMG"
 fi

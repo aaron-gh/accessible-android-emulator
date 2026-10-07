@@ -96,7 +96,10 @@ The Windows app is in `crates/aae-windows`. It's written in Rust with Windows' o
 - Gesture mode (Control-Shift-G) has the same keys as on the Mac.
 - Still to come: the testing tools' windows, Apps, Accessibility Services, Snapshots, Battery, Location and Phone, Android Versions, watching for builds, own windows for devices, and updates. The `aae` command does all of these meanwhile; it comes with the Windows app.
 - Windows needs Windows Hypervisor Platform turned on for the emulator; the self-test says whether the emulator can use it.
-- Development builds: every change to `master` is built for Windows and published as the [dev prerelease](https://github.com/aaron-gh/accessible-android-emulator/releases/tag/dev), replacing the one before, so it can be tried before a stable release. The latest is always at [AAE-dev-windows-x64.zip](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64.zip). Help, About AAE, says which build you have.
+
+## Development builds
+
+Every change to `master` is built for Windows and the Mac and published as the [dev prerelease](https://github.com/aaron-gh/accessible-android-emulator/releases/tag/dev), replacing the one before, so it can be tried before a stable release. The latest are always at [AAE-dev-windows-x64.zip](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64.zip) and [AAE-dev.dmg](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev.dmg). Help, About AAE, says which build you have. The Mac app's Check for Updates doesn't offer development builds; from one, it offers the next stable release.
 
 ## Building
 
