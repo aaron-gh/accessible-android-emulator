@@ -50,6 +50,8 @@ pub const INSPECTOR: u16 = 273;
 pub const APPS: u16 = 274;
 pub const SERVICES: u16 = 275;
 pub const SNAPSHOTS: u16 = 276;
+pub const ANDROID_VERSIONS: u16 = 105;
+pub const WATCH_BUILDS: u16 = 243;
 
 pub const CHECK_UPDATES: u16 = 303;
 pub const SELF_TEST: u16 = 300;
@@ -74,6 +76,11 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
             "&File",
             vec![
                 Item(NEW_DEVICE, "&New Device…", Some((c, b'N' as u16))),
+                Item(
+                    ANDROID_VERSIONS,
+                    "&Android Versions",
+                    Some((ca, b'A' as u16)),
+                ),
                 Item(UPDATE_TOOLS, "&Update Android Tools…", None),
                 Item(SETTINGS, "&Settings…", Some((c, VK_OEM_COMMA.0))),
                 SEPARATOR,
@@ -143,6 +150,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 ),
                 SEPARATOR,
                 Item(INSTALL_APP, "&Install App…", Some((c, b'I' as u16))),
+                Item(WATCH_BUILDS, "Watch for New B&uilds…", None),
                 Item(
                     INSTALL_SCREEN_READER,
                     "Install Screen Reader &Build…",

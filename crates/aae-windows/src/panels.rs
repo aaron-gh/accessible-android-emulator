@@ -112,6 +112,15 @@ pub fn open_window(kind: &'static str) -> Option<HWND> {
     unsafe { IsWindow(Some(hwnd)) }.as_bool().then_some(hwnd)
 }
 
+/// Lays a window out again, as when a sentence in it has changed length.
+pub fn relayout(hwnd: HWND) {
+    if let Some(state) = PANELS.with(|p| p.borrow().get(&(hwnd.0 as isize)).cloned())
+        && let Ok(state) = state.try_borrow()
+    {
+        layout(&state.panel);
+    }
+}
+
 /// Presses a button in a kind's open window, if it's open, such as Refresh
 /// once something has changed.
 pub fn press(kind: &'static str, id: u16) {
@@ -368,12 +377,6 @@ impl Panel {
     pub fn every(&self, ms: u32) {
         unsafe {
             SetTimer(Some(self.hwnd), TIMER, ms, None);
-        }
-    }
-
-    pub fn close(&self) {
-        unsafe {
-            let _ = PostMessageW(Some(self.hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
         }
     }
 }

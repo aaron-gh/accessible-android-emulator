@@ -220,7 +220,7 @@ pub struct App {
     hwnd: HWND,
     c: Controls,
     startup_error: Option<String>,
-    devices: Vec<DeviceInfo>,
+    pub(crate) devices: Vec<DeviceInfo>,
     selection: Option<String>,
     busy: HashMap<String, String>,
     status: String,
@@ -372,7 +372,7 @@ impl App {
             .find(|d| Some(&d.id) == self.selection.as_ref())
     }
 
-    fn device_name(&self, id: &str) -> String {
+    pub(crate) fn device_name(&self, id: &str) -> String {
         self.devices
             .iter()
             .find(|d| d.id == id)
@@ -770,6 +770,8 @@ pub fn command(id: u16, notification: u32) {
         APPS => crate::tools::apps::show(),
         SERVICES => crate::tools::services::show(),
         SNAPSHOTS => crate::tools::snapshots::show(),
+        ANDROID_VERSIONS => crate::tools::versions::show(),
+        WATCH_BUILDS => crate::tools::watch::watch_for_builds(),
         RENAME => rename(),
         COPY_DEVICE => copy_device(),
         WIPE => wipe(),
@@ -910,7 +912,7 @@ async fn ask_licence(licence: LicenceInfo, what: String) -> bool {
 
 /// Downloads the missing tools (and with `update`, newer versions), asking
 /// for Google's licence first if needed.
-fn run_setup(update: bool) {
+pub(crate) fn run_setup(update: bool) {
     let Some(engine) = engine() else { return };
     let busy = with(|app| std::mem::replace(&mut app.setting_up, true));
     if busy {
@@ -2215,7 +2217,7 @@ pub(crate) fn file_name(path: &str) -> String {
 /// Installs apps on devices, one at a time. An app's parts are asked about
 /// once, on the first device that hasn't an answer, and the same answers are
 /// used on the others.
-fn install(paths: Vec<String>, ids: Vec<String>) {
+pub(crate) fn install(paths: Vec<String>, ids: Vec<String>) {
     let names: HashMap<String, String> = with(|app| {
         ids.iter()
             .map(|id| (id.clone(), app.device_name(id)))

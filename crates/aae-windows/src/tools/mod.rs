@@ -10,6 +10,8 @@ pub mod services;
 pub mod shell;
 pub mod snapshots;
 pub mod speech_log;
+pub mod versions;
+pub mod watch;
 
 use windows::Win32::Foundation::HWND;
 

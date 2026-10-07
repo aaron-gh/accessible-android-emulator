@@ -490,6 +490,31 @@ pub fn open_files(owner: HWND, title: &str, filter: &[(&str, &str)], many: bool)
     }
 }
 
+/// Asks for a folder. Returns its path, or none if cancelled.
+pub fn choose_folder(owner: HWND, title: &str) -> Option<String> {
+    use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree};
+    use windows::Win32::UI::Shell::{
+        FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH,
+    };
+    unsafe {
+        let dialog: IFileOpenDialog =
+            CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+        let options = dialog.GetOptions().ok()?;
+        dialog.SetOptions(options | FOS_PICKFOLDERS).ok()?;
+        let title = wide(title);
+        let _ = dialog.SetTitle(PCWSTR(title.as_ptr()));
+        dialog.Show(Some(owner)).ok()?;
+        let path = dialog
+            .GetResult()
+            .ok()?
+            .GetDisplayName(SIGDN_FILESYSPATH)
+            .ok()?;
+        let text = path.to_string().ok();
+        CoTaskMemFree(Some(path.0 as *const _));
+        text
+    }
+}
+
 /// Asks where to save a file. Returns its path, or none if cancelled.
 pub fn save_file(
     owner: HWND,
