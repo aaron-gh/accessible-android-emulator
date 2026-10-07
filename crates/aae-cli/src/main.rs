@@ -328,10 +328,18 @@ enum Command {
         /// Print it as JSON, with every property.
         #[arg(long)]
         json: bool,
+        /// Print it as a web page, with the problems found and every
+        /// element's properties, for saving: aae inspect Pixel --html > screen.html
+        #[arg(long, conflicts_with_all = ["json", "follow"])]
+        html: bool,
         /// List only the things that can be touched, in the order gesture
         /// mode's Tab visits them, with their centres.
         #[arg(long)]
         targets: bool,
+        /// Keep following the screen: print it again each time it changes,
+        /// until stopped with Control-C.
+        #[arg(long)]
+        follow: bool,
     },
     /// Check the screen for common accessibility problems.
     Check { device: String },
@@ -1186,9 +1194,14 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Inspect {
             device,
             json,
+            html,
             targets,
+            follow,
         } => {
             let (device, _, adb) = ctx.connect(&device).await?;
+            if follow {
+                return follow_screen(&ctx, &device, &adb, json, targets).await;
+            }
             let tree =
                 with_helper(&ctx, &device, &adb, aae_core::inspector::read_tree(&adb)).await?;
             if targets {
@@ -1196,6 +1209,9 @@ async fn run(cli: Cli) -> Result<()> {
                     let (x, y) = target.centre();
                     println!("{} (at {x}, {y})", target.label);
                 }
+            } else if html {
+                let title = format!("{}: the screen's accessibility", device.meta.name);
+                print!("{}", aae_core::inspector::to_html(&tree, &title));
             } else if json {
                 println!("{}", serde_json::to_string_pretty(&tree)?);
             } else {
@@ -2952,4 +2968,59 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
     use std::io::Write;
     let _ = std::io::stdout().flush();
     std::process::exit(0);
+}
+
+/// Prints the screen, then again each time it changes and settles, until
+/// Control-C: AAE's helper counts the changes.
+async fn follow_screen(
+    ctx: &Ctx,
+    device: &aae_core::device::Device,
+    adb: &aae_core::adb::Adb,
+    json: bool,
+    targets: bool,
+) -> Result<()> {
+    use aae_core::inspector;
+    provision::update_helper(&ctx.sdk, adb).await?;
+    let show = |tree: &inspector::Tree| -> Result<String> {
+        Ok(if targets {
+            inspector::targets(tree)
+                .iter()
+                .map(|t| {
+                    let (x, y) = t.centre();
+                    format!("{} (at {x}, {y})\n", t.label)
+                })
+                .collect()
+        } else if json {
+            serde_json::to_string_pretty(tree)? + "\n"
+        } else {
+            inspector::to_text(tree)
+        })
+    };
+    let mut last = String::new();
+    let mut seen = None;
+    loop {
+        let changes = inspector::screen_changes(adb).await?.ok_or_else(|| {
+            anyhow::anyhow!(
+                "AAE's helper isn't running on the device, so it can't follow the screen."
+            )
+        })?;
+        let settled = changes.1 >= 500;
+        if seen != Some(changes.0) && settled {
+            seen = Some(changes.0);
+            let tree = with_helper(ctx, device, adb, inspector::read_tree(adb)).await?;
+            let text = show(&tree)?;
+            // Ignore changes that leave the printed tree the same, such as a clock.
+            if text != last {
+                if !last.is_empty() {
+                    println!("\nThe screen changed:");
+                }
+                print!("{text}");
+                last = text;
+            }
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
+            _ = tokio::signal::ctrl_c() => return Ok(()),
+        }
+    }
 }

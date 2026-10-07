@@ -659,6 +659,46 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Following the screen: the inspector reads it again whenever it
+    /// changes and has been still for half a second.
+    @Published private(set) var followingScreen = false
+    private var followTask: Task<Void, Never>?
+
+    func followScreen(_ on: Bool) {
+        followTask?.cancel()
+        followTask = nil
+        followingScreen = on
+        guard on, let device = selected, device.running else {
+            if on { announce("Start the device first.", tone: .failure) }
+            followingScreen = false
+            return
+        }
+        announce("Following the screen.")
+        followTask = Task { [weak self] in
+            var seen: UInt64?
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, let session = try? await self.session(for: device.id) else { continue }
+                guard let changes = try? await session.screenChanges() else {
+                    self.announce("This device's AAE helper can't follow the screen.", tone: .failure)
+                    self.followingScreen = false
+                    return
+                }
+                if seen == nil { seen = changes.count }
+                guard changes.count != seen, changes.quietMs >= 500, !self.inspecting else { continue }
+                seen = changes.count
+                guard let result = try? await session.inspect() else { continue }
+                // Announce only if the printed tree changed.
+                if result.text != self.inspection?.text {
+                    self.inspection = result
+                    self.inspectedDevice = device.name
+                    let problems = result.issues.isEmpty ? "no problems" : "\(result.issues.count) problems"
+                    self.announce("The screen changed: \(result.rows.count) elements, \(problems).")
+                }
+            }
+        }
+    }
+
     // MARK: - Speech log
 
     /// Shows the selected device's speech log, checking for new speech every

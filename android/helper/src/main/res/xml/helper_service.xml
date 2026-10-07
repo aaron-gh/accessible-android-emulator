@@ -6,9 +6,12 @@
        test runs, and otherwise passes every key straight on. (Turning
        filtering on only for the test, at run time, didn't work on Android 11.)
      - Reads the screen's accessibility tree, for AAE's accessibility inspector,
-       only when AAE asks. It reacts to no events and keeps nothing. -->
+       only when AAE asks.
+     - Counts changes to the screen, so the inspector can follow it: it keeps
+       only how many there have been and when the last was, nothing about
+       what changed. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeAnnouncement"
+    android:accessibilityEventTypes="typeAnnouncement|typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagEnableAccessibilityVolume|flagRequestFilterKeyEvents|flagRetrieveInteractiveWindows|flagReportViewIds"
     android:canRequestFilterKeyEvents="true"

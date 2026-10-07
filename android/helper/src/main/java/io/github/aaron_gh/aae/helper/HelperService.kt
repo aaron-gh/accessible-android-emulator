@@ -27,7 +27,20 @@ class HelperService : AccessibilityService() {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    /**
+     * Counts changes to the screen, so AAE's inspector can follow it. Only the
+     * count and the time of the last change are kept.
+     */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        when (event?.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                changes++
+                lastChange = android.os.SystemClock.uptimeMillis()
+            }
+        }
+    }
 
     override fun onInterrupt() = Unit
 
@@ -54,6 +67,11 @@ class HelperService : AccessibilityService() {
     private var keyTest = false
 
     companion object {
+        @Volatile var changes = 0L
+            private set
+        @Volatile var lastChange = 0L
+            private set
+
         /** The log tag AAE reads the keyboard test's results from. */
         const val KEY_TAG = "AaeKeys"
 

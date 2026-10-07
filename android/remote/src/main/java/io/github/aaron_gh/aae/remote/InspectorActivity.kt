@@ -15,6 +15,32 @@ class InspectorActivity : ToolActivity() {
     private lateinit var rows: ArrayAdapter<String>
     private var details = listOf<String>()
     private var text = ""
+    private lateinit var follow: android.widget.CheckBox
+    private var seen: Long? = null
+    private var asking = false
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    /** While following the screen, asks the device whether it changed. */
+    private val poll = object : Runnable {
+        override fun run() {
+            if (!follow.isChecked) return
+            main.postDelayed(this, 500)
+            if (asking) return
+            asking = true
+            call("tools.screen_changes", params(), failed = { asking = false }) { result ->
+                asking = false
+                val json = result as? JSONObject ?: run {
+                    follow.isChecked = false
+                    return@call ui.say("Stopped following the screen: the device's AAE helper can't follow it.")
+                }
+                val count = json.optLong("count")
+                if (seen == null) seen = count
+                if (count != seen && json.optLong("quiet_ms") >= 500) {
+                    seen = count
+                    inspect(quietly = true)
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,6 +51,18 @@ class InspectorActivity : ToolActivity() {
             details.getOrNull(index)?.let { ui.message("Details", it) }
         }.second
         ui.button("Refresh") { inspect() }
+        follow = android.widget.CheckBox(this).apply {
+            text = "Follow the screen"
+            setOnCheckedChangeListener { _, on ->
+                seen = null
+                main.removeCallbacks(poll)
+                if (on) {
+                    ui.say("Following the screen.")
+                    main.post(poll)
+                }
+            }
+            ui.column.addView(this)
+        }
         ui.button("Copy as Text") {
             getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Screen elements", text))
             ui.say("Copied the screen's elements as text.")
@@ -33,10 +71,22 @@ class InspectorActivity : ToolActivity() {
         inspect()
     }
 
-    private fun inspect() {
-        ui.say("Reading the screen.")
+    override fun onPause() {
+        main.removeCallbacks(poll)
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::follow.isInitialized && follow.isChecked) main.post(poll)
+    }
+
+    /** Reads the screen. [quietly], while following it, says so only if it changed. */
+    private fun inspect(quietly: Boolean = false) {
+        if (!quietly) ui.say("Reading the screen.")
         call("tools.inspect", params()) { result ->
             val json = result as JSONObject
+            if (quietly && json.optString("text") == text) return@call
             text = json.optString("text")
             val list = json.optJSONArray("rows")
             val depth = HashMap<Int, Int>()
@@ -64,7 +114,8 @@ class InspectorActivity : ToolActivity() {
             rows.addAll(shown)
             details = more
             val problems = issues?.length() ?: 0
-            ui.say("Read ${list?.length() ?: 0} elements, ${if (problems == 0) "no problems" else "$problems problems, listed after the elements"}.")
+            val what = "${list?.length() ?: 0} elements, ${if (problems == 0) "no problems" else "$problems problems, listed after the elements"}."
+            ui.say(if (quietly) "The screen changed: $what" else "Read $what")
         }
     }
 }

@@ -26,10 +26,12 @@ const VIEW: u16 = 1003;
 const TREE: u16 = 1004;
 const FLAT: u16 = 1005;
 const PROBLEMS: u16 = 1006;
+const FOLLOW: u16 = 1007;
 
 #[derive(Clone, Copy)]
 struct Controls {
     refresh: HWND,
+    follow: HWND,
     status: HWND,
     view: HWND,
     tree: HWND,
@@ -48,6 +50,10 @@ struct State {
     /// The elements in reading order: their row in the inspection, and
     /// their item in the tree.
     order: Vec<(usize, HTREEITEM)>,
+    /// Following the screen: the device, and the change count last seen.
+    following: Option<(String, Option<u64>)>,
+    /// Asking the device about changes, so ticks don't pile up.
+    asking: bool,
 }
 
 thread_local! {
@@ -70,8 +76,8 @@ pub fn show() {
     )[0];
     panel.shortcut(VK_F5.0, false, REFRESH);
     panel.shortcut(VK_R.0, true, REFRESH);
-    let status =
-        panel.text("Choose Refresh, or press F5, to read the screen of the selected device.");
+    let follow = panel.check("Follow the screen", FOLLOW, false);
+    let status = panel.text("Refresh (F5) reads the screen.");
     let view = panel.choice("View", VIEW, &["Tree".into(), "Flat list".into()], 0);
     let tree = panel.tree("Screen elements", TREE, 12, true);
     let flat = ui::list_box(panel.hwnd, FLAT);
@@ -82,6 +88,7 @@ pub fn show() {
     STATE.with(|s| {
         s.borrow_mut().window = Some(Controls {
             refresh,
+            follow,
             status,
             view,
             tree,
@@ -92,6 +99,7 @@ pub fn show() {
     });
     show_inspection();
     let inspected = STATE.with(|s| s.borrow().inspection.is_some());
+    panel.every(500);
     panel.show(Window, Some(if inspected { tree } else { refresh }));
     if !inspected {
         inspect();
@@ -306,8 +314,82 @@ impl Handler for Window {
                 show_details();
             }
             TREE | FLAT => show_details(),
+            FOLLOW => {
+                let device = app::selected().0.filter(|d| d.running);
+                let on = ui::checked(c.follow);
+                match (on, device) {
+                    (true, Some(device)) => {
+                        STATE.with(|s| s.borrow_mut().following = Some((device.id, None)));
+                        announce("Following the screen.", Tone::Info);
+                    }
+                    (true, None) => {
+                        ui::set_checked(c.follow, false);
+                        announce("Start the device first.", Tone::Failure);
+                    }
+                    (false, _) => STATE.with(|s| s.borrow_mut().following = None),
+                }
+            }
             _ => {}
         }
+    }
+
+    /// While following the screen, asks the device whether it changed.
+    fn tick(&mut self, _panel: &Panel) {
+        let Some((device, seen)) = STATE.with(|s| {
+            let s = s.borrow();
+            if s.asking || s.inspecting {
+                return None;
+            }
+            s.following.clone()
+        }) else {
+            return;
+        };
+        STATE.with(|s| s.borrow_mut().asking = true);
+        crate::app::spawn(async move {
+            let changes = async {
+                crate::app::session_for(device.clone())
+                    .await
+                    .ok()?
+                    .screen_changes()
+                    .await
+                    .ok()
+            }
+            .await;
+            run_on_ui(move || {
+                STATE.with(|s| s.borrow_mut().asking = false);
+                match changes {
+                    // Not running, or the helper can't say.
+                    None | Some(None) => {
+                        STATE.with(|s| s.borrow_mut().following = None);
+                        if let Some(c) = STATE.with(|s| s.borrow().window) {
+                            ui::set_checked(c.follow, false);
+                        }
+                        announce(
+                            "Stopped following the screen: the device's AAE helper can't follow it.",
+                            Tone::Failure,
+                        );
+                    }
+                    Some(Some(changes)) => {
+                        let first = seen.is_none();
+                        STATE.with(|s| {
+                            if let Some((_, count)) = s.borrow_mut().following.as_mut()
+                                && first
+                            {
+                                *count = Some(changes.count);
+                            }
+                        });
+                        if !first && seen != Some(changes.count) && changes.quiet_ms >= 500 {
+                            STATE.with(|s| {
+                                if let Some((_, count)) = s.borrow_mut().following.as_mut() {
+                                    *count = Some(changes.count);
+                                }
+                            });
+                            reinspect(device);
+                        }
+                    }
+                }
+            });
+        });
     }
 
     fn closed(&mut self) {
@@ -315,11 +397,49 @@ impl Handler for Window {
             let mut s = s.borrow_mut();
             s.window = None;
             s.order.clear();
+            s.following = None;
         });
     }
 }
 
-/// Saves the inspection as JSON, with every property, or as text.
+/// Rereads the screen while following it; announces only if the printed
+/// tree changed.
+fn reinspect(device: String) {
+    let name = app::selected().0.map(|d| d.name);
+    STATE.with(|s| s.borrow_mut().inspecting = true);
+    crate::app::spawn(async move {
+        let result = async { crate::app::session_for(device).await?.inspect().await }.await;
+        run_on_ui(move || {
+            STATE.with(|s| s.borrow_mut().inspecting = false);
+            let Ok(inspection) = result else { return };
+            let changed = STATE.with(|s| {
+                s.borrow().inspection.as_ref().map(|i| &i.text) != Some(&inspection.text)
+            });
+            if !changed {
+                return;
+            }
+            let problems = match inspection.issues.len() {
+                0 => "no problems".to_string(),
+                1 => "1 problem".to_string(),
+                n => format!("{n} problems"),
+            };
+            let said = format!(
+                "The screen changed: {} elements, {problems}.",
+                inspection.rows.len()
+            );
+            STATE.with(|s| {
+                let mut s = s.borrow_mut();
+                s.inspection = Some(inspection);
+                s.device = name;
+            });
+            show_inspection();
+            announce(&said, Tone::Info);
+        });
+    });
+}
+
+/// Saves the inspection as a web page, as JSON, with every property, or as
+/// text.
 fn save(owner: HWND) {
     let Some((inspection, device)) = STATE.with(|s| {
         let s = s.borrow();
@@ -329,19 +449,26 @@ fn save(owner: HWND) {
         return;
     };
     let name = format!(
-        "{} accessibility.json",
+        "{} accessibility.html",
         device.as_deref().unwrap_or("screen")
     );
     let Some(path) = ui::save_file(
         owner,
-        "Save as JSON, with every property, or as text",
+        "Save as a web page, as JSON, with every property, or as text",
         &name,
-        &[("JSON, with every property", "*.json"), ("Text", "*.txt")],
-        "json",
+        &[
+            ("Web page, with the problems found", "*.html"),
+            ("JSON, with every property", "*.json"),
+            ("Text", "*.txt"),
+        ],
+        "html",
     ) else {
         return;
     };
-    let contents = if path.to_lowercase().ends_with(".json") {
+    let lower = path.to_lowercase();
+    let contents = if lower.ends_with(".html") || lower.ends_with(".htm") {
+        inspection.html
+    } else if lower.ends_with(".json") {
         inspection.json
     } else {
         inspection.text.replace('\n', "\r\n")

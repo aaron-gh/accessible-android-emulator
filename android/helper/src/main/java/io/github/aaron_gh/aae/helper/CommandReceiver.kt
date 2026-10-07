@@ -90,6 +90,16 @@ class CommandReceiver : BroadcastReceiver() {
                     pending.finish()
                 }.start()
             }
+            ACTION_SCREEN_CHANGES -> {
+                // How many times the screen has changed, and how long it's
+                // been still, in milliseconds, for the inspector to follow it.
+                if (HelperService.instance == null) {
+                    setResult(0, null, null)
+                } else {
+                    val quiet = android.os.SystemClock.uptimeMillis() - HelperService.lastChange
+                    setResult(1, "${HelperService.changes} $quiet", null)
+                }
+            }
             ACTION_DUMP_TREE -> {
                 val service = HelperService.instance
                 if (service == null) {
@@ -131,6 +141,7 @@ class CommandReceiver : BroadcastReceiver() {
         const val ACTION_CHECK_SPEECH = "io.github.aaron_gh.aae.helper.CHECK_SPEECH"
         const val ACTION_PLAY_TONE = "io.github.aaron_gh.aae.helper.PLAY_TONE"
         const val ACTION_DUMP_TREE = "io.github.aaron_gh.aae.helper.DUMP_TREE"
+        const val ACTION_SCREEN_CHANGES = "io.github.aaron_gh.aae.helper.SCREEN_CHANGES"
         const val ACTION_MIC_LEVEL = "io.github.aaron_gh.aae.helper.MIC_LEVEL"
         const val ACTION_SPEECH_RELAY = "io.github.aaron_gh.aae.helper.SPEECH_RELAY"
         const val ACTION_SPEECH_LOG = "io.github.aaron_gh.aae.helper.SPEECH_LOG"

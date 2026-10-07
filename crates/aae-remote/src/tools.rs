@@ -377,6 +377,11 @@ pub async fn call(
                 Value::Null
             }
 
+            "tools.screen_changes" => match session.screen_changes().await? {
+                Some(c) => json!({"count": c.count, "quiet_ms": c.quiet_ms}),
+                None => Value::Null,
+            },
+
             // The network.
             "tools.network" => network(&session.network().await?),
             "tools.microphone.stop" => json!(session.stop_playing_into_microphone()),

@@ -11,6 +11,28 @@ use crate::error::{Error, Result};
 
 const HELPER_RECEIVER: &str = "io.github.aaron_gh.aae.helper/.CommandReceiver";
 const DUMP_TREE: &str = "io.github.aaron_gh.aae.helper.DUMP_TREE";
+const SCREEN_CHANGES: &str = "io.github.aaron_gh.aae.helper.SCREEN_CHANGES";
+
+/// How many times the screen has changed since AAE's helper started, and
+/// how long it's been still, in milliseconds, for following the screen.
+/// None if the helper isn't running, or is too old to count.
+pub async fn screen_changes(adb: &Adb) -> Result<Option<(u64, u64)>> {
+    let out = adb
+        .shell(&format!(
+            "am broadcast -n {HELPER_RECEIVER} -a {SCREEN_CHANGES}"
+        ))
+        .await?;
+    if !out.contains("result=1") {
+        return Ok(None);
+    }
+    let data = out
+        .split_once("data=\"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map(|(data, _)| data)
+        .unwrap_or("");
+    let mut numbers = data.split_whitespace().filter_map(|n| n.parse().ok());
+    Ok(numbers.next().zip(numbers.next()))
+}
 /// The smallest touch target Android's accessibility guidelines recommend, in dp.
 const MIN_TOUCH_DP: f64 = 48.0;
 
@@ -430,6 +452,81 @@ pub fn to_text(tree: &Tree) -> String {
     out
 }
 
+/// The tree as a web page, for reading in a browser or attaching to a bug
+/// report: the problems found, then each window's elements as nested lists,
+/// each with its properties in a collapsed "Properties" section.
+pub fn to_html(tree: &Tree, title: &str) -> String {
+    fn escape(text: &str) -> String {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    }
+    fn walk(node: &Node, out: &mut String) {
+        out.push_str("<li>");
+        out.push_str(&escape(&node.summary()));
+        out.push_str("<details><summary>Properties</summary><ul>");
+        for line in node.details() {
+            out.push_str(&format!("<li>{}</li>", escape(&line)));
+        }
+        out.push_str("</ul></details>");
+        if !node.children.is_empty() {
+            out.push_str("<ul>");
+            for child in &node.children {
+                walk(child, out);
+            }
+            out.push_str("</ul>");
+        }
+        out.push_str("</li>\n");
+    }
+    let mut out = format!(
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
+         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+         <title>{title}</title>\n<style>\n\
+         :root {{ color-scheme: light dark; }}\n\
+         body {{ font: 16px/1.5 system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }}\n\
+         ul {{ padding-left: 1.5rem; }}\n\
+         details {{ display: inline; margin-left: 0.5rem; font-size: 0.9em; }}\n\
+         .error {{ font-weight: bold; }}\n\
+         </style>\n</head>\n<body>\n<h1>{title}</h1>\n",
+        title = escape(title)
+    );
+    let issues = check(tree);
+    out.push_str("<h2>Problems found</h2>\n");
+    if issues.is_empty() {
+        out.push_str("<p>None.</p>\n");
+    } else {
+        out.push_str("<ul>\n");
+        for issue in &issues {
+            let (class, kind) = match issue.severity {
+                Severity::Error => ("error", "Error"),
+                Severity::Warning => ("warning", "Warning"),
+            };
+            out.push_str(&format!(
+                "<li class=\"{class}\">{kind}: {}: {}{}</li>\n",
+                escape(&issue.message),
+                escape(&issue.element),
+                issue
+                    .id
+                    .as_ref()
+                    .map(|id| format!(" (resource ID {})", escape(id)))
+                    .unwrap_or_default()
+            ));
+        }
+        out.push_str("</ul>\n");
+    }
+    for window in &tree.windows {
+        out.push_str(&format!("<h2>{}</h2>\n<ul>\n", escape(&window.describe())));
+        walk(&window.root, &mut out);
+        out.push_str("</ul>\n");
+    }
+    if tree.truncated {
+        out.push_str("<p>The screen has more elements than shown.</p>\n");
+    }
+    out.push_str("</body>\n</html>\n");
+    out
+}
+
 /// How serious an accessibility issue is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum Severity {
@@ -540,6 +637,33 @@ fn check_node(node: &Node, density: f64, screen: [i32; 4], issues: &mut Vec<Issu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_web_page_escapes_what_apps_put_on_screen() {
+        let tree = Tree {
+            density: 2.625,
+            api: 36,
+            truncated: false,
+            windows: vec![Window {
+                kind: "application".into(),
+                title: Some("Shop & <Save>".into()),
+                active: true,
+                focused: true,
+                root: Node {
+                    class: Some("android.widget.Button".into()),
+                    text: Some("<script>alert(1)</script>".into()),
+                    bounds: [0, 0, 200, 100],
+                    flags: vec!["clickable".into()],
+                    ..Default::default()
+                },
+            }],
+        };
+        let html = to_html(&tree, "Pixel: the screen's accessibility");
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("Shop &amp; &lt;Save&gt;"));
+        assert!(html.contains("<h2>Problems found</h2>"));
+    }
 
     fn tree(json: &str) -> Tree {
         serde_json::from_str(json).unwrap()

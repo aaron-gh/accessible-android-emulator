@@ -88,11 +88,12 @@ The same window sets the battery's level, charging and health (good, failed, dea
 
 The inspector, checks and speech log were checked on Android 8, 11, 14 and 16.
 
-- Accessibility Inspector (`aae inspect`): the screen's accessibility tree, each element described the way a screen reader says it, with every property in its details. View it as a tree or a flat list, copy it as text, or save it as text or JSON.
-- Accessibility checks (in the inspector, `aae check`): unlabelled controls, images without descriptions, small touch targets and duplicate labels on the current screen.
-- Speech Log (`aae speech-log`): what the screen reader said, with times. While recording, speech goes through AAE's helper on its way to the real speech engine, which adds about 10 milliseconds. Turning recording on or off restarts the screen reader.
-- Device Log (`aae logs`): the device's log, one line per row, filtered by app, tag, level and text. It can read out new errors as they happen, and it can be paused, copied and saved. `aae logs --follow` keeps showing new lines.
-- Shell (`aae shell`): runs a command on the device and shows everything it printed, with its exit status. Commands are stopped after two minutes.
+- Accessibility Inspector (`aae inspect`): the accessibility tree as a screen reader describes it, with all properties. Tree or list; copy as text; save as HTML, JSON or text (`--html`). Follow the screen (`--follow`) refreshes when the screen changes.
+- Accessibility checks (`aae check`): unlabelled controls, undescribed images, small touch targets, duplicate labels.
+- Speech Log (`aae speech-log`): screen reader utterances with times. Adds about 10 ms.
+- Device Log (`aae logs`): filter by app, tag, level and text; announce new errors; pause, copy, save. `--follow`.
+- Shell (`aae shell`): runs a command as the shell user. Two-minute limit.
+- Record Screen (`aae record`): screen and audio to WebM, up to three minutes.
 
 ## The Mac app
 

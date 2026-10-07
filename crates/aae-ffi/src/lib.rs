@@ -259,6 +259,8 @@ pub struct Inspection {
     pub text: String,
     /// The tree as JSON, with every property, for saving.
     pub json: String,
+    /// The tree and its problems as a web page, for saving.
+    pub html: String,
 }
 
 /// One thing the screen reader said.
@@ -456,6 +458,15 @@ pub struct SnapshotInfo {
     pub loaded: bool,
     /// False when this emulator won't restore it.
     pub compatible: bool,
+}
+
+/// Changes to the screen, for following it.
+#[derive(uniffi::Record, Clone, Copy)]
+pub struct ScreenChanges {
+    /// Counts up with every change.
+    pub count: u64,
+    /// How long the screen has been still, in milliseconds.
+    pub quiet_ms: u64,
 }
 
 /// The device's network.
@@ -1761,6 +1772,10 @@ impl Session {
                 issues,
                 text: inspector::to_text(&tree),
                 json: serde_json::to_string_pretty(&tree).unwrap_or_default(),
+                html: inspector::to_html(
+                    &tree,
+                    &format!("{}: the screen's accessibility", device.meta.name),
+                ),
             })
         })
         .await
@@ -2020,6 +2035,24 @@ impl Session {
     pub async fn type_text(&self, text: String) -> Result<(), AaeError> {
         let controller = self.controller.clone();
         on_runtime(async move { Ok(controller.type_text(&text).await?) }).await
+    }
+
+    /// How many times the screen has changed, and how long it's been still,
+    /// in milliseconds, for following it in the inspector. None if AAE's
+    /// helper can't say. Brings the helper up to date the first time.
+    pub async fn screen_changes(&self) -> Result<Option<ScreenChanges>, AaeError> {
+        let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
+        on_runtime(async move {
+            if let Some((count, quiet_ms)) = inspector::screen_changes(&adb).await? {
+                return Ok(Some(ScreenChanges { count, quiet_ms }));
+            }
+            // An older helper doesn't count: update it, and ask again.
+            provision::update_helper(&sdk, &adb).await?;
+            Ok(inspector::screen_changes(&adb)
+                .await?
+                .map(|(count, quiet_ms)| ScreenChanges { count, quiet_ms }))
+        })
+        .await
     }
 
     /// Whether the computer's microphone is playing into the device's.

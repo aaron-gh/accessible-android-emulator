@@ -12,8 +12,8 @@ android {
         minSdk = 21
         targetSdk = 36
         // Raise versionCode with every change: AAE updates devices whose helper is older.
-        versionCode = 20
-        versionName = "0.20.0"
+        versionCode = 21
+        versionName = "0.21.0"
     }
 
     // AAE's own key, so every build of AAE, here or on GitHub, signs its apps

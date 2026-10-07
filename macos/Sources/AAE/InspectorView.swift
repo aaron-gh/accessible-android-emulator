@@ -30,6 +30,10 @@ struct InspectorView: View {
                 Button("Refresh") { model.inspect() }
                     .keyboardShortcut("r")
                     .disabled(model.inspecting)
+                Toggle("Follow the screen", isOn: Binding(
+                    get: { model.followingScreen },
+                    set: { model.followScreen($0) }
+                ))
                 Button("Copy as Text") { copyText() }
                     .disabled(model.inspection == nil)
                 Button("Save…") { save() }
@@ -85,7 +89,7 @@ struct InspectorView: View {
                     .frame(minHeight: 100)
                 }
             } else if !model.inspecting {
-                Text("Choose Refresh, or press Command-R, to read the screen of the selected device.")
+                Text("Refresh (Command-R) reads the screen.")
             }
         }
         .padding()
@@ -93,6 +97,7 @@ struct InspectorView: View {
         .onAppear {
             if model.inspection == nil { model.inspect() }
         }
+        .onDisappear { model.followScreen(false) }
     }
 
     private func buildTree(_ rows: [InspectorRow]) -> [InspectorItem] {
@@ -131,11 +136,17 @@ struct InspectorView: View {
     private func save() {
         guard let inspection = model.inspection else { return }
         let panel = NSSavePanel()
-        panel.message = "Save as JSON, with every property, or as text."
-        panel.nameFieldStringValue = "\(model.inspectedDevice ?? "screen") accessibility.json"
-        panel.allowedContentTypes = [.json, .plainText]
+        panel.message = "Save as a web page, with the problems found; as JSON, with every property; or as text. The name's ending chooses."
+        panel.nameFieldStringValue = "\(model.inspectedDevice ?? "screen") accessibility.html"
+        panel.allowedContentTypes = [.html, .json, .plainText]
+        panel.allowsOtherFileTypes = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let contents = url.pathExtension.lowercased() == "json" ? inspection.json : inspection.text
+        let contents: String
+        switch url.pathExtension.lowercased() {
+        case "html", "htm": contents = inspection.html
+        case "json": contents = inspection.json
+        default: contents = inspection.text
+        }
         do {
             try contents.write(to: url, atomically: true, encoding: .utf8)
             model.announce("Saved \(url.lastPathComponent).", tone: .success)
