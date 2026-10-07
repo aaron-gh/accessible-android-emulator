@@ -1,7 +1,7 @@
 {
-  "version": "0.4.0",
-  "build": 86,
-  "url": "https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.4.0/AAE-Remote-0.4.0.apk",
-  "sha256": "d080cd586ec8e76db1178129e1f3f4d7f512884c65ab9c7d9e6ec2cd0206e03e",
-  "notes": "The first release of AAE Remote: use the devices on your Mac or PC from your phone."
+  "version": "0.5.0",
+  "build": 106,
+  "url": "https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.5.0/AAE-Remote-0.5.0.apk",
+  "sha256": "f950446cdb4882f18793af719ff1a7a4d2f213be549aeaf4e606c85b6eb5f346",
+  "notes": "Speech bridge to the phone's text-to-speech, phone microphone into the device, Display and Language, network controls and GPX routes."
 }

@@ -5,6 +5,24 @@
         <description>Updates for AAE, the Accessible Android Emulator.</description>
         <language>en</language>
         <item>
+            <title>Version 0.5.0</title>
+            <pubDate>Wed, 07 Oct 2026 22:14:21 -0000</pubDate>
+            <sparkle:version>106</sparkle:version>
+            <sparkle:shortVersionString>0.5.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<ul>
+<li>Speech bridge: the device's screen reader speech goes to the host's text-to-speech instead of as audio. Mac: VoiceOver's or Spoken Content's voice and rate. Windows: NVDA 2024.1 or later, otherwise SAPI 5. AAE Remote: the phone's text-to-speech.</li>
+<li>Microphone: the computer's or phone's microphone into the device while an app records, a microphone check, and Play Audio File into Microphone.</li>
+<li>Display and Language: language, font and display size, dark theme, bold and high contrast text, colour inversion and correction, animations, captions, and settings for new devices.</li>
+<li>Network controls, battery health, fingerprint touches, shake, GPX routes, and Power, Assistant and volume buttons.</li>
+<li>Record Screen, with audio. Accessibility Inspector follows the screen and saves as HTML.</li>
+<li>Hardware settings, device export and import, audio output per device, and a choice of return-to-host shortcut.</li>
+<li>Apps reconnect to a device restarted by another AAE process. Turning the speech log on or off no longer restarts the screen reader.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.5.0/AAE-0.5.0.dmg" sparkle:edSignature="VBLk2W9Qe7l3IhA5avIc1HUOczl4S+ysQhw3Q/7Gf6rMjQWI5HwLNhG9+TrIxmSZ+OBhYEU1G+d9XQiT3IqfBg==" length="35838544" type="application/octet-stream" />
+        </item>
+        <item>
             <title>Version 0.4.0</title>
             <pubDate>Wed, 07 Oct 2026 12:24:50 -0000</pubDate>
             <sparkle:version>86</sparkle:version>
