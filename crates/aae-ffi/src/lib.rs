@@ -684,10 +684,7 @@ impl Engine {
                 )
                 .try_init();
         }
-        tracing::info!(
-            "the {} app started",
-            if cfg!(windows) { "Windows" } else { "Mac" }
-        );
+        tracing::info!("AAE's core started");
         Ok(Arc::new(Engine {
             sdk: Sdk::locate_or_new(),
             store: DeviceStore::open_default()?,

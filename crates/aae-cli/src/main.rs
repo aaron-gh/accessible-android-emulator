@@ -38,6 +38,15 @@ struct Cli {
 enum Command {
     /// Check the Android SDK, emulator and audio, and say what is missing.
     Doctor,
+    /// Run AAE's MCP server, so AI agents can run, use and inspect devices.
+    /// It talks MCP over standard input and output: add it to an agent as a
+    /// local server with the command `aae mcp`.
+    Mcp {
+        /// Also offer tools that delete devices, apps or data, or run shell
+        /// commands on a device.
+        #[arg(long)]
+        allow_destructive: bool,
+    },
     /// Check everything AAE needs: this computer's virtualisation and sound,
     /// the SDK, AAE's own parts, and each running device's screen reader
     /// and speech. Makes no sound.
@@ -672,6 +681,9 @@ async fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new()?;
     match cli.command {
         Command::Doctor => doctor(&ctx),
+        Command::Mcp { allow_destructive } => {
+            aae_mcp::serve(aae_mcp::Options { allow_destructive }).await
+        }
         Command::SelfTest => {
             use aae_core::diagnostics::Outcome;
             let checks = aae_core::diagnostics::self_test(&ctx.sdk, &ctx.store).await;

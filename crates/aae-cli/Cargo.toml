@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 aae-core.workspace = true
+aae-mcp = { path = "../aae-mcp" }
 anyhow.workspace = true
 tokio.workspace = true
 clap.workspace = true
