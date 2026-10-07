@@ -24,11 +24,11 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
@@ -48,7 +48,7 @@ jobs:
       - name: Find eSpeak NG's version
         id: espeak
         run: echo "commit=$(git -C android/third_party/espeak-ng rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: android/espeak/build
           key: espeak-${{ steps.espeak.outputs.commit }}-${{ hashFiles('android/espeak/aae.init.gradle', 'android/build-espeak.sh') }}
