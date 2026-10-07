@@ -137,7 +137,9 @@ pub async fn wait_until_ready(
 
     loop {
         if !is_alive(info.pid) {
-            return Err(Error::EmulatorExited(log_tail(&info.log, 15)));
+            return Err(Error::EmulatorExited(crate::diagnostics::redact(
+                &log_tail(&info.log, 15),
+            )));
         }
         if tokio::time::Instant::now() > deadline {
             return Err(Error::BootTimeout(timeout.as_secs(), info.log.clone()));

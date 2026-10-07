@@ -44,7 +44,9 @@ pub enum Error {
     #[error("No free port was found to run another device. Stop a device and try again.")]
     NoFreePorts,
 
-    #[error("The device did not finish starting within {0} seconds. The emulator log is at {1}.")]
+    #[error(
+        "The device did not finish starting within {0} seconds. To report it, save a diagnostic report, which has the emulator's log with your personal details taken out: Help, Save Diagnostic Report, or aae report. The full log is at {1}."
+    )]
     BootTimeout(u64, PathBuf),
 
     #[error("The emulator stopped while starting. The last lines of its log were:\n{0}")]

@@ -443,32 +443,61 @@ fn tail(path: &Path, lines: usize) -> String {
 }
 
 /// Takes personal details out: the home folder, which holds the account
-/// name, becomes `~`; the computer's names become `<computer>`; and the
-/// person's full name becomes `<name>`. Package names and the like are left
-/// alone, even when they contain the account name.
+/// name, becomes `~`; the account name in any other path to it, such as
+/// another drive's `Users` folder or Windows' short `JANEDO~1` form, becomes
+/// `<user>`; the computer's names become `<computer>`; and the person's full
+/// name becomes `<name>`. Package names and the like are left alone, even
+/// when they contain the account name.
 pub fn redact(text: &str) -> String {
+    let home = directories::BaseDirs::new().map(|d| d.home_dir().to_string_lossy().to_string());
+    redact_with(text, home.as_deref(), &personal_names())
+}
+
+fn redact_with(text: &str, home: Option<&str>, names: &[(String, &'static str)]) -> String {
     let mut text = text.to_string();
-    if let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()) {
-        let home = home
-            .to_string_lossy()
-            .trim_end_matches(['/', '\\'])
-            .to_string();
-        if !home.is_empty() {
-            text = text.replace(&home, "~");
-            // Windows paths also turn up with forward slashes, and with
-            // doubled backslashes in JSON.
-            if home.contains('\\') {
-                text = text.replace(&home.replace('\\', "/"), "~");
-                text = text.replace(&home.replace('\\', "\\\\"), "~");
+    let home = home.map(|h| h.trim_end_matches(['/', '\\'])).unwrap_or("");
+    if !home.is_empty() {
+        // Windows paths also turn up with forward slashes, with doubled
+        // backslashes in JSON, and in any case, as do paths on a Mac's disk.
+        let mut forms = vec![home.to_string()];
+        if home.contains('\\') {
+            forms.push(home.replace('\\', "/"));
+            forms.push(home.replace('\\', "\\\\"));
+        }
+        for form in forms {
+            text = replace_ignoring_case(&text, &form, "~");
+        }
+        let account = home.rsplit(['/', '\\']).next().unwrap_or("");
+        if account.len() >= 3 {
+            for separator in ["\\", "/", "\\\\"] {
+                for users in ["Users", "home"] {
+                    let path = format!("{users}{separator}{account}");
+                    text =
+                        replace_ignoring_case(&text, &path, &format!("{users}{separator}<user>"));
+                }
+            }
+            if let Some(short) = short_name(account) {
+                text = replace_ignoring_case(&text, &short, "<user>");
             }
         }
     }
-    for (name, with) in personal_names() {
+    for (name, with) in names {
         if name.len() >= 3 {
-            text = replace_ignoring_case(&text, &name, with);
+            text = replace_ignoring_case(&text, name, with);
         }
     }
     text
+}
+
+/// The start of Windows' short 8.3 form of a long folder name, such as
+/// "JANEDO~" for "jane.doe.smith", which Windows tools sometimes print.
+fn short_name(account: &str) -> Option<String> {
+    let letters: String = account
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(6)
+        .collect();
+    (account.len() > 8 && letters.len() >= 3).then(|| format!("{letters}~"))
 }
 
 /// The computer's names and, on macOS, the person's full name.
@@ -523,6 +552,20 @@ fn replace_ignoring_case(text: &str, find: &str, with: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redacts_windows_paths_in_every_form() {
+        let log = "Found systemPath C:\\Users\\jane.doe.smith\\AppData\\Local\\aaron-gh\\AAE\\data\\sdk\n\
+                   Artifacts: \"C:\\\\Users\\\\jane.doe.smith\\\\AppData\\\\Local\\\\Temp\"\n\
+                   c:/users/JANE.DOE.SMITH/x and D:\\Users\\jane.doe.smith\\y\n\
+                   C:\\Users\\JANEDO~1\\AppData on DESKTOP-ABC123";
+        let names = vec![("DESKTOP-ABC123".to_string(), "<computer>")];
+        let out = redact_with(log, Some("C:\\Users\\jane.doe.smith"), &names);
+        assert!(!out.to_lowercase().contains("jane"), "{out}");
+        assert!(!out.contains("ABC123"), "{out}");
+        assert!(out.contains("~\\AppData\\Local\\aaron-gh"), "{out}");
+        assert!(out.contains("D:\\Users\\<user>\\y"), "{out}");
+    }
 
     #[test]
     fn redacts_names_in_any_case() {
