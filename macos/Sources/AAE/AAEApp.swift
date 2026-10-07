@@ -97,6 +97,7 @@ struct AAEApp: App {
                     .keyboardShortcut("p", modifiers: [.command, .shift])
                 RecordMenuItem(model: model)
                 Divider()
+                Button("Hardware…") { model.editHardware() }
                 Button("Rename…") { model.renaming = model.selected }
                     .keyboardShortcut("r")
                 Button("Copy…") { model.cloning = model.selected }

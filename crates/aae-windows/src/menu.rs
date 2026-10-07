@@ -46,6 +46,7 @@ pub const INSTALL_SCREEN_READER: u16 = 241;
 pub const SCREENSHOT: u16 = 242;
 pub const RECORD: u16 = 244;
 pub const RENAME: u16 = 250;
+pub const HARDWARE: u16 = 254;
 pub const COPY_DEVICE: u16 = 251;
 pub const WIPE: u16 = 252;
 pub const DELETE: u16 = 253;
@@ -186,6 +187,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 Item(SCREENSHOT, "Save Screens&hot…", Some((cs, b'P' as u16))),
                 Item(RECORD, RECORD_START, Some((ca, b'R' as u16))),
                 SEPARATOR,
+                Item(HARDWARE, "Hard&ware…", None),
                 Item(RENAME, "Rena&me…", Some((0, VK_F2.0))),
                 Item(COPY_DEVICE, "Cop&y…", Some((c, b'D' as u16))),
                 Item(WIPE, "&Wipe…", None),

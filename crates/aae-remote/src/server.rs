@@ -665,6 +665,34 @@ async fn call(
         "device.rename" => json::device(&engine.rename_device(id()?, param(params, "name")?)?),
         "device.copy" => json::device(&engine.clone_device(id()?, param(params, "name")?)?),
         "device.size" => json!(engine.device_size(id()?)?),
+        "device.hardware" => {
+            let h = engine.device_hardware(id()?)?;
+            json!({
+                "memory_mb": h.memory_mb, "cores": h.cores, "storage_mb": h.storage_mb,
+                "width": h.width, "height": h.height, "density": h.density,
+            })
+        }
+        "device.hardware.set" => {
+            let number = |key: &str| {
+                params[key]
+                    .as_u64()
+                    .map(|n| n as u32)
+                    .ok_or_else(|| AaeError::Failed {
+                        message: format!("The request needs \"{key}\"."),
+                    })
+            };
+            json!(engine.set_device_hardware(
+                id()?,
+                aae_ffi::HardwareInfo {
+                    memory_mb: number("memory_mb")?,
+                    cores: number("cores")?,
+                    storage_mb: number("storage_mb")?,
+                    width: number("width")?,
+                    height: number("height")?,
+                    density: number("density")?,
+                },
+            )?)
+        }
         "device.screen_reader" => match params["choice"].as_str() {
             Some("backtalk") => json!(
                 engine

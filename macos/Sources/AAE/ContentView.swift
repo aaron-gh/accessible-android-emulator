@@ -56,6 +56,9 @@ struct ContentView: View {
                 action: "Rename"
             ) { model.rename(device, to: $0) }
         }
+        .sheet(item: $model.editingHardware) { device in
+            HardwareView(device: device)
+        }
         .sheet(item: $model.cloning) { device in
             NamePrompt(
                 title: "Copy \(device.name)",

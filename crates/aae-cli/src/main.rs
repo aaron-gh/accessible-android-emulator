@@ -503,9 +503,17 @@ enum Command {
     },
     /// Shake the device, as for apps that act on a shake.
     Shake { device: String },
-    /// Move the device along a route from a GPX file, updating its location
-    /// once a second, at the pace of the file's times, or 30 km/h if it has
-    /// none. Control-C stops, leaving it where it got to.
+    /// A device's advanced hardware. With nothing else, says it; otherwise
+    /// changes it while the device is stopped, from its next start, such as:
+    /// aae hardware Pixel memory 4096 cores 6 storage 16G screen 1440x3120 density 560
+    Hardware {
+        device: String,
+        /// Pairs of setting and value: memory (megabytes), cores (or auto,
+        /// to suit this computer), storage (such as 16G or 8192M), screen
+        /// (width x height), density.
+        changes: Vec<String>,
+    },
+    /// Play a GPX route as the device's location until it ends or Control-C.
     Route {
         device: String,
         file: PathBuf,
@@ -2321,6 +2329,76 @@ async fn run(cli: Cli) -> Result<()> {
                 }
                 _ = tokio::signal::ctrl_c() => println!("Stopped the route."),
             }
+            Ok(())
+        }
+        Command::Hardware { device, changes } => {
+            use aae_core::hardware;
+            let mut device = ctx.device(&device)?;
+            let mut hw = hardware::read(&device)?;
+            if changes.is_empty() {
+                println!(
+                    "{}: {} megabytes of memory, {} processor cores, {} megabytes of storage, a {} by {} screen at {} dots per inch.",
+                    device.meta.name,
+                    hw.memory_mb,
+                    hw.cores,
+                    hw.storage_mb,
+                    hw.width,
+                    hw.height,
+                    hw.density
+                );
+                return Ok(());
+            }
+            if changes.len() % 2 != 0 {
+                bail!("Give each setting a value, such as: memory 4096 cores 6");
+            }
+            for pair in changes.chunks(2) {
+                let (name, value) = (pair[0].to_lowercase(), &pair[1]);
+                let number = || {
+                    value
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("{name} takes a number, not {value}."))
+                };
+                match name.as_str() {
+                    "memory" | "ram" => {
+                        hw.memory_mb = hardware::parse_size_mb(value)
+                            .filter(|_| value.chars().any(|c| c.is_alphabetic()))
+                            .map_or_else(number, Ok)?
+                    }
+                    "cores" | "cpus" if value.eq_ignore_ascii_case("auto") => {
+                        // AAE chooses, for the computer, again.
+                        device.meta.cores = None;
+                        device.save_meta()?;
+                        hw.cores = aae_core::setup::device_cores() as u32;
+                    }
+                    "cores" | "cpus" => hw.cores = number()?,
+                    "storage" | "disk" => {
+                        hw.storage_mb = if value.chars().any(|c| c.is_alphabetic()) {
+                            hardware::parse_size_mb(value).ok_or_else(|| {
+                                anyhow!("Storage is a size, such as 16G or 8192M.")
+                            })?
+                        } else {
+                            number()?
+                        }
+                    }
+                    "screen" | "size" => {
+                        let (w, h) = value
+                            .split_once(['x', 'X', '×'])
+                            .and_then(|(w, h)| {
+                                Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+                            })
+                            .ok_or_else(|| {
+                                anyhow!("The screen is width x height, such as 1080x2400.")
+                            })?;
+                        hw.width = w;
+                        hw.height = h;
+                    }
+                    "density" | "dpi" => hw.density = number()?,
+                    other => bail!(
+                        "\"{other}\" isn't hardware AAE changes. Use memory, cores, storage, screen or density."
+                    ),
+                }
+            }
+            println!("{}", hardware::write(&mut device, &hw)?);
             Ok(())
         }
         Command::Shake { device } => {

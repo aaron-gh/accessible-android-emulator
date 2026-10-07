@@ -104,6 +104,10 @@ pub struct DeviceMeta {
     /// None is full volume.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playback_volume: Option<f32>,
+    /// Processor cores chosen for this device. None lets AAE choose for the
+    /// computer, fewer on a small one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cores: Option<u32>,
     /// The computer's audio output this device plays through, by name. None
     /// is the default output, following the system's choice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -279,6 +283,7 @@ impl DeviceStore {
             playback_volume: None,
             software_graphics: false,
             audio_output: None,
+            cores: None,
             keep_enabled: Vec::new(),
             app_choices: Default::default(),
         };

@@ -73,9 +73,18 @@ pub fn start(
         .arg(grpc_port.to_string())
         // Without a token the gRPC port accepts commands from anyone on the network.
         .arg("-grpc-use-token")
-        // Fewer cores on a small processor, so the computer isn't starved.
+        // Fewer cores on a small processor, so the computer isn't starved,
+        // unless the user chose how many, up to what the computer has.
         .arg("-cores")
-        .arg(crate::setup::device_cores().to_string())
+        .arg(
+            device
+                .meta
+                .cores
+                .map_or(crate::setup::device_cores(), |c| {
+                    (c as usize).clamp(1, crate::setup::threads().max(1))
+                })
+                .to_string(),
+        )
         .env("ANDROID_AVD_HOME", &store.root)
         .env("ANDROID_SDK_ROOT", &sdk.root)
         .env("ANDROID_HOME", &sdk.root)

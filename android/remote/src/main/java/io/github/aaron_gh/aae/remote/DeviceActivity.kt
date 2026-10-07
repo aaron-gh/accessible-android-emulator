@@ -53,6 +53,7 @@ class DeviceActivity : ConnectedActivity() {
             ui.say("Restarting.")
             whileBusy { done -> call("device.restart", idParams(), done) { done(); ui.say("Restarted.") } }
         }
+        ui.button("Hardware") { hardware() }
         ui.button("Rename") { rename() }
         ui.button("Copy") { copy() }
         ui.button("Wipe") { wipe() }
@@ -175,6 +176,51 @@ class DeviceActivity : ConnectedActivity() {
                     ui.say("$name has no screen reader. AAE won't ask again.")
                 }
             }
+        }
+    }
+
+    /** Memory, cores, storage and the screen, while it's stopped, from its next start. */
+    private fun hardware() {
+        val d = device ?: return
+        if (d.optBoolean("running")) return ui.say("Stop ${d.optString("name")} to change its hardware.")
+        call("device.hardware", idParams()) { result ->
+            val now = result as JSONObject
+            val fields = listOf(
+                "memory_mb" to "Memory, in megabytes",
+                "cores" to "Processor cores",
+                "storage_mb" to "Storage, in megabytes",
+                "width" to "Screen width, in pixels",
+                "height" to "Screen height, in pixels",
+                "density" to "Screen density, in dots per inch",
+            )
+            val column = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(48, 16, 48, 0)
+            }
+            val edits = fields.map { (key, label) ->
+                val labelView = android.widget.TextView(this).apply { text = label }
+                column.addView(labelView)
+                android.widget.EditText(this).apply {
+                    id = android.view.View.generateViewId()
+                    labelView.labelFor = id
+                    inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                    setText(now.optLong(key).toString())
+                    column.addView(this)
+                }
+            }
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Hardware of ${d.optString("name")}")
+                .setView(android.widget.ScrollView(this).apply { addView(column) })
+                .setPositiveButton("Save") { _, _ ->
+                    val params = idParams()
+                    for ((i, field) in fields.withIndex()) {
+                        val n = edits[i].text.toString().trim().toLongOrNull() ?: return@setPositiveButton ui.say("Each one takes a whole number.")
+                        params.put(field.first, n)
+                    }
+                    call("device.hardware.set", params) { ui.say(it.toString()) }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
         }
     }
 

@@ -43,6 +43,7 @@ Both apps update themselves. Check for Updates never offers a development build;
 ### Devices
 
 - Named devices, including several of the same Android version, each with its own apps and data: create, copy, rename, wipe and delete. Wiping takes a device back to how it was first set up: its apps, data and snapshots go, and its screen reader is set up again, but it keeps its name, hardware and volume.
+- Hardware, in the Device menu while a device is stopped, sets its memory, processor cores, storage, and screen size and density, from its next start. `aae hardware <device> memory 4096 cores 6 storage 16G screen 1440x3120 density 560` does the same; `cores auto` lets AAE choose for the computer again, which it does unless told. Less storage takes effect only after wiping.
 - Devices run with no emulator window. Stopping one saves its state for a quick start next time, after first writing everything to its disk. Restarting restarts Android without losing anything on it.
 - First-boot setup: hardware keyboard on, setup wizard skipped, screen kept awake, animations off, and a screen reader installed and turned on.
 - Choosing a screen reader. If the Android image has no screen reader and you didn't choose one, AAE asks whether to download Backtalk (its latest development build, checked against Backtalk's signing key), install your own APK, or go without.
@@ -166,7 +167,7 @@ aae stop "Android 16 test"
 
 - Setting up: `setup`, `doctor`, `self-test`, `report`.
 - Android versions: `available`, `download`, `images`, `remove-image`.
-- Devices: `list`, `create`, `clone`, `rename`, `wipe`, `delete`, `start`, `restart`, `stop`, `status`, `snapshot`.
+- Devices: `list`, `create`, `clone`, `rename`, `hardware`, `wipe`, `delete`, `start`, `restart`, `stop`, `status`, `snapshot`.
 - Keyboard, sound and speech: `attach`, `listen`, `playback-volume`, `audio-output`, `volume` (the screen reader's own volume), `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `mic`, `speech`.
 - Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
 - Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`, `record`.

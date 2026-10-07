@@ -559,6 +559,31 @@ pub fn audio_outputs() -> Vec<String> {
     aae_core::audio::output_names()
 }
 
+/// A device's hardware: memory and storage in megabytes, processor cores,
+/// and the screen's size in pixels and density in dots per inch.
+#[derive(uniffi::Record, Clone)]
+pub struct HardwareInfo {
+    pub memory_mb: u32,
+    pub cores: u32,
+    pub storage_mb: u32,
+    pub width: u32,
+    pub height: u32,
+    pub density: u32,
+}
+
+impl From<aae_core::hardware::Hardware> for HardwareInfo {
+    fn from(h: aae_core::hardware::Hardware) -> Self {
+        HardwareInfo {
+            memory_mb: h.memory_mb,
+            cores: h.cores,
+            storage_mb: h.storage_mb,
+            width: h.width,
+            height: h.height,
+            density: h.density,
+        }
+    }
+}
+
 /// A battery health to choose: its name for `set_battery_health`, and in words.
 #[derive(uniffi::Record, Clone)]
 pub struct BatteryHealthInfo {
@@ -1339,6 +1364,33 @@ impl Engine {
         Ok(DeviceInfo::from_device(
             &self.store.clone_device(&source, &new_name)?,
         ))
+    }
+
+    /// A device's advanced hardware.
+    pub fn device_hardware(&self, id: String) -> Result<HardwareInfo, AaeError> {
+        let device = self.store.get(&id)?;
+        Ok(aae_core::hardware::read(&device)?.into())
+    }
+
+    /// Changes a stopped device's advanced hardware, from its next start.
+    /// Returns what to say.
+    pub fn set_device_hardware(
+        &self,
+        id: String,
+        hardware: HardwareInfo,
+    ) -> Result<String, AaeError> {
+        let mut device = self.store.get(&id)?;
+        Ok(aae_core::hardware::write(
+            &mut device,
+            &aae_core::hardware::Hardware {
+                memory_mb: hardware.memory_mb,
+                cores: hardware.cores,
+                storage_mb: hardware.storage_mb,
+                width: hardware.width,
+                height: hardware.height,
+                density: hardware.density,
+            },
+        )?)
     }
 
     pub fn rename_device(&self, id: String, new_name: String) -> Result<DeviceInfo, AaeError> {

@@ -20,6 +20,7 @@ pub mod emulator;
 pub mod error;
 pub mod geocode;
 pub mod gestures;
+pub mod hardware;
 pub mod inspector;
 pub mod keys;
 pub mod keytest;

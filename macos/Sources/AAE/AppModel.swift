@@ -145,6 +145,7 @@ final class AppModel: ObservableObject {
     @Published var showingNewDevice = false
     @Published var renaming: DeviceInfo?
     @Published var cloning: DeviceInfo?
+    @Published var editingHardware: DeviceInfo?
 
     let engine: Engine?
     let startupError: String?
@@ -2157,6 +2158,37 @@ final class AppModel: ObservableObject {
                     self?.announce(said)
                 }
             }
+        }
+    }
+
+    /// Opens the selected device's hardware, if it's stopped.
+    func editHardware() {
+        guard let device = selected else { return }
+        guard !device.running else {
+            announce("Stop \(device.name) to change its hardware.", tone: .failure)
+            return
+        }
+        editingHardware = device
+    }
+
+    func hardware(of device: DeviceInfo) -> HardwareInfo? {
+        do {
+            return try engine?.deviceHardware(id: device.id)
+        } catch {
+            announce(error.localizedDescription, tone: .failure)
+            return nil
+        }
+    }
+
+    /// Returns whether it was saved.
+    func setHardware(of device: DeviceInfo, to hardware: HardwareInfo) -> Bool {
+        do {
+            guard let said = try engine?.setDeviceHardware(id: device.id, hardware: hardware) else { return false }
+            announce(said, tone: .success)
+            return true
+        } catch {
+            announce(error.localizedDescription, tone: .failure)
+            return false
         }
     }
 

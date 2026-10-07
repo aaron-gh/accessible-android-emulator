@@ -825,6 +825,7 @@ pub fn command(id: u16, notification: u32) {
         SERVE => crate::tools::serve::show(),
         WATCH_BUILDS => crate::tools::watch::watch_for_builds(),
         RENAME => rename(),
+        HARDWARE => edit_hardware(),
         COPY_DEVICE => copy_device(),
         WIPE => wipe(),
         DELETE => delete(),
@@ -2096,6 +2097,66 @@ fn toggle_mute() {
         );
         Ok(())
     });
+}
+
+/// A stopped device's advanced hardware, from its next start.
+fn edit_hardware() {
+    let (device, hwnd) = selected();
+    let Some(device) = device else { return };
+    if device.running {
+        announce(
+            &format!("Stop {} to change its hardware.", device.name),
+            Tone::Failure,
+        );
+        return;
+    }
+    let Some(engine) = engine() else { return };
+    let hardware = match engine.device_hardware(device.id.clone()) {
+        Ok(hardware) => hardware,
+        Err(e) => {
+            announce(&e.to_string(), Tone::Failure);
+            return;
+        }
+    };
+    let field = |label: &str, value: u32| Field::Edit {
+        label: label.into(),
+        value: value.to_string(),
+    };
+    let answer = forms::run(
+        hwnd,
+        Form::new(&format!("Hardware of {}", device.name))
+            .field(field("&Memory, in megabytes", hardware.memory_mb))
+            .field(field("Processor &cores", hardware.cores))
+            .field(field("&Storage, in megabytes", hardware.storage_mb))
+            .field(field("Screen &width, in pixels", hardware.width))
+            .field(field("Screen &height, in pixels", hardware.height))
+            .field(field("Screen &density, in dots per inch", hardware.density))
+            .text("Applies at next start. Reducing storage needs a wipe.")
+            .button("Save", 1, Role::Default)
+            .button("Cancel", 0, Role::Cancel),
+    );
+    if answer.button != 1 {
+        return;
+    }
+    let numbers: Option<Vec<u32>> = (0..6)
+        .map(|i| answer.values[i].text().trim().parse().ok())
+        .collect();
+    let Some(n) = numbers else {
+        announce("Each one takes a whole number.", Tone::Failure);
+        return;
+    };
+    let chosen = aae_ffi::HardwareInfo {
+        memory_mb: n[0],
+        cores: n[1],
+        storage_mb: n[2],
+        width: n[3],
+        height: n[4],
+        density: n[5],
+    };
+    match engine.set_device_hardware(device.id, chosen) {
+        Ok(said) => announce(&said, Tone::Success),
+        Err(e) => announce(&e.to_string(), Tone::Failure),
+    }
 }
 
 /// Chooses which of this computer's outputs the selected device plays

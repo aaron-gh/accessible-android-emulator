@@ -368,9 +368,7 @@ pub fn threads() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get())
 }
 
-/// How many processor cores to give a device: half the computer's threads,
-/// up to four, so the computer keeps enough for itself, the emulator's
-/// graphics and sound, and the screen reader.
+/// Processor cores for a device: half the computer's threads, 1 to 4.
 pub fn device_cores() -> usize {
     (threads() / 2).clamp(1, 4)
 }
