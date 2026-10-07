@@ -27,7 +27,15 @@ class ComputersActivity : Activity() {
         rows = ui.list("Computers") { open(computers[it]) }.second
         ui.button("Pair with a Computer") { pair() }
         ui.button("Forget a Computer") { forget() }
+        ui.button("Check for Updates") { checkForUpdates(quietly = false) }
+        android.widget.CheckBox(this).apply {
+            text = "Offer development builds"
+            isChecked = Updater.offersDevelopmentBuilds(this@ComputersActivity)
+            setOnCheckedChangeListener { _, on -> Updater.setOffersDevelopmentBuilds(this@ComputersActivity, on) }
+            ui.column.addView(this)
+        }
         ui.show(scroll = false)
+        if (Updater.dueForCheck(this)) checkForUpdates(quietly = true)
         discovery = Discovery(this) { list ->
             found = list
             // A paired computer that's moved gets its new address.
@@ -55,6 +63,34 @@ class ComputersActivity : Activity() {
             "${c.name}${if (here) ", on this network" else ""}"
         })
         if (computers.isEmpty()) ui.say("No computers are paired yet. Choose Pair with a Computer.")
+    }
+
+    /** Checks for a newer AAE Remote; quietly, only says so if there is one. */
+    private fun checkForUpdates(quietly: Boolean) {
+        if (!quietly) ui.say("Checking for updates.")
+        Updater.check(this) { result ->
+            result.onFailure { if (!quietly) ui.say(it.message ?: "Couldn't check for updates.") }
+            result.onSuccess { update ->
+                if (update == null) {
+                    if (!quietly) ui.say("AAE Remote ${Updater.installedVersion(this)} is up to date.")
+                    return@onSuccess
+                }
+                val text = "AAE Remote ${update.version} is available. You have ${Updater.installedVersion(this)}." +
+                    if (update.notes.isNotEmpty()) "\n\n${update.notes}" else ""
+                ui.confirm("Update Available", text, "Install") { installUpdate(update) }
+            }
+        }
+    }
+
+    private fun installUpdate(update: Update) {
+        if (!Updater.mayInstall(this)) {
+            ui.message(
+                "Allow Updates",
+                "Android needs your permission for AAE Remote to install its updates. On the next screen, turn on Allow from this source, then come back and choose Check for Updates again.",
+            ) { startActivity(Updater.allowInstallsIntent(this)) }
+            return
+        }
+        Updater.install(this, update) { ui.say(it) }
     }
 
     private fun open(computer: Computer) {

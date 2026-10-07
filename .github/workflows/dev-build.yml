@@ -156,8 +156,17 @@ jobs:
           codesign -dvv macos/build/AAE.app 2>&1 | grep -qx "Authority=AAE Code Signing"
           codesign -d -r- macos/build/AAE.app
           macos/dmg.sh macos/build/AAE.app macos/dist/AAE-dev.dmg "AAE $AAE_VERSION"
-          # AAE Remote, the Android app, signed with AAE's Android key.
+          # AAE Remote, the Android app, signed with AAE's Android key, and
+          # its development update feed, which phones that want development
+          # builds check. Its build number is the commit count, as the APK's.
           android/build-remote.sh macos/dist/AAE-Remote-dev.apk
+          python3 -I - "$AAE_VERSION" "$(git rev-list --count HEAD)" "https://github.com/${GITHUB_REPOSITORY}/releases/download/dev/AAE-Remote-dev.apk" macos/dist/AAE-Remote-dev.apk "$(git log -1 --format=%s)" > macos/dist/AAE-Remote-dev.json <<'PY'
+          import hashlib, json, pathlib, sys
+          version, build, url, apk, subject = sys.argv[1:]
+          print(json.dumps({"version": version, "build": int(build), "url": url,
+                            "sha256": hashlib.sha256(pathlib.Path(apk).read_bytes()).hexdigest(),
+                            "notes": "Development build: " + subject}))
+          PY
 
       - uses: actions/upload-artifact@v7
         with:
@@ -165,6 +174,7 @@ jobs:
           path: |
             macos/dist/AAE-dev.dmg
             macos/dist/AAE-Remote-dev.apk
+            macos/dist/AAE-Remote-dev.json
           if-no-files-found: error
 
   publish:
@@ -217,6 +227,6 @@ jobs:
           else
             gh release create dev --prerelease --latest=false --title "Development build ($SHORT)" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
           fi
-          gh release upload dev dist/AAE-dev-windows-x64-setup.exe dist/AAE-dev.dmg dist/AAE-Remote-dev.apk --clobber
+          gh release upload dev dist/AAE-dev-windows-x64-setup.exe dist/AAE-dev.dmg dist/AAE-Remote-dev.apk dist/AAE-Remote-dev.json --clobber
           # The zip of earlier development builds, which couldn't update itself.
           gh release delete-asset dev AAE-dev-windows-x64.zip --yes 2>/dev/null || true
