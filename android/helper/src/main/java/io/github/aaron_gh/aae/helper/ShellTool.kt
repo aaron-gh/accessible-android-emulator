@@ -16,6 +16,18 @@ import kotlin.system.exitProcess
 object ShellTool {
     @JvmStatic
     fun main(args: Array<String>) {
+        // An uncaught error would make Android end the process with nothing
+        // but "Killed", so say what went wrong instead.
+        try {
+            run(args)
+        } catch (e: Throwable) {
+            val cause = (e as? java.lang.reflect.InvocationTargetException)?.targetException ?: e
+            System.err.println("AAE's shell tool failed: $cause")
+            exitProcess(3)
+        }
+    }
+
+    private fun run(args: Array<String>) {
         when (args.firstOrNull()) {
             "methods" -> listInputManagerMethods()
             "layouts" -> listKeyboardLayouts()
@@ -108,7 +120,7 @@ object ShellTool {
             .invoke(null, binder)!!
         val type = imm.javaClass
         val listMethods = type.methods.first { it.name == "getEnabledInputMethodList" }
-        val imes = listMethods.invoke(imm, 0) as List<*>
+        val imes = asList(listMethods.invoke(imm, 0))
         val subtypesMethod = type.methods.firstOrNull { it.name == "getEnabledInputMethodSubtypeList" }
         val pairs = mutableListOf<Pair<Any, Any?>>()
         for (ime in imes.filterNotNull()) {
@@ -126,6 +138,29 @@ object ShellTool {
             }
         }
         return pairs
+    }
+
+    /**
+     * A list of input methods as Android returns it: a plain list, or from
+     * Android 15, an InputMethodInfoSafeList, which its static extractFrom
+     * turns into one.
+     */
+    private fun asList(result: Any?): List<*> {
+        if (result is List<*>) return result
+        val type = result?.javaClass ?: return emptyList<Any>()
+        val extract = type.methods.firstOrNull {
+            java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                it.parameterCount == 1 &&
+                it.parameterTypes[0] == type &&
+                List::class.java.isAssignableFrom(it.returnType)
+        }
+        if (extract != null) return extract.invoke(null, result) as List<*>
+        val getter = type.methods.firstOrNull {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                it.parameterCount == 0 &&
+                List::class.java.isAssignableFrom(it.returnType)
+        } ?: error("Android returned the input methods as ${type.name}, which AAE can't read")
+        return getter.invoke(result) as List<*>
     }
 
     /** Physical full keyboards, with their input device identifiers. */
