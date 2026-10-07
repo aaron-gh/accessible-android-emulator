@@ -190,14 +190,13 @@ fn text() -> String {
 
 /// Turns the speech log on or off, which restarts the screen reader.
 fn set_recording(on: bool) {
-    if !app::selected().0.is_some_and(|d| d.running) {
-        // Says why, and puts the checkbox back.
+    if !super::running() {
+        // Puts the checkbox back.
         STATE.with(|s| {
             if let Some((record, _)) = s.borrow().window {
                 ui::set_checked(record, !on);
             }
         });
-        with_session(|_| async { Ok(()) });
         return;
     }
     let set_busy = |busy: bool| {

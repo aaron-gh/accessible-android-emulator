@@ -238,6 +238,75 @@ pub fn combo_box(parent: HWND, id: u16) -> HWND {
     )
 }
 
+/// A tree, with buttons to expand and collapse its branches.
+pub fn tree_view(parent: HWND, id: u16) -> HWND {
+    use windows::Win32::UI::Controls::*;
+    control(
+        parent,
+        WC_TREEVIEWW,
+        "",
+        WS_TABSTOP
+            | WS_BORDER
+            | WINDOW_STYLE(TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS),
+        WINDOW_EX_STYLE(0),
+        id,
+    )
+}
+
+pub fn tree_clear(tree: HWND) {
+    use windows::Win32::UI::Controls::{TVI_ROOT, TVM_DELETEITEM};
+    send(tree, TVM_DELETEITEM, 0, TVI_ROOT.0);
+}
+
+/// Adds an item to a tree, inside `parent` or at the top, carrying `param`.
+pub fn tree_add(
+    tree: HWND,
+    parent: Option<windows::Win32::UI::Controls::HTREEITEM>,
+    text: &str,
+    param: isize,
+) -> windows::Win32::UI::Controls::HTREEITEM {
+    use windows::Win32::UI::Controls::*;
+    let mut text = wide(text);
+    let insert = TVINSERTSTRUCTW {
+        hParent: parent.unwrap_or(TVI_ROOT),
+        hInsertAfter: TVI_LAST,
+        Anonymous: TVINSERTSTRUCTW_0 {
+            itemex: TVITEMEXW {
+                mask: TVIF_TEXT | TVIF_PARAM,
+                pszText: windows::core::PWSTR(text.as_mut_ptr()),
+                lParam: LPARAM(param),
+                ..Default::default()
+            },
+        },
+    };
+    HTREEITEM(send(tree, TVM_INSERTITEMW, 0, &insert as *const _ as isize))
+}
+
+pub fn tree_expand(tree: HWND, item: windows::Win32::UI::Controls::HTREEITEM) {
+    use windows::Win32::UI::Controls::{TVE_EXPAND, TVM_EXPAND};
+    send(tree, TVM_EXPAND, TVE_EXPAND.0 as usize, item.0);
+}
+
+pub fn tree_select(tree: HWND, item: windows::Win32::UI::Controls::HTREEITEM) {
+    use windows::Win32::UI::Controls::{TVGN_CARET, TVM_SELECTITEM};
+    send(tree, TVM_SELECTITEM, TVGN_CARET as usize, item.0);
+}
+
+/// The selected item's param.
+pub fn tree_selection(tree: HWND) -> Option<isize> {
+    use windows::Win32::UI::Controls::*;
+    let item = send(tree, TVM_GETNEXTITEM, TVGN_CARET as usize, 0);
+    if item == 0 {
+        return None;
+    }
+    let mut info = TVITEMEXW {
+        mask: TVIF_PARAM,
+        hItem: HTREEITEM(item),
+        ..Default::default()
+    };
+    (send(tree, TVM_GETITEMW, 0, &mut info as *mut _ as isize) != 0).then_some(info.lParam.0)
+}
+
 /// Places a control, in pixels at 96 dots per inch.
 pub fn place(hwnd: HWND, x: i32, y: i32, width: i32, height: i32) {
     let parent = unsafe { GetParent(hwnd) }.unwrap_or(hwnd);

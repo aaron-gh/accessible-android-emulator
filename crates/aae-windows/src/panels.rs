@@ -37,6 +37,8 @@ enum Row {
         label: HWND,
         control: HWND,
         height: i32,
+        /// Controls shown in its place instead, such as a list for a tree.
+        twins: Vec<HWND>,
     },
     /// A control on its own, such as a checkbox.
     Single { control: HWND, height: i32 },
@@ -51,6 +53,8 @@ pub struct Panel {
     /// The row that takes the space left, if any.
     grow: Option<usize>,
     default_button: Option<u16>,
+    /// Keys that press buttons: key, with Control, and the button's id.
+    shortcuts: Vec<(u16, bool, u16)>,
     next_id: u16,
 }
 
@@ -108,6 +112,33 @@ pub fn open_window(kind: &'static str) -> Option<HWND> {
     unsafe { IsWindow(Some(hwnd)) }.as_bool().then_some(hwnd)
 }
 
+/// Presses the button a key is a shortcut for, if it's one of the window's.
+pub fn shortcut(hwnd: HWND, msg: &MSG) -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_MENU};
+    if msg.message != WM_KEYDOWN || unsafe { GetKeyState(VK_MENU.0 as i32) } < 0 {
+        return false;
+    }
+    let control = unsafe { GetKeyState(VK_CONTROL.0 as i32) } < 0;
+    let key = msg.wParam.0 as u16;
+    let Some(state) = PANELS.with(|p| p.borrow().get(&(hwnd.0 as isize)).cloned()) else {
+        return false;
+    };
+    let id = state.try_borrow().ok().and_then(|s| {
+        s.panel
+            .shortcuts
+            .iter()
+            .find(|(k, c, _)| *k == key && *c == control)
+            .map(|(_, _, id)| *id)
+    });
+    match id {
+        Some(id) => {
+            dispatch(hwnd, |panel, handler| handler.command(panel, id));
+            true
+        }
+        None => false,
+    }
+}
+
 /// True for AAE's tool windows, so the message loop can give them dialog keys.
 pub fn is_panel(hwnd: HWND) -> bool {
     PANELS.with(|p| p.borrow().contains_key(&(hwnd.0 as isize)))
@@ -142,6 +173,7 @@ impl Panel {
             rows: Vec::new(),
             grow: None,
             default_button: None,
+            shortcuts: Vec::new(),
             next_id: 100,
         }
     }
@@ -167,6 +199,7 @@ impl Panel {
             label,
             control,
             height: 23,
+            twins: Vec::new(),
         });
         control
     }
@@ -188,6 +221,7 @@ impl Panel {
                 label,
                 control,
                 height: lines * 16 + 8,
+                twins: Vec::new(),
             },
             grow,
         );
@@ -204,6 +238,7 @@ impl Panel {
                 label,
                 control,
                 height: lines * 16 + 8,
+                twins: Vec::new(),
             },
             grow,
         );
@@ -219,8 +254,39 @@ impl Panel {
             label,
             control,
             height: 23,
+            twins: Vec::new(),
         });
         control
+    }
+
+    /// A tree. With `grow`, it takes the space left. Its id is the one its
+    /// selection changes are reported with.
+    pub fn tree(&mut self, label: &str, id: u16, lines: i32, grow: bool) -> HWND {
+        let label = ui::label(self.hwnd, label);
+        let control = ui::tree_view(self.hwnd, id);
+        self.push_growing(
+            Row::Labelled {
+                label,
+                control,
+                height: lines * 16 + 8,
+                twins: Vec::new(),
+            },
+            grow,
+        );
+        control
+    }
+
+    /// Puts a control in the place of the last labelled one, to show one
+    /// or the other, such as a list in place of a tree.
+    pub fn twin(&mut self, control: HWND) {
+        if let Some(Row::Labelled { twins, .. }) = self.rows.last_mut() {
+            twins.push(control);
+        }
+    }
+
+    /// A key that presses a button, such as F5 for Refresh.
+    pub fn shortcut(&mut self, key: u16, control: bool, id: u16) {
+        self.shortcuts.push((key, control, id));
     }
 
     /// A checkbox. Its id is reported when it's ticked or unticked.
@@ -330,6 +396,7 @@ fn layout(panel: &Panel) {
                 label,
                 control,
                 height,
+                twins,
             } => {
                 ui::place(*label, MARGIN, y, inner, 16);
                 let extra = if Some(i) == panel.grow { spare } else { 0 };
@@ -340,7 +407,9 @@ fn layout(panel: &Panel) {
                 } else {
                     height + extra
                 };
-                ui::place(*control, MARGIN, y + 19, inner, h);
+                for c in std::iter::once(control).chain(twins) {
+                    ui::place(*c, MARGIN, y + 19, inner, h);
+                }
                 y += extra;
             }
             Row::Single { control, height } => ui::place(*control, MARGIN, y, inner, *height),
@@ -402,6 +471,15 @@ unsafe fn handle(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESUL
             // Button presses, and list selections changing (LBN_SELCHANGE
             // and CBN_SELCHANGE are both 1).
             if lparam.0 == 0 || notification == BN_CLICKED || notification == 1 {
+                dispatch(hwnd, |panel, handler| handler.command(panel, id));
+            }
+            LRESULT(0)
+        }
+        // A tree's selection changing.
+        WM_NOTIFY => {
+            let header = unsafe { &*(lparam.0 as *const windows::Win32::UI::Controls::NMHDR) };
+            if header.code == windows::Win32::UI::Controls::TVN_SELCHANGEDW {
+                let id = header.idFrom as u16;
                 dispatch(hwnd, |panel, handler| handler.command(panel, id));
             }
             LRESULT(0)

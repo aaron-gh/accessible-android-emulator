@@ -57,8 +57,8 @@ mod window {
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
     use windows::Win32::UI::Controls::{
-        ICC_BAR_CLASSES, ICC_PROGRESS_CLASS, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX,
-        InitCommonControlsEx,
+        ICC_BAR_CLASSES, ICC_PROGRESS_CLASS, ICC_STANDARD_CLASSES, ICC_TREEVIEW_CLASSES,
+        INITCOMMONCONTROLSEX, InitCommonControlsEx,
     };
     use windows::Win32::UI::HiDpi::GetDpiForSystem;
     use windows::Win32::UI::Shell::{DragAcceptFiles, DragFinish, HDROP};
@@ -79,7 +79,10 @@ mod window {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             let _ = InitCommonControlsEx(&INITCOMMONCONTROLSEX {
                 dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
-                dwICC: ICC_STANDARD_CLASSES | ICC_BAR_CLASSES | ICC_PROGRESS_CLASS,
+                dwICC: ICC_STANDARD_CLASSES
+                    | ICC_BAR_CLASSES
+                    | ICC_PROGRESS_CLASS
+                    | ICC_TREEVIEW_CLASSES,
             });
             let class = WNDCLASSEXW {
                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
@@ -131,7 +134,9 @@ mod window {
                     if IsDialogMessageW(hwnd, &msg).as_bool() {
                         continue;
                     }
-                } else if panels::is_panel(root) && IsDialogMessageW(root, &msg).as_bool() {
+                } else if panels::is_panel(root)
+                    && (panels::shortcut(root, &msg) || IsDialogMessageW(root, &msg).as_bool())
+                {
                     continue;
                 }
                 let _ = TranslateMessage(&msg);

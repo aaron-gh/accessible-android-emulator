@@ -3,6 +3,7 @@
 
 pub mod conditions;
 pub mod device_log;
+pub mod inspector;
 pub mod links;
 pub mod shell;
 pub mod speech_log;
@@ -50,4 +51,14 @@ fn save_text(owner: HWND, name: &str, text: &str) {
         ),
         Err(e) => announce(&format!("Couldn't save: {e}"), Tone::Failure),
     }
+}
+
+/// True if the selected device is running; otherwise says why not.
+fn running() -> bool {
+    if crate::app::selected().0.is_some_and(|d| d.running) {
+        return true;
+    }
+    // Says why.
+    crate::app::with_session(|_| async { Ok(()) });
+    false
 }

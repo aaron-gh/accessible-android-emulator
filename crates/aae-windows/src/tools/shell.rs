@@ -139,9 +139,7 @@ fn run(command: &str) {
     if command.is_empty() || STATE.with(|s| s.borrow().running) {
         return;
     }
-    if !app::selected().0.is_some_and(|d| d.running) {
-        // Says why.
-        with_session(|_| async { Ok(()) });
+    if !super::running() {
         return;
     }
     STATE.with(|s| {
