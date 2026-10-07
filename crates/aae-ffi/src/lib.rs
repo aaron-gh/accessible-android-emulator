@@ -1747,6 +1747,15 @@ impl Session {
         on_runtime(async move { Ok(controller.screenshot_png_scaled(width).await?) }).await
     }
 
+    /// The screen's accessibility tree as indented text, as the inspector
+    /// shows it. AAE's helper must be on; see `use_helper`. Unlike
+    /// `inspect`, this leaves the helper as it is, for reading the screen
+    /// again and again.
+    pub async fn screen_text(&self) -> Result<String, AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(inspector::to_text(&inspector::read_tree(&adb).await?)) }).await
+    }
+
     /// Turns AAE's helper on (true), for reading the screen, or back to how
     /// the device keeps it (false).
     pub async fn use_helper(&self, on: bool) -> Result<(), AaeError> {
