@@ -4,7 +4,7 @@ AAE creates, runs and tests Android virtual devices without sighted help. This i
 
 WHAT YOU NEED
 
-- Windows 10 or 11, 64-bit, on an Intel or AMD processor.
+- Windows 10 or 11, 64-bit, on an Intel or AMD processor. Google's Android emulator isn't made for Windows on ARM, such as Snapdragon laptops, so AAE doesn't install there.
 - Windows Hypervisor Platform turned on, which the Android emulator needs to run at full speed. In Control Panel, choose Programs, then "Turn Windows features on or off", check "Windows Hypervisor Platform", and restart. Virtualisation must also be on in the computer's firmware settings; it usually is. The self-test, in the Help menu, says whether the emulator can use it.
 - About 10 gigabytes free for the emulator, one Android version and a device.
 

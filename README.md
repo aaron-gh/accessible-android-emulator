@@ -96,7 +96,7 @@ The Windows app is in `crates/aae-windows`. It's written in Rust with Windows' o
 - Gesture mode (Control-Shift-G) has the same keys as on the Mac.
 - It installs for you alone, with no administrator prompt, and updates itself through WinSparkle, as the Mac app does through Sparkle: Help, Check for Updates.
 - Still to come: the testing tools' windows, Apps, Accessibility Services, Snapshots, Battery, Location and Phone, Android Versions, watching for builds, and own windows for devices. The `aae` command does all of these meanwhile; it comes with the Windows app.
-- Windows needs Windows Hypervisor Platform turned on for the emulator; the self-test says whether the emulator can use it.
+- Windows needs Windows Hypervisor Platform turned on for the emulator; the self-test says whether the emulator can use it. It also needs an Intel or AMD processor: Google doesn't make its emulator for Windows on ARM, so AAE's installer refuses to install there, and AAE says so if it's run there anyway.
 
 ## Development builds
 

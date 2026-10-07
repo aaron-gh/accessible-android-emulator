@@ -29,6 +29,7 @@ VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "LegalCopyright" "Apache License 2.0"
 
 !include "MUI2.nsh"
+!include "x64.nsh"
 
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${EXE}"
@@ -61,6 +62,15 @@ VIAddVersionKey "LegalCopyright" "Apache License 2.0"
             Abort
     done:
 !macroend
+
+; Google's Android emulator is only made for Intel and AMD processors on
+; Windows, so AAE can't run devices on Windows on ARM, and isn't installed.
+Function .onInit
+    ${If} ${IsNativeARM64}
+        MessageBox MB_OK|MB_ICONSTOP "AAE needs a PC with an Intel or AMD processor. Google's Android emulator, which AAE runs devices in, doesn't run on Windows on ARM yet, so AAE hasn't been installed." /SD IDOK
+        Abort
+    ${EndIf}
+FunctionEnd
 
 Section "Install"
     !insertmacro WaitForAAEToClose

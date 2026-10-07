@@ -435,6 +435,12 @@ pub fn virtualisation(sdk: &Sdk) -> Virtualisation {
 #[cfg(windows)]
 fn windows_acceleration(sdk: &Sdk) -> Virtualisation {
     use crate::platform::NoConsole;
+    if crate::platform::windows_on_arm() {
+        return Virtualisation::Missing(
+            "AAE needs a PC with an Intel or AMD processor: Google's Android emulator doesn't run on Windows on ARM yet."
+                .into(),
+        );
+    }
     let Ok(emulator) = sdk.emulator_bin() else {
         // Not installed yet; it's checked once it is.
         return Virtualisation::Unknown;

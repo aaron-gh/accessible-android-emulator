@@ -134,3 +134,15 @@ pub(crate) fn memory() -> Option<u64> {
 pub(crate) fn memory() -> Option<u64> {
     None
 }
+
+/// True on Windows on ARM, where Google's Android emulator doesn't run: it's
+/// only made for Intel and AMD processors on Windows, and running it through
+/// Windows' x64 emulation leaves it no hypervisor.
+#[cfg(windows)]
+pub(crate) fn windows_on_arm() -> bool {
+    use windows_sys::Win32::System::SystemInformation::IMAGE_FILE_MACHINE_ARM64;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, IsWow64Process2};
+    let (mut process, mut native) = (0u16, 0u16);
+    let asked = unsafe { IsWow64Process2(GetCurrentProcess(), &mut process, &mut native) };
+    asked != 0 && native == IMAGE_FILE_MACHINE_ARM64
+}
