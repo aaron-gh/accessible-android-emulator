@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds AAE.app: the Rust core, the Swift bindings, the app, and the helper APK.
+# Builds AAE.app: the Rust core, the Swift bindings, the app, the aae command
+# (which includes the MCP server), and the helper APK.
 #   macos/build.sh            release build into macos/build/AAE.app
 #   macos/build.sh --debug    debug build, quicker to compile
 #
@@ -25,8 +26,8 @@ if [[ "${1:-}" == "--debug" ]]; then
 fi
 CARGO="${CARGO:-$(command -v cargo || echo "$HOME/.cargo/bin/cargo")}"
 
-echo "Building the Rust core."
-"$CARGO" build ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} -p aae-ffi
+echo "Building the Rust core and the aae command."
+"$CARGO" build ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} -p aae-ffi -p aae-cli
 
 echo "Generating the Swift bindings."
 GEN="$ROOT/target/uniffi-swift"
@@ -55,6 +56,10 @@ APP="$ROOT/macos/build/AAE.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/AAE" "$APP/Contents/MacOS/AAE"
+# The aae command, for the terminal and for AI agents (aae mcp). It's in
+# Helpers, as "aae" and "AAE" are the same name on a Mac's disk.
+mkdir -p "$APP/Contents/Helpers"
+cp "target/$PROFILE/aae" "$APP/Contents/Helpers/aae"
 cp macos/Support/Info.plist "$APP/Contents/Info.plist"
 PLIST="$APP/Contents/Info.plist"
 VERSION="${AAE_VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)}"
@@ -108,6 +113,7 @@ for part in "$FW"/Versions/B/XPCServices/*.xpc "$FW/Versions/B/Autoupdate" "$FW/
         codesign "${SIGN_FLAGS[@]}" "$part" >/dev/null
     fi
 done
+codesign "${SIGN_FLAGS[@]}" "$APP/Contents/Helpers/aae" >/dev/null
 APP_SIGN_FLAGS=("${SIGN_FLAGS[@]}")
 if [[ "$DEVELOPER_ID" == 1 ]]; then
     APP_SIGN_FLAGS+=(--entitlements macos/Support/AAE.entitlements)

@@ -420,3 +420,52 @@ fn png_size(png: &[u8]) -> Option<(u32, u32)> {
         u32::from_be_bytes(header[4..8].try_into().ok()?),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A PNG of the given size, every pixel the same colour.
+    fn png(width: u32, height: u32, colour: [u8; 4]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let pixels: Vec<u8> = colour.repeat((width * height) as usize);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(&pixels)
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn shrinks_screenshots_keeping_their_shape_and_colour() {
+        let full = png(1080, 2400, [10, 20, 30, 255]);
+        assert_eq!(png_size(&full), Some((1080, 2400)));
+        let small = shrink(&full, 540).unwrap();
+        assert_eq!(png_size(&small), Some((540, 1200)));
+        let decoder = png::Decoder::new(std::io::Cursor::new(&small));
+        let mut reader = decoder.read_info().unwrap();
+        let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+        reader.next_frame(&mut pixels).unwrap();
+        assert_eq!(&pixels[..4], &[10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn leaves_small_screenshots_alone() {
+        let full = png(300, 600, [0, 0, 0, 255]);
+        assert_eq!(shrink(&full, 540).unwrap(), full);
+    }
+
+    #[test]
+    fn reads_log_levels() {
+        assert!(matches!(
+            level("Warning").unwrap(),
+            aae_ffi::LogLevel::Warning
+        ));
+        assert!(matches!(level("e").unwrap(), aae_ffi::LogLevel::Error));
+        assert!(level("loud").is_err());
+    }
+}

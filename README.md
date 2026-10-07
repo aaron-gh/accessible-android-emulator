@@ -2,7 +2,7 @@
 
 AAE lets blind people create, run and test Android virtual devices without sighted help. Each device has a screen reader on from its first boot, takes your keyboard, and plays its audio reliably.
 
-There's a Mac app, a Windows app and the `aae` command line, all over the same core. AAE is in early development: the Mac app is the most complete, and the Windows app is new and being tested.
+There's a Mac app, a Windows app, the `aae` command line, and an MCP server for AI agents, all over the same core. AAE is in early development: the Mac app is the most complete, and the Windows app is new and being tested.
 
 ## Getting AAE
 
@@ -103,7 +103,7 @@ Announcements go straight to NVDA, through NV Access's controller client, which 
 
 ## The command line
 
-`aae help` lists every command, and `aae help <command>` explains one. Commands that act on a device take its name. For example:
+The `aae` command comes with both apps: on the Mac it's inside the app, at `/Applications/AAE.app/Contents/Helpers/aae`, and on Windows it's next to the app, at `%LOCALAPPDATA%\Programs\AAE\aae.exe`. `aae help` lists every command, and `aae help <command>` explains one. Commands that act on a device take its name. For example:
 
 ```sh
 aae setup
@@ -120,6 +120,33 @@ aae stop "Android 16 test"
 - Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
 - Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`.
 - Device conditions: `rotate`, `battery`, `location`, `sms`, `call`, `clipboard`.
+- AI agents: `mcp`, below.
+
+## AI agents (MCP)
+
+`aae mcp` is an MCP server, so AI agents can run, use and inspect AAE's devices, as a tester would. It works on any device AAE runs, through the same core as the apps, so you can watch or listen in the app while an agent works.
+
+Besides the screen, an agent can hear what a blind user hears. The speech log records what the screen reader says, so an agent can swipe through an app with the screen reader's own gestures and check what was announced, not just what was drawn.
+
+- Looking: `screenshot`, `inspect` (the accessibility tree, as a screen reader describes it), `check_accessibility`, `touch_targets`, `speech_log`, and `device_log`.
+- Acting: `gesture` (any screen reader gesture), `tap_target` and `activate_target` (by a thing's label), `type_text`, `press_key`, `open_app`, `open_link`, `send_intent`, notifications and quick settings, `rotate`, battery, location, text messages, calls and the clipboard.
+- Waiting: `wait_for` text to appear on the screen or be spoken, or to go, and `pause`.
+- Setting up: listing, creating, copying, starting, stopping and restarting devices, `install_app`, apps, permissions, accessibility services, and snapshots for repeatable starting points. Downloading Android versions isn't offered, as Google's licence is for you to accept, in the app.
+- Tools that can't be undone, wiping and deleting devices, deleting snapshots, uninstalling apps, clearing their data and running shell commands, are only offered when the server is started with `aae mcp --allow-destructive`. Loading a snapshot is offered, marked as destructive, so agents ask first.
+
+To add it to Claude Code on a Mac:
+
+```sh
+claude mcp add aae -- /Applications/AAE.app/Contents/Helpers/aae mcp
+```
+
+On Windows, in PowerShell:
+
+```sh
+claude mcp add aae -- "$env:LOCALAPPDATA\Programs\AAE\aae.exe" mcp
+```
+
+Other agents take the same command in their settings, such as `{"mcpServers": {"aae": {"command": "/Applications/AAE.app/Contents/Helpers/aae", "args": ["mcp"]}}}`. Add `--allow-destructive` after `mcp` for the tools that can't be undone.
 
 ## Where things are kept
 
@@ -184,6 +211,7 @@ Development builds are made by `.github/workflows/dev-build.yml`, with the same 
 
 - `crates/aae-core`: the cross-platform core. It covers the SDK, downloading Android versions, the device store, the emulator, gRPC control, adb, audio, keys, provisioning, the accessibility inspector and the device log.
 - `crates/aae-cli`: the `aae` command.
+- `crates/aae-mcp`: the MCP server, `aae mcp`.
 - `crates/aae-ffi`: the bridge from the core to the apps, generated with UniFFI for the Mac app and used directly by the Windows app.
 - `macos`: the Mac app, in Swift. `appcast.xml` is its update feed.
 - `crates/aae-windows`: the Windows app. `windows` has its build and release scripts, the installer script, and the read-me that goes with it. `appcast-windows.xml` is its update feed.

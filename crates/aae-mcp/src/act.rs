@@ -570,3 +570,61 @@ impl AaeServer {
             })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(label: &str) -> TouchTarget {
+        TouchTarget {
+            label: label.into(),
+            x: 1,
+            y: 2,
+            left: 0,
+            top: 0,
+            right: 2,
+            bottom: 4,
+        }
+    }
+
+    fn by(target: Option<&str>, index: Option<usize>) -> TargetParam {
+        TargetParam {
+            device: None,
+            target: target.map(String::from),
+            index,
+        }
+    }
+
+    #[test]
+    fn finds_targets_by_label_exact_match_first() {
+        let targets = [target("Settings, button"), target("Settings")];
+        assert_eq!(
+            find_target(&targets, &by(Some("settings"), None))
+                .unwrap()
+                .label,
+            "Settings"
+        );
+        assert_eq!(
+            find_target(&targets, &by(Some("button"), None))
+                .unwrap()
+                .label,
+            "Settings, button"
+        );
+        assert_eq!(
+            find_target(&targets, &by(None, Some(0))).unwrap().label,
+            "Settings, button"
+        );
+    }
+
+    #[test]
+    fn says_what_there_is_when_nothing_matches() {
+        let targets = [target("Gmail"), target("Photos")];
+        let error = find_target(&targets, &by(Some("Chrome"), None))
+            .err()
+            .expect("nothing matches")
+            .to_string();
+        assert!(error.contains("Gmail; Photos"), "{error}");
+        assert!(find_target(&targets, &by(None, Some(5))).is_err());
+        assert!(find_target(&targets, &by(None, None)).is_err());
+    }
+}
