@@ -117,13 +117,30 @@ impl Adb {
 
     /// Installs or updates an app, granting the runtime permissions it asks for.
     pub async fn install(&self, apk: &Path) -> Result<()> {
-        let apk = apk.to_string_lossy();
-        let out = self.raw(&["install", "-r", "-g", "-t", &apk]).await?;
-        if out.contains("Success") {
-            Ok(())
-        } else {
-            Err(Error::Adb(out.trim().to_string()))
+        let path = apk.to_string_lossy();
+        let message = match self.raw(&["install", "-r", "-g", "-t", &path]).await {
+            Ok(out) if out.contains("Success") => return Ok(()),
+            Ok(out) => out.trim().to_string(),
+            Err(Error::Adb(message)) => message,
+            Err(e) => return Err(e),
+        };
+        if message.contains("INSTALL_FAILED_NO_MATCHING_ABIS") {
+            let abi = self
+                .shell("getprop ro.product.cpu.abi")
+                .await
+                .map(|a| a.trim().to_string())
+                .unwrap_or_default();
+            let name = apk
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.to_string());
+            return Err(Error::Adb(format!(
+                "{name} has no code for this device's processor ({abi}), so Android can't install it. \
+                 Use a build of it that includes {abi}. On an Intel or AMD computer, a device made from \
+                 Android 11 or later with Google services can also run apps made only for ARM processors."
+            )));
         }
+        Err(Error::Adb(message))
     }
 
     /// Installs one of AAE's own apps, such as its helper. If the copy on the

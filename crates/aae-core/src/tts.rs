@@ -95,7 +95,10 @@ const NEW_ENGINE: Duration = Duration::from_secs(60);
 
 /// True when a failed check may only mean the engine is slow, not broken.
 fn maybe_slow(status: &SpeechStatus) -> bool {
-    status.detail.contains("in time") || status.detail.contains("did not start")
+    // "none" is a device with no speech engine at all, as plain Android has:
+    // waiting won't bring one.
+    status.engine != "none"
+        && (status.detail.contains("in time") || status.detail.contains("did not start"))
 }
 
 /// Checks speech, trying again while the engine seems only slow, for up to
