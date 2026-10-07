@@ -19,6 +19,8 @@ class DeviceActivity : ConnectedActivity() {
     private lateinit var about: TextView
     private lateinit var startStop: Button
     private val whileRunning = mutableListOf<Button>()
+    /** Starting, stopping, restarting or wiping: those buttons wait till it's done. */
+    private var busy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,7 +44,7 @@ class DeviceActivity : ConnectedActivity() {
         running("Rotate Right") { call("device.rotate", idParams().put("left", false)) { ui.say(it.toString()) } }
         running("Restart") {
             ui.say("Restarting.")
-            call("device.restart", idParams()) { ui.say("Restarted."); attach() }
+            whileBusy { done -> call("device.restart", idParams(), done) { done(); ui.say("Restarted.") } }
         }
         ui.button("Rename") { rename() }
         ui.button("Copy") { copy() }
@@ -74,7 +76,8 @@ class DeviceActivity : ConnectedActivity() {
             about.text = DevicesActivity.describe(d)
             val running = d.optBoolean("running")
             startStop.text = if (running) "Stop" else "Start"
-            whileRunning.forEach { it.isEnabled = running }
+            startStop.isEnabled = !busy
+            whileRunning.forEach { it.isEnabled = running && !busy }
             if (running) attach()
             then()
         }
@@ -87,18 +90,31 @@ class DeviceActivity : ConnectedActivity() {
         }
     }
 
+    /** Marks the device busy while [work] runs; it calls the function it's given when done. */
+    private fun whileBusy(work: (done: () -> Unit) -> Unit) {
+        if (busy) return
+        busy = true
+        startStop.isEnabled = false
+        whileRunning.forEach { it.isEnabled = false }
+        work {
+            busy = false
+            refresh()
+        }
+    }
+
     private fun startOrStop() {
         val d = device ?: return
         if (d.optBoolean("running")) {
             Remote.detach()
             ui.say("Stopping ${d.optString("name")}.")
-            call("device.stop", idParams()) { refresh { ui.say("Stopped.") } }
+            whileBusy { done -> call("device.stop", idParams(), done) { done(); ui.say("Stopped.") } }
         } else {
             ui.say("Starting ${d.optString("name")}.")
-            call("device.start", idParams()) { result ->
-                refresh { ui.say("${d.optString("name")} is ready.") }
+            whileBusy { done -> call("device.start", idParams(), done) { result ->
+                done()
+                ui.say("${d.optString("name")} is ready.")
                 if ((result as? JSONObject)?.optBoolean("ask_screen_reader") == true) askScreenReader()
-            }
+            } }
         }
     }
 
@@ -143,7 +159,7 @@ class DeviceActivity : ConnectedActivity() {
         ) {
             Remote.detach()
             ui.say("Wiping.")
-            call("device.wipe", idParams()) { refresh { ui.say("${d.optString("name")} is wiped and ready.") } }
+            whileBusy { done -> call("device.wipe", idParams(), done) { done(); ui.say("${d.optString("name")} is wiped and ready.") } }
         }
     }
 

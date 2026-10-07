@@ -49,16 +49,24 @@ abstract class ConnectedActivity : Activity() {
     protected fun call(
         method: String,
         params: JSONObject = JSONObject(),
+        failed: () -> Unit = {},
         done: (Any?) -> Unit = {},
     ) {
-        val connection = Remote.connection ?: return ui.say("Not connected to the computer.")
+        val connection = Remote.connection ?: run {
+            ui.say("Not connected to the computer.")
+            failed()
+            return
+        }
         connection.call(method, params, progress = { message, percent ->
             when {
                 message != null -> ui.say(message)
                 percent != null && percent % 10 == 0 -> ui.say("$percent percent.")
             }
         }) { result ->
-            result.onSuccess(done).onFailure { ui.say(it.message ?: "That didn't work.") }
+            result.onSuccess(done).onFailure {
+                ui.say(it.message ?: "That didn't work.")
+                failed()
+            }
         }
     }
 }

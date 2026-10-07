@@ -19,6 +19,16 @@ class NewDeviceActivity : ConnectedActivity() {
     private lateinit var versions: ArrayAdapter<String>
     private lateinit var previews: CheckBox
     private lateinit var profile: Spinner
+    private lateinit var createButton: android.widget.Button
+
+    /** While a device is being made, Create and the choices wait. */
+    private fun setBusy(busy: Boolean) {
+        createButton.isEnabled = !busy
+        name.isEnabled = !busy
+        version.isEnabled = !busy
+        previews.isEnabled = !busy
+        profile.isEnabled = !busy
+    }
     private var list = listOf<JSONObject>()
     private val profiles = listOf("phone" to "Phone", "small-phone" to "Small phone", "tablet" to "Tablet")
 
@@ -52,7 +62,7 @@ class NewDeviceActivity : ConnectedActivity() {
             ui.column.addView(this)
         }
         ui.addStatus()
-        ui.button("Create") { create() }
+        createButton = ui.button("Create") { create() }
         ui.show()
         load()
     }
@@ -74,21 +84,27 @@ class NewDeviceActivity : ConnectedActivity() {
     }
 
     private fun create() {
+        if (!createButton.isEnabled) return
         val chosen = list.getOrNull(version.selectedItemPosition) ?: return ui.say("Choose an Android version.")
+        setBusy(true)
+        val failed = { setBusy(false) }
         val deviceName = name.text.toString().trim().ifEmpty { chosen.optString("description") }
         if (chosen.optBoolean("installed")) {
             make(deviceName, chosen.optString("sysdir"))
             return
         }
         // Google's licence, which the person here reads and accepts.
-        call("versions.licence", JSONObject().put("id", chosen.optString("id"))) { licence ->
+        call("versions.licence", JSONObject().put("id", chosen.optString("id")), failed) { licence ->
             val json = licence as? JSONObject
             if (json == null) {
                 download(chosen, deviceName)
             } else {
                 ui.licence("Google's Licence for ${chosen.optString("description")}", json.optString("text")) { accepted ->
-                    if (!accepted) return@licence ui.say("Licence declined, so nothing was downloaded.")
-                    call("licence.accept", JSONObject().put("licence", json.optString("id")).put("text", json.optString("text"))) {
+                    if (!accepted) {
+                        setBusy(false)
+                        return@licence ui.say("Licence declined, so nothing was downloaded.")
+                    }
+                    call("licence.accept", JSONObject().put("licence", json.optString("id")).put("text", json.optString("text")), failed) {
                         download(chosen, deviceName)
                     }
                 }
@@ -98,7 +114,7 @@ class NewDeviceActivity : ConnectedActivity() {
 
     private fun download(version: JSONObject, deviceName: String) {
         ui.say("Downloading ${version.optString("description")}, ${version.optString("size")}.")
-        call("versions.install", JSONObject().put("id", version.optString("id"))) { image ->
+        call("versions.install", JSONObject().put("id", version.optString("id")), { setBusy(false) }) { image ->
             ui.say("${version.optString("description")} is installed.")
             make(deviceName, (image as JSONObject).optString("sysdir"))
         }
@@ -106,7 +122,7 @@ class NewDeviceActivity : ConnectedActivity() {
 
     private fun make(deviceName: String, sysdir: String) {
         val kind = profiles.getOrNull(profile.selectedItemPosition)?.first ?: "phone"
-        call("devices.create", JSONObject().put("name", deviceName).put("sysdir", sysdir).put("profile", kind)) { made ->
+        call("devices.create", JSONObject().put("name", deviceName).put("sysdir", sysdir).put("profile", kind), { setBusy(false) }) { made ->
             val id = (made as JSONObject).optString("id")
             ui.say("Created $deviceName. Open it to start it.")
             startActivity(Intent(this, DeviceActivity::class.java).putExtra("id", id))
