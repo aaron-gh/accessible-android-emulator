@@ -5,6 +5,21 @@
         <description>Updates for AAE, the Accessible Android Emulator.</description>
         <language>en</language>
         <item>
+            <title>Version 0.2.2</title>
+            <pubDate>Wed, 07 Oct 2026 08:33:12 -0000</pubDate>
+            <sparkle:version>49</sparkle:version>
+            <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>AAE 0.2.2</h2>
+<ul>
+<li>Android 17, and Android 16's later update (API 36.1), can now be downloaded. AAE couldn't read the way Google numbers them.</li>
+<li>New Device can include previews of upcoming Android releases: turn on Include Previews.</li>
+<li>Fixed: setting up an Android 15 device stopped at "Setting up the full keyboard", with an error ending in "Killed".</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.2.2/AAE-0.2.2.dmg" sparkle:edSignature="GHQoEOKmgJ/FDlAxfrc5gDKwSt2iLUYK9tHi6ATEFCfebPG1rN6R9FEkvAyIABsRkKz2dFGt5Ehcy0JPG7PjAA==" length="31414829" type="application/octet-stream" />
+        </item>
+        <item>
             <title>Version 0.2.1</title>
             <pubDate>Wed, 07 Oct 2026 07:18:20 -0000</pubDate>
             <sparkle:version>45</sparkle:version>
