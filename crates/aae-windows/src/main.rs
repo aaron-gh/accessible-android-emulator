@@ -223,6 +223,10 @@ mod window {
                 }
                 LRESULT(0)
             }
+            WM_INITMENUPOPUP => {
+                app::menu_opening(HMENU(wparam.0 as *mut _));
+                LRESULT(0)
+            }
             WM_HSCROLL => {
                 let control = HWND(lparam.0 as *mut _);
                 if unsafe { GetDlgCtrlID(control) } == app::VOLUME_SLIDER as i32 {

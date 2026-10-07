@@ -14,6 +14,10 @@
 //!   `{"type":"touch","points":[{"id":0,"x":…,"y":…,"down":true}]}`, in the
 //!   device's screen pixels, for the attached device. These aren't answered,
 //!   so they go as fast as they come.
+//! - Binary messages: a 2 then part of a file being sent (see `UPLOAD_FRAME`),
+//!   or a 3 then the phone's microphone, 16-bit little-endian mono samples at
+//!   48 kHz, injected into the attached device until the phone sends
+//!   `{"type":"microphone","on":false}` or detaches.
 //!
 //! The server also sends `{"type":"event",…}` messages, such as the attached
 //! device's vibration, and binary messages: the attached device's sound, a 1
@@ -49,6 +53,8 @@ pub const AUDIO_FRAME: u8 = 1;
 /// file it's sending, after `upload.begin`: then the upload's number, four
 /// bytes big-endian, then the data.
 pub const UPLOAD_FRAME: u8 = 2;
+/// The first byte of a binary message from the phone carrying its microphone.
+pub const MICROPHONE_FRAME: u8 = 3;
 
 pub struct Server {
     pub engine: Arc<Engine>,
@@ -213,7 +219,14 @@ impl Server {
             let text = match message {
                 Message::Text(text) => text,
                 Message::Binary(bytes) => {
-                    phone.upload_part(&bytes);
+                    match bytes.first() {
+                        Some(&MICROPHONE_FRAME) if phone.client.is_some() => {
+                            if let Some(attached) = &mut phone.attached {
+                                attached.microphone(&bytes[1..]);
+                            }
+                        }
+                        _ => phone.upload_part(&bytes),
+                    }
                     continue;
                 }
                 _ => continue,
@@ -294,6 +307,13 @@ impl Phone {
                     attached.touch(&message["points"]);
                 }
             }
+            "microphone" => {
+                if let Some(attached) = &mut self.attached {
+                    if !message["on"].as_bool().unwrap_or(false) {
+                        attached.microphone_off();
+                    }
+                }
+            }
             "call" => {
                 let id = message["id"].clone();
                 let method = text("method");
@@ -311,6 +331,38 @@ impl Phone {
                     "upload.begin" => {
                         let result = self.begin_upload(params["name"].as_str().unwrap_or("upload"));
                         self.out.result(&id, result);
+                    }
+                    "tools.microphone.play" => {
+                        // Plays an uploaded audio file into the device's
+                        // microphone from the next recording, then deletes
+                        // it. Replies when done.
+                        let upload = params["upload"].as_u64().unwrap_or(0) as u32;
+                        let Some((path, _)) = self.uploads.remove(&upload) else {
+                            self.out.result(&id, Err("That file wasn't sent.".into()));
+                            return true;
+                        };
+                        let server = self.server.clone();
+                        let out = self.out.clone();
+                        let device = params["id"].as_str().unwrap_or("").to_string();
+                        tokio::spawn(async move {
+                            let result = async {
+                                let session = server.session(&device).await?;
+                                let said = session
+                                    .play_into_microphone(path.to_string_lossy().into_owned())
+                                    .await?;
+                                // Said with the name the phone gave, not the
+                                // one it was saved under, which has a prefix.
+                                let saved = path
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_default();
+                                let given = saved.splitn(3, '-').nth(2).unwrap_or(&saved);
+                                Ok::<Value, AaeError>(json!(said.replace(&saved, given)))
+                            }
+                            .await;
+                            let _ = std::fs::remove_file(&path);
+                            out.result(&id, result.map_err(|e| e.to_string()));
+                        });
                     }
                     "tools.install" => {
                         // Installs a file the phone sent, then deletes it.

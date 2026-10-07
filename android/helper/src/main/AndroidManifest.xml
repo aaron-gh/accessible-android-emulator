@@ -7,6 +7,8 @@
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- Checking sound reaches the microphone, when AAE asks. Nothing is kept. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Android 11 and later hide other apps' services unless an app says what
          it looks for. The speech check needs to find speech engines. -->

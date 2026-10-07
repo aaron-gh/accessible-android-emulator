@@ -1,6 +1,8 @@
 package io.github.aaron_gh.aae.remote
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
@@ -18,6 +20,7 @@ class DeviceActivity : ConnectedActivity() {
     private lateinit var title: TextView
     private lateinit var about: TextView
     private lateinit var startStop: Button
+    private lateinit var microphoneButton: Button
     private val whileRunning = mutableListOf<Button>()
     /** Starting, stopping, restarting or wiping: those buttons wait till it's done. */
     private var busy = false
@@ -34,6 +37,8 @@ class DeviceActivity : ConnectedActivity() {
         running("Use Keyboard") { startActivity(Intent(this, KeyboardActivity::class.java)) }
         running("Gesture Mode") { startActivity(Intent(this, GestureActivity::class.java)) }
         running("Testing Tools") { startActivity(Intent(this, ToolsActivity::class.java).putExtra("id", id)) }
+        microphoneButton = ui.button("Turn On Microphone") { toggleMicrophone() }
+        whileRunning.add(microphoneButton)
         running("Speak Status") { call("device.status", idParams()) { ui.say(it.toString()) } }
         running("Back") { press("back") }
         running("Home") { press("home") }
@@ -56,6 +61,44 @@ class DeviceActivity : ConnectedActivity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        nameMicrophone()
+    }
+
+    override fun onEvent(name: String, data: JSONObject) {
+        if (name == "microphone" && !data.optBoolean("on")) {
+            nameMicrophone()
+            ui.say(data.optString("message"))
+        }
+    }
+
+    private fun nameMicrophone() {
+        microphoneButton.text = if (Remote.microphoneOn) "Turn Off Microphone" else "Turn On Microphone"
+    }
+
+    /** The phone's microphone into the device, for voice typing or calls on it. */
+    private fun toggleMicrophone() {
+        if (Remote.microphoneOn) {
+            Remote.setMicrophone(false)
+            nameMicrophone()
+            return ui.say("Microphone off.")
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            return requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MICROPHONE_REQUEST)
+        }
+        try {
+            Remote.setMicrophone(true)
+            nameMicrophone()
+            ui.say("Microphone on.")
+        } catch (e: Exception) {
+            ui.say(e.message ?: "The microphone couldn't be turned on.")
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != MICROPHONE_REQUEST) return
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) toggleMicrophone()
+        else ui.say("AAE Remote isn't allowed to use the microphone.")
     }
 
     override fun onDestroy() {
@@ -175,5 +218,9 @@ class DeviceActivity : ConnectedActivity() {
                 ui.message("Deleted", "Deleted ${d.optString("name")}. Freed $freed.") { finish() }
             }
         }
+    }
+
+    companion object {
+        private const val MICROPHONE_REQUEST = 1
     }
 }

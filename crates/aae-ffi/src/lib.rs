@@ -1409,6 +1409,10 @@ pub struct Session {
     keys: mpsc::UnboundedSender<KeyMessage>,
     audio: Mutex<Option<AudioPlayer>>,
     logs: Mutex<Option<LogStream>>,
+    /// The computer's microphone, while it plays into the device's.
+    microphone: Mutex<Option<aae_core::microphone::Microphone>>,
+    /// A sound file waiting for, or playing into, the device's microphone.
+    playing: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
     /// The screen's size and density, read on the first gesture.
     screen: tokio::sync::Mutex<Option<gestures::Screen>>,
     /// The touches that lift fingers a held gesture left down.
@@ -1475,6 +1479,8 @@ impl Session {
             keys: tx,
             audio: Mutex::new(None),
             logs: Mutex::new(None),
+            microphone: Mutex::new(None),
+            playing: Arc::new(Mutex::new(None)),
             screen: tokio::sync::Mutex::new(None),
             held: tokio::sync::Mutex::new(None),
         })
@@ -1987,6 +1993,105 @@ impl Session {
     pub async fn type_text(&self, text: String) -> Result<(), AaeError> {
         let controller = self.controller.clone();
         on_runtime(async move { Ok(controller.type_text(&text).await?) }).await
+    }
+
+    /// Whether the computer's microphone is playing into the device's.
+    pub fn microphone_on(&self) -> bool {
+        self.microphone.lock().unwrap().is_some()
+    }
+
+    /// Turns sending the computer's microphone into the device's on or off.
+    /// Returns what to say, such as "Microphone on: MacBook Air Microphone."
+    pub async fn set_microphone(&self, on: bool) -> Result<String, AaeError> {
+        if !on {
+            return Ok(match self.microphone.lock().unwrap().take() {
+                Some(microphone) => {
+                    microphone.stop();
+                    "Microphone off.".into()
+                }
+                None => "The microphone is already off.".into(),
+            });
+        }
+        if let Some(microphone) = self.microphone.lock().unwrap().as_ref() {
+            return Ok(format!(
+                "The microphone is already on: {}.",
+                microphone.name
+            ));
+        }
+        let (sdk, controller, adb) = (self.sdk.clone(), self.controller.clone(), self.adb.clone());
+        let microphone = on_runtime(async move {
+            // The helper says when the device records, which is when sound goes in.
+            provision::update_helper(&sdk, &adb).await?;
+            Ok(aae_core::microphone::Microphone::start(&controller, &adb).await?)
+        })
+        .await?;
+        let said = format!("Microphone on: {}.", microphone.name);
+        if let Some(earlier) = self.microphone.lock().unwrap().replace(microphone) {
+            earlier.stop();
+        }
+        Ok(said)
+    }
+
+    /// Plays an audio file into the device's microphone from the start of
+    /// the next recording. Replaces any queued file. Returns a message when
+    /// done.
+    pub async fn play_into_microphone(&self, path: String) -> Result<String, AaeError> {
+        let (sdk, controller, adb) = (self.sdk.clone(), self.controller.clone(), self.adb.clone());
+        let playing = self.playing.clone();
+        let name = std::path::Path::new(&path)
+            .file_name()
+            .map_or(path.clone(), |n| n.to_string_lossy().into_owned());
+        on_runtime(async move {
+            use aae_core::microphone::{self, Played};
+            let sound = microphone::decode(std::path::Path::new(&path))?;
+            provision::update_helper(&sdk, &adb).await?;
+            let task =
+                tokio::spawn(async move { microphone::play(&controller, &adb, &sound).await });
+            if let Some(earlier) = playing.lock().unwrap().replace(task.abort_handle()) {
+                earlier.abort();
+            }
+            match task.await {
+                Ok(Ok(Played::Whole)) => {
+                    Ok(format!("Finished playing {name} into the microphone."))
+                }
+                Ok(Ok(Played::Stopped(at))) => Ok(format!(
+                    "The app stopped recording {at:.1} seconds into {name}."
+                )),
+                Ok(Err(e)) => Err(e.into()),
+                Err(_) => Ok(format!("Stopped playing {name} into the microphone.")),
+            }
+        })
+        .await
+    }
+
+    /// Whether a sound file is waiting for, or playing into, the microphone.
+    pub fn playing_into_microphone(&self) -> bool {
+        self.playing
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|task| !task.is_finished())
+    }
+
+    /// Stops a sound file waiting for, or playing into, the microphone.
+    /// Returns whether there was one.
+    pub fn stop_playing_into_microphone(&self) -> bool {
+        self.playing.lock().unwrap().take().is_some_and(|task| {
+            let running = !task.is_finished();
+            task.abort();
+            running
+        })
+    }
+
+    /// Injects a test tone and checks the device records it. No host audio.
+    pub async fn check_microphone(&self) -> Result<String, AaeError> {
+        let (sdk, controller, adb) = (self.sdk.clone(), self.controller.clone(), self.adb.clone());
+        on_runtime(async move {
+            provision::update_helper(&sdk, &adb).await?;
+            let heard = aae_core::microphone::check(&controller, &adb).await?;
+            Ok(aae_core::microphone::describe_check(heard)?)
+        })
+        .await
     }
 
     /// The device's network: airplane mode, Wi-Fi, mobile data and speed.

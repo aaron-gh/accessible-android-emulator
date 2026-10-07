@@ -3,6 +3,9 @@
 //!   cargo run -p aae-remote --example client -- pair <host:port> <code>
 //!   cargo run -p aae-remote --example client -- call <method> [json params]
 //!   cargo run -p aae-remote --example client -- attach <device id> <seconds>
+//!   cargo run -p aae-remote --example client -- play <device id> <sound file>
+//!   cargo run -p aae-remote --example client -- mic <device id> <seconds>
+//!     (sends a 440 Hz tone into the device's microphone)
 //!
 //! Pairing saves the token and fingerprint in the system's temporary folder.
 
@@ -187,7 +190,53 @@ async fn main() -> Result<()> {
                 audio_bytes as f64 / 4.0 / 48_000.0
             );
         }
-        _ => bail!("pair <host:port> <code> | call <method> [params] | attach <id> [seconds]"),
+        Some("play") => {
+            // Sends a sound file, then has it played into the microphone.
+            let mut ws = signed_in().await?;
+            let number = call(&mut ws, "upload.begin", json!({"name": "test.m4a"})).await?;
+            let number = number.as_u64().unwrap_or(0) as u32;
+            let mut frame = vec![2u8];
+            frame.extend_from_slice(&number.to_be_bytes());
+            frame.extend_from_slice(&std::fs::read(&args[2])?);
+            ws.send(Message::binary(frame)).await?;
+            let said = call(
+                &mut ws,
+                "tools.microphone.play",
+                json!({"id": args[1], "upload": number}),
+            )
+            .await?;
+            println!("{said}");
+        }
+        Some("mic") => {
+            let mut ws = signed_in().await?;
+            call(&mut ws, "device.attach", json!({"id": args[1]})).await?;
+            let seconds: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);
+            let (rate, mut phase) = (48_000f32, 0f32);
+            let mut tick = tokio::time::interval(std::time::Duration::from_millis(20));
+            for _ in 0..seconds * 50 {
+                tick.tick().await;
+                let mut frame = vec![3u8];
+                for _ in 0..960 {
+                    phase += 2.0 * std::f32::consts::PI * 440.0 / rate;
+                    frame.extend_from_slice(&((phase.sin() * 16_000.0) as i16).to_le_bytes());
+                }
+                ws.send(Message::binary(frame)).await?;
+                // Says what the server says, such as microphone events.
+                while let Ok(Some(Ok(Message::Text(text)))) =
+                    tokio::time::timeout(std::time::Duration::ZERO, ws.next()).await
+                {
+                    println!("{text}");
+                }
+            }
+            ws.send(Message::text(
+                json!({"type": "microphone", "on": false}).to_string(),
+            ))
+            .await?;
+            println!("Sent {seconds} seconds of tone.");
+        }
+        _ => bail!(
+            "pair <host:port> <code> | call <method> [params] | attach <id> [seconds] | mic <id> [seconds]"
+        ),
     }
     Ok(())
 }

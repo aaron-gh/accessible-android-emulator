@@ -30,6 +30,9 @@ pub const MUTE: u16 = 222;
 pub const VOLUME_UP: u16 = 223;
 pub const VOLUME_DOWN: u16 = 224;
 pub const CHECK_AUDIO: u16 = 225;
+pub const MICROPHONE: u16 = 226;
+pub const CHECK_MICROPHONE: u16 = 227;
+pub const PLAY_FILE: u16 = 228;
 pub const COPY_CLIPBOARD: u16 = 230;
 pub const SEND_CLIPBOARD: u16 = 231;
 pub const TYPE_CLIPBOARD: u16 = 232;
@@ -125,6 +128,9 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                     Some((ca, VK_DOWN.0)),
                 ),
                 Item(CHECK_AUDIO, "&Check Audio", Some((ca, b'K' as u16))),
+                Item(MICROPHONE, MICROPHONE_ON, Some((cs, b'U' as u16))),
+                Item(CHECK_MICROPHONE, "Check Microp&hone", None),
+                Item(PLAY_FILE, PLAY_FILE_START, None),
                 SEPARATOR,
                 Item(
                     COPY_CLIPBOARD,
@@ -180,6 +186,46 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
             ],
         ),
     ]
+}
+
+const MICROPHONE_ON: &str = "Turn On Micr&ophone";
+const MICROPHONE_OFF: &str = "Turn Off Micr&ophone";
+
+const PLAY_FILE_START: &str = "Play Audio &File into Microphone…";
+const PLAY_FILE_STOP: &str = "Stop Playing Audio &File";
+
+/// Names the microphone items for what they will do, as their menu opens.
+pub fn name_microphone(menu: HMENU, on: bool, playing: bool) {
+    let play = ui::wide(if playing {
+        PLAY_FILE_STOP
+    } else {
+        PLAY_FILE_START
+    });
+    unsafe {
+        let _ = ModifyMenuW(
+            menu,
+            PLAY_FILE as u32,
+            MF_BYCOMMAND | MF_STRING,
+            PLAY_FILE as usize,
+            PCWSTR(play.as_ptr()),
+        );
+    }
+    let text = format!(
+        "{}\t{}",
+        if on { MICROPHONE_OFF } else { MICROPHONE_ON },
+        shortcut_name(CONTROL | SHIFT, b'U' as u16)
+    );
+    let text = ui::wide(&text);
+    unsafe {
+        // Fails harmlessly for menus without it.
+        let _ = ModifyMenuW(
+            menu,
+            MICROPHONE as u32,
+            MF_BYCOMMAND | MF_STRING,
+            MICROPHONE as usize,
+            PCWSTR(text.as_ptr()),
+        );
+    }
 }
 
 fn shortcut_name(modifiers: u8, key: u16) -> String {

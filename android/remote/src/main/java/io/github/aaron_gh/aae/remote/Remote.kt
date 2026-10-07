@@ -21,6 +21,9 @@ object Remote {
         private set
 
     private var sound: SoundOut? = null
+    private var microphone: PhoneMicrophone? = null
+    /** Whether the attached device hears the phone's microphone. */
+    val microphoneOn get() = microphone != null
     private var haptics: Haptics? = null
     private val watchers = mutableListOf<Connection.Listener>()
 
@@ -66,6 +69,8 @@ object Remote {
             }
 
             override fun event(name: String, data: JSONObject) {
+                // The computer couldn't send it in.
+                if (name == "microphone" && !data.optBoolean("on")) stopMicrophone()
                 if (name == "vibration") {
                     if (data.optBoolean("on")) haptics?.on(data.optString("effect").ifEmpty { null })
                     else haptics?.off(data.optLong("ms"))
@@ -129,7 +134,22 @@ object Remote {
         stopSound()
     }
 
+    /** Sends the phone's microphone to the attached device, or stops. Needs RECORD_AUDIO. */
+    fun setMicrophone(on: Boolean) {
+        if (!on) return stopMicrophone()
+        val connection = connection ?: throw IllegalStateException("Not connected to the computer.")
+        if (attached == null) throw IllegalStateException("No device is open.")
+        if (microphone == null) microphone = PhoneMicrophone { bytes, length -> connection.microphone(bytes, length) }
+    }
+
+    private fun stopMicrophone() {
+        microphone?.stop() ?: return
+        microphone = null
+        connection?.microphoneOff()
+    }
+
     private fun stopSound() {
+        stopMicrophone()
         connection?.sound = null
         sound?.release()
         sound = null

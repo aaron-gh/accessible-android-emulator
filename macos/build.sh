@@ -113,11 +113,13 @@ for part in "$FW"/Versions/B/XPCServices/*.xpc "$FW/Versions/B/Autoupdate" "$FW/
         codesign "${SIGN_FLAGS[@]}" "$part" >/dev/null
     fi
 done
-codesign "${SIGN_FLAGS[@]}" "$APP/Contents/Helpers/aae" >/dev/null
+CLI_SIGN_FLAGS=("${SIGN_FLAGS[@]}")
 APP_SIGN_FLAGS=("${SIGN_FLAGS[@]}")
 if [[ "$DEVELOPER_ID" == 1 ]]; then
+    CLI_SIGN_FLAGS+=(--entitlements macos/Support/cli.entitlements)
     APP_SIGN_FLAGS+=(--entitlements macos/Support/AAE.entitlements)
 fi
+codesign "${CLI_SIGN_FLAGS[@]}" "$APP/Contents/Helpers/aae" >/dev/null
 codesign "${APP_SIGN_FLAGS[@]}" "$APP" >/dev/null
 if [[ "$SIGN_ID" == "-" ]]; then
     echo "Built $APP, signed for this Mac only."

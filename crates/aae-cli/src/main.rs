@@ -35,6 +35,14 @@ struct Cli {
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
+enum MicAction {
+    On,
+    Check,
+    Level,
+    Play,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
 enum DaemonAction {
     Install,
     Uninstall,
@@ -478,6 +486,16 @@ enum Command {
         /// Pairs of setting and value: airplane on|off, wifi on|off,
         /// data on|off, speed <name>.
         settings: Vec<String>,
+    },
+    /// Microphone: on (until Control-C), check, level, or play <file>.
+    ///
+    /// play: WAV, MP3, FLAC, Ogg Vorbis or M4A, from the next recording.
+    Mic {
+        device: String,
+        #[arg(value_enum)]
+        action: MicAction,
+        /// The audio file, for "play".
+        file: Option<PathBuf>,
     },
     /// Set the device's location.
     Location {
@@ -1942,6 +1960,53 @@ async fn run(cli: Cli) -> Result<()> {
             };
             controller.set_orientation(next).await?;
             println!("{}.", next.describe());
+            Ok(())
+        }
+        Command::Mic {
+            device,
+            action,
+            file,
+        } => {
+            use aae_core::microphone;
+            let (_, controller, adb) = ctx.connect(&device).await?;
+            provision::update_helper(&ctx.sdk, &adb).await?;
+            match action {
+                MicAction::Check => {
+                    let heard = microphone::check(&controller, &adb).await?;
+                    println!("{}", microphone::describe_check(heard)?);
+                }
+                MicAction::Level => {
+                    let heard = microphone::level(&adb, 1500).await?;
+                    println!("Microphone peak over 1.5 seconds: {heard} of 32767.");
+                }
+                MicAction::Play => {
+                    let Some(file) = file else {
+                        bail!("Give an audio file: aae mic <device> play <file>");
+                    };
+                    let sound = microphone::decode(&file)?;
+                    println!(
+                        "{} seconds of audio. It plays when an app on the device records. Control-C cancels.",
+                        (sound.seconds() * 10.0).round() / 10.0
+                    );
+                    tokio::select! {
+                        played = microphone::play(&controller, &adb, &sound) => match played? {
+                            microphone::Played::Whole => println!("Played the whole file into the microphone."),
+                            microphone::Played::Stopped(at) => println!(
+                                "The app stopped recording {:.1} seconds in.",
+                                at
+                            ),
+                        },
+                        _ = tokio::signal::ctrl_c() => println!("Cancelled."),
+                    }
+                }
+                MicAction::On => {
+                    let mic = microphone::Microphone::start(&controller, &adb).await?;
+                    println!("Microphone on: {}. Control-C stops.", mic.name);
+                    tokio::signal::ctrl_c().await?;
+                    mic.stop();
+                    println!("Microphone off.");
+                }
+            }
             Ok(())
         }
         Command::Network { device, settings } => {

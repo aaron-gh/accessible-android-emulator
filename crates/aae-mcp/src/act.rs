@@ -130,6 +130,19 @@ pub(crate) struct NetworkParam {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(crate) struct MicrophoneFileParam {
+    /// The device's name. Leave it out when only one device is running.
+    pub device: Option<String>,
+    /// The sound file's full path: WAV, MP3, FLAC, Ogg Vorbis or M4A.
+    pub path: String,
+    /// Wait until it has played, and say how it went. Otherwise it returns
+    /// at once, and the file plays when an app on the device next records,
+    /// such as after voice typing starts.
+    #[serde(default)]
+    pub wait: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub(crate) struct LocationParam {
     /// The device's name. Leave it out when only one device is running.
     pub device: Option<String>,
@@ -496,6 +509,36 @@ impl AaeServer {
                     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
                 }
                 text(session.network().await?.description)
+            }
+            .await,
+        )
+    }
+
+    /// Plays a sound file into the device's microphone the next time an app
+    /// on it records, from the start, for testing voice input such as voice
+    /// typing or search. Start the app listening after calling this.
+    #[tool(annotations(destructive_hint = false))]
+    async fn play_into_microphone(
+        &self,
+        Parameters(p): Parameters<MicrophoneFileParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                // Says now if it isn't sound, rather than when it would play.
+                let sound = aae_core::microphone::decode(std::path::Path::new(&p.path))?;
+                if p.wait {
+                    return text(session.play_into_microphone(p.path).await?);
+                }
+                tokio::spawn(async move {
+                    if let Err(e) = session.play_into_microphone(p.path).await {
+                        tracing::warn!("playing into the microphone: {e}");
+                    }
+                });
+                text(format!(
+                    "{:.1} seconds of audio will play into the device's microphone when an app on it next records.",
+                    sound.seconds()
+                ))
             }
             .await,
         )

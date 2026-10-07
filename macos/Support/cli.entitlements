@@ -2,10 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Announcements can go to VoiceOver through Apple Events. -->
-    <key>com.apple.security.automation.apple-events</key>
-    <true/>
-    <!-- Device > Turn On Microphone sends the Mac's microphone into a device. -->
+    <!-- "aae mic <device> on" sends the Mac's microphone into a device. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
 </dict>

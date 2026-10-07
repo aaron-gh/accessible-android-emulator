@@ -157,6 +157,10 @@ final class AppModel: ObservableObject {
     private var appliedCorrectPitch = true
     private var defaultsObserver: NSObjectProtocol?
     private var sessions: [String: Session] = [:]
+    /// Devices hearing the Mac's microphone.
+    @Published private(set) var microphones: Set<String> = []
+    /// Devices with a sound file waiting for, or playing into, their microphone.
+    @Published private(set) var playingFiles: Set<String> = []
     /// Devices whose missing sound has been mentioned, so it's said once.
     private var soundProblems: Set<String> = []
     private var soundWatch: Task<Void, Never>?
@@ -501,7 +505,7 @@ final class AppModel: ObservableObject {
         let id = device.id
         busy[id] = "Restarting"
         // Android's audio goes away while it restarts; listen again after.
-        sessions.removeValue(forKey: id)?.stopAudio()
+        endSession(id)
         let relay = ProgressRelay { [weak self] message in self?.announce(message) }
         Task {
             do {
@@ -533,7 +537,7 @@ final class AppModel: ObservableObject {
         }
         let id = device.id
         busy[id] = "Wiping"
-        sessions.removeValue(forKey: id)?.stopAudio()
+        endSession(id)
         announce("Wiping \(device.name). Setting it up again takes a few minutes.")
         let relay = ProgressRelay { [weak self] message in self?.announce(message) }
         Task {
@@ -565,7 +569,7 @@ final class AppModel: ObservableObject {
         let name = devices.first { $0.id == id }?.name ?? "The device"
         busy[id] = "Stopping"
         announce("Stopping \(name).")
-        sessions.removeValue(forKey: id)?.stopAudio()
+        endSession(id)
         Task {
             do {
                 try await engine.stopDevice(id: id)
@@ -895,6 +899,18 @@ final class AppModel: ObservableObject {
     }
 
     /// Runs an action on the selected device's session, announcing any failure.
+    /// Lets go of a device's connection, with its sound and microphone.
+    private func endSession(_ id: String) {
+        guard let session = sessions.removeValue(forKey: id) else { return }
+        session.stopAudio()
+        if playingFiles.remove(id) != nil {
+            _ = session.stopPlayingIntoMicrophone()
+        }
+        if microphones.remove(id) != nil {
+            Task { _ = try? await session.setMicrophone(on: false) }
+        }
+    }
+
     private func withSession(_ action: @escaping @MainActor (Session) async throws -> Void) {
         guard let device = selected else { return }
         guard device.running else {
@@ -1171,6 +1187,60 @@ final class AppModel: ObservableObject {
         guard let device = selected else { return }
         let now = (device.volume * 10).rounded() / 10
         setVolume(now + (up ? 0.1 : -0.1), announce: true)
+    }
+
+    /// Sends the Mac's microphone into the selected device, or stops.
+    func toggleMicrophone() {
+        guard let device = selected else { return }
+        let on = !microphones.contains(device.id)
+        withSession { [weak self] session in
+            guard let self else { return }
+            let said = try await session.setMicrophone(on: on)
+            if on { self.microphones.insert(device.id) } else { self.microphones.remove(device.id) }
+            self.announce(said)
+        }
+    }
+
+    /// Plays an audio file into the selected device's microphone from the
+    /// next recording. Chosen while one is queued or playing, it stops it.
+    func playFileIntoMicrophone() {
+        guard let device = selected else { return }
+        let id = device.id
+        if playingFiles.contains(id) {
+            if let session = sessions[id], session.stopPlayingIntoMicrophone() {
+                playingFiles.remove(id)
+                return
+            }
+            playingFiles.remove(id)
+        }
+        let panel = NSOpenPanel()
+        panel.message = "Choose an audio file to play into \(device.name)'s microphone."
+        panel.allowedContentTypes = [.audio]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        withSession { [weak self] session in
+            guard let self else { return }
+            self.playingFiles.insert(id)
+            self.announce("\(url.lastPathComponent) queued for the next recording.")
+            do {
+                let said = try await session.playIntoMicrophone(path: url.path)
+                self.playingFiles.remove(id)
+                self.announce(said)
+            } catch {
+                self.playingFiles.remove(id)
+                throw error
+            }
+        }
+    }
+
+    /// Injects a tone into the selected device's microphone and reports
+    /// whether it was recorded. No host audio.
+    func checkMicrophone() {
+        guard let device = selected else { return }
+        announce("Checking \(device.name)'s microphone.")
+        withSession { [weak self] session in
+            let said = try await session.checkMicrophone()
+            self?.announce(said, tone: .success)
+        }
     }
 
     func toggleMute() {

@@ -9,6 +9,8 @@
         android:usesPermissionFlags="neverForLocation" />
     <!-- The device's vibrations. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The phone's microphone, sent to a device when you turn it on. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Keeping the device's sound and the connection going with the screen off. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />

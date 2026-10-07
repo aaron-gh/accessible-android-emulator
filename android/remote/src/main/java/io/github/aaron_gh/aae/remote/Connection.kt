@@ -179,6 +179,22 @@ class Connection private constructor(
         socket?.send(JSONObject().put("type", "touch").put("points", points).toString())
     }
 
+    /** Sound from the phone's microphone, as 16-bit little-endian samples, for the attached device. */
+    fun microphone(data: ByteArray, length: Int) {
+        val socket = socket ?: return
+        // Drop audio rather than queue it when the socket falls behind.
+        if (socket.queueSize() > 64 * 1024) return
+        val frame = ByteArray(1 + length)
+        frame[0] = MICROPHONE_FRAME
+        System.arraycopy(data, 0, frame, 1, length)
+        socket.send(ByteString.of(*frame))
+    }
+
+    /** The attached device stops hearing the phone's microphone. */
+    fun microphoneOff() {
+        socket?.send(JSONObject().put("type", "microphone").put("on", false).toString())
+    }
+
     /** Sends part of a file, after upload.begin gave it [number]. False if it couldn't be queued. */
     fun uploadPart(number: Int, data: ByteArray, length: Int): Boolean {
         val socket = socket ?: return false
@@ -205,6 +221,7 @@ class Connection private constructor(
     companion object {
         const val AUDIO_FRAME: Byte = 1
         const val UPLOAD_FRAME: Byte = 2
+        const val MICROPHONE_FRAME: Byte = 3
         const val DEFAULT_PORT = 47735
 
         /** Signs in to a paired computer. */

@@ -465,6 +465,28 @@ impl Controller {
 
     // Audio.
 
+    /// Lets sound into the device's microphone. The emulator zeroes it
+    /// otherwise.
+    pub async fn allow_microphone(&self, allowed: bool) -> Result<()> {
+        self.emu
+            .clone()
+            .set_microphone_state(pb::MicrophoneState {
+                real_audio_enabled: allowed,
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Sends audio into the device's microphone until `packets` ends.
+    /// Only one source can feed the microphone at a time.
+    pub async fn inject_audio(
+        &self,
+        packets: impl tokio_stream::Stream<Item = pb::AudioPacket> + Send + 'static,
+    ) -> Result<()> {
+        self.emu.clone().inject_audio(packets).await?;
+        Ok(())
+    }
+
     /// Starts streaming the device's audio output as 16-bit signed samples.
     pub async fn stream_audio(
         &self,

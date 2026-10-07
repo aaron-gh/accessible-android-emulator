@@ -102,8 +102,15 @@ pub fn start(
         command.arg("-no-snapshot-save");
     }
     if !options.emulator_audio {
-        // The gRPC audio stream still works with the host backend off.
+        // AAE plays the device's sound from the gRPC stream, and sends sound
+        // into its microphone the same way, so the emulator uses neither the
+        // computer's speakers nor its microphone. "-audio none" keeps the
+        // device's sound smooth, but removes its microphone, so what AAE
+        // sends into it comes out as silence; the input's "none" driver puts
+        // it back. ("none" for the output too, rather than "-audio none",
+        // makes the device's sound crackle.)
         command.arg("-audio").arg("none");
+        command.env("QEMU_AUDIO_IN_DRV", "none");
     }
     command.args(&options.extra_args);
     detach(&mut command);

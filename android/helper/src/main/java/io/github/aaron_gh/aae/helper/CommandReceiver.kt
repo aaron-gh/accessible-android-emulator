@@ -80,6 +80,16 @@ class CommandReceiver : BroadcastReceiver() {
                 if (intent.getBooleanExtra("clear", false)) SpeechLog.clear()
                 setResult(1, SpeechLog.since(intent.getLongExtra("since", 0)).toString(), null)
             }
+            ACTION_MIC_LEVEL -> {
+                // Recording takes a moment, so it answers asynchronously.
+                val pending = goAsync()
+                val ms = intent.getIntExtra("ms", 1000).coerceIn(100, 5000)
+                Thread {
+                    val peak = MicLevel.peak(ms)
+                    pending.setResult(if (peak >= 0) 1 else 0, peak.toString(), null)
+                    pending.finish()
+                }.start()
+            }
             ACTION_DUMP_TREE -> {
                 val service = HelperService.instance
                 if (service == null) {
@@ -121,6 +131,7 @@ class CommandReceiver : BroadcastReceiver() {
         const val ACTION_CHECK_SPEECH = "io.github.aaron_gh.aae.helper.CHECK_SPEECH"
         const val ACTION_PLAY_TONE = "io.github.aaron_gh.aae.helper.PLAY_TONE"
         const val ACTION_DUMP_TREE = "io.github.aaron_gh.aae.helper.DUMP_TREE"
+        const val ACTION_MIC_LEVEL = "io.github.aaron_gh.aae.helper.MIC_LEVEL"
         const val ACTION_SPEECH_RELAY = "io.github.aaron_gh.aae.helper.SPEECH_RELAY"
         const val ACTION_SPEECH_LOG = "io.github.aaron_gh.aae.helper.SPEECH_LOG"
         const val ACTION_LIST_APPS = "io.github.aaron_gh.aae.helper.LIST_APPS"

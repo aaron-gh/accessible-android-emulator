@@ -4,17 +4,23 @@ use std::sync::Arc;
 
 use aae_core::control::TouchPoint;
 use aae_ffi::Session;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::server::{AUDIO_FRAME, AUDIO_RATE, Out};
+
+/// The phone's microphone sound: 48 kHz mono.
+const MICROPHONE_RATE: u32 = 48_000;
 
 /// A device attached to a phone.
 pub struct Attachment {
     pub session: Arc<Session>,
     touches: mpsc::UnboundedSender<Vec<TouchPoint>>,
     tasks: Vec<JoinHandle<()>>,
+    out: Out,
+    /// The phone's microphone stream, while on.
+    microphone: Option<(mpsc::Sender<Vec<i16>>, JoinHandle<()>)>,
 }
 
 impl Attachment {
@@ -54,19 +60,65 @@ impl Attachment {
         }));
 
         // The helper watches the vibrator; an older one can't say what played.
-        let (helper, adb) = (session.clone(), session.adb());
+        let (helper, adb, vibrations) = (session.clone(), session.adb(), out.clone());
         tasks.push(tokio::spawn(async move {
             if let Err(e) = helper.update_helper().await {
                 tracing::warn!("couldn't update AAE's helper: {e}");
             }
-            crate::vibration::watch(adb, out).await;
+            crate::vibration::watch(adb, vibrations).await;
         }));
 
         Attachment {
             session,
             touches,
             tasks,
+            out,
+            microphone: None,
         }
+    }
+
+    /// Sound from the phone's microphone, as 16-bit little-endian samples:
+    /// the first starts sending it into the device's.
+    pub fn microphone(&mut self, bytes: &[u8]) {
+        if self
+            .microphone
+            .as_ref()
+            .is_none_or(|(_, task)| task.is_finished())
+        {
+            let (feed, task) = aae_core::microphone::feed(
+                &self.session.controller(),
+                &self.session.adb(),
+                MICROPHONE_RATE,
+            );
+            // Says why, if the emulator won't take it, such as when the
+            // computer's microphone is already going in.
+            let out = self.out.clone();
+            let task = tokio::spawn(async move {
+                if let Ok(Err(e)) = task.await {
+                    out.json(json!({
+                        "type": "event",
+                        "event": "microphone",
+                        "on": false,
+                        "message": format!("Microphone input to the device failed: {e}"),
+                    }));
+                }
+            });
+            self.microphone = Some((feed, task));
+        }
+        let samples = bytes
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        if let Some((feed, _)) = &self.microphone {
+            // Sound that can't keep up is dropped, not queued.
+            let _ = feed.try_send(samples);
+        }
+    }
+
+    /// Stops the phone's microphone stream.
+    pub fn microphone_off(&mut self) {
+        // Ending the stream ends the emulator's injection.
+        self.microphone = None;
     }
 
     /// Touches from the phone: `[{"id":0,"x":…,"y":…,"down":true}]`.
@@ -91,6 +143,9 @@ impl Attachment {
     }
 
     pub fn stop(self) {
+        if let Some((_, task)) = self.microphone {
+            task.abort();
+        }
         for task in self.tasks {
             task.abort();
         }

@@ -66,6 +66,7 @@ struct AAEApp: App {
                     .keyboardShortcut(.downArrow, modifiers: [.command, .option])
                 Button("Check Audio") { model.checkAudio() }
                     .keyboardShortcut("k", modifiers: [.command, .option])
+                MicrophoneMenuItems(model: model)
                 Divider()
                 Button("Copy Device Clipboard to Mac") { model.copyDeviceClipboard() }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
@@ -162,6 +163,23 @@ struct AAEApp: App {
 
 /// Device mode captures keys in the main window, so it opens that window
 /// first, whichever AAE window the shortcut was pressed in.
+/// Turns the Mac's microphone into the selected device on or off, named for
+/// what it will do.
+struct MicrophoneMenuItems: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        let on = model.selection.map { model.microphones.contains($0) } ?? false
+        Button(on ? "Turn Off Microphone" : "Turn On Microphone") { model.toggleMicrophone() }
+            .keyboardShortcut("u", modifiers: [.command, .shift])
+        Button("Check Microphone") { model.checkMicrophone() }
+        let playing = model.selection.map { model.playingFiles.contains($0) } ?? false
+        Button(playing ? "Stop Playing Audio File" : "Play Audio File into Microphone…") {
+            model.playFileIntoMicrophone()
+        }
+    }
+}
+
 struct DeviceModeMenuItem: View {
     @Environment(\.openWindow) private var openWindow
     let model: AppModel

@@ -26,5 +26,7 @@
     <string>NSApplication</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>AAE speaks its announcements through VoiceOver.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>AAE sends your microphone into a device when you turn on its microphone.</string>
 </dict>
 </plist>

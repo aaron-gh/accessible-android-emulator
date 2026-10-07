@@ -12,6 +12,10 @@ import org.json.JSONObject
 
 /** The device's testing tools, the clipboard, and installing apps from the phone. */
 class ToolsActivity : ToolActivity() {
+    private lateinit var playButton: android.widget.Button
+    /** A sound file is waiting for, or playing into, the device's microphone. */
+    private var playing = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (isFinishing) return
@@ -28,6 +32,7 @@ class ToolsActivity : ToolActivity() {
         open("Battery, Location, Phone and Network", ConditionsActivity::class.java)
         open("Open Link or Send Intent", LinkActivity::class.java)
         ui.button("Install App") { chooseApk() }
+        playButton = ui.button("Play Audio File into Microphone") { playOrStop() }
         ui.button("Send Phone Clipboard to Device") { sendClipboard(type = false) }
         ui.button("Type Phone Clipboard on Device") { sendClipboard(type = true) }
         ui.button("Copy Device Clipboard to Phone") { copyClipboard() }
@@ -64,27 +69,72 @@ class ToolsActivity : ToolActivity() {
         startActivityForResult(pick, CHOOSE_APK)
     }
 
+    /** A sound file into the device's microphone, for testing voice input; or stops one. */
+    private fun playOrStop() {
+        if (playing) {
+            call("tools.microphone.stop", params())
+            return
+        }
+        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("audio/*")
+        startActivityForResult(pick, CHOOSE_SOUND)
+    }
+
+    private fun play(uri: Uri) {
+        val name = fileName(uri, "sound")
+        send(uri, name) { number ->
+            playing = true
+            playButton.text = "Stop Playing Audio File"
+            ui.say("$name queued for the next recording.")
+            call("tools.microphone.play", params().put("upload", number), failed = { stopped() }) { said ->
+                stopped()
+                ui.say(said.toString())
+            }
+        }
+    }
+
+    private fun stopped() {
+        playing = false
+        playButton.text = "Play Audio File into Microphone"
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == CHOOSE_APK && resultCode == RESULT_OK) data?.data?.let { install(it) }
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        when (requestCode) {
+            CHOOSE_APK -> install(uri)
+            CHOOSE_SOUND -> play(uri)
+        }
     }
 
-    private fun fileName(uri: Uri): String =
+    private fun fileName(uri: Uri, otherwise: String = "app.apk"): String =
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null
-        } ?: "app.apk"
+        } ?: otherwise
 
     /** Sends the APK to the computer, which installs it on the device. */
     private fun install(uri: Uri) {
-        val connection = Remote.connection ?: return
         val name = fileName(uri)
+        send(uri, name) { number ->
+            ui.say("Installing $name.")
+            call("tools.install", params().put("upload", number)) { result ->
+                val json = result as JSONObject
+                ui.say("Installed ${json.optString("package")}.")
+                askParts(json.optJSONArray("parts") ?: JSONArray())
+            }
+        }
+    }
+
+    /** Sends a file to the computer; [sent] gets its upload number. */
+    private fun send(uri: Uri, name: String, sent: (Int) -> Unit) {
+        val connection = Remote.connection ?: return
         ui.say("Sending $name.")
         connection.call("upload.begin", JSONObject().put("name", name)) { begun ->
             val number = begun.getOrNull()?.toString()?.toIntOrNull()
                 ?: return@call ui.say("The computer couldn't take the file: ${begun.exceptionOrNull()?.message}")
             Thread {
-                val sent = try {
+                val ok = try {
                     contentResolver.openInputStream(uri)?.use { input ->
                         val buffer = ByteArray(256 * 1024)
                         while (true) {
@@ -98,13 +148,8 @@ class ToolsActivity : ToolActivity() {
                     false
                 }
                 runOnUiThread {
-                    if (!sent) return@runOnUiThread ui.say("$name couldn't be sent.")
-                    ui.say("Installing $name.")
-                    call("tools.install", params().put("upload", number)) { result ->
-                        val json = result as JSONObject
-                        ui.say("Installed ${json.optString("package")}.")
-                        askParts(json.optJSONArray("parts") ?: JSONArray())
-                    }
+                    if (!ok) return@runOnUiThread ui.say("$name couldn't be sent.")
+                    sent(number)
                 }
             }.start()
         }
@@ -130,5 +175,6 @@ class ToolsActivity : ToolActivity() {
 
     companion object {
         private const val CHOOSE_APK = 1
+        private const val CHOOSE_SOUND = 2
     }
 }

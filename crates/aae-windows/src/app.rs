@@ -74,6 +74,12 @@ fn close_session(id: &str) {
     let session = SESSIONS.lock().unwrap().as_mut().and_then(|s| s.remove(id));
     if let Some(session) = session {
         session.stop_audio();
+        session.stop_playing_into_microphone();
+        if session.microphone_on() {
+            spawn(async move {
+                let _ = session.set_microphone(false).await;
+            });
+        }
     }
 }
 
@@ -776,6 +782,9 @@ pub fn command(id: u16, notification: u32) {
         VOLUME_UP => step_volume(true),
         VOLUME_DOWN => step_volume(false),
         CHECK_AUDIO => check_audio(),
+        MICROPHONE => toggle_microphone(),
+        CHECK_MICROPHONE => check_microphone(),
+        PLAY_FILE => play_file_into_microphone(),
         COPY_CLIPBOARD => copy_device_clipboard(),
         SEND_CLIPBOARD => send_clipboard(false),
         TYPE_CLIPBOARD => send_clipboard(true),
@@ -2065,6 +2074,82 @@ fn toggle_mute() {
         );
         Ok(())
     });
+}
+
+/// Sends this computer's microphone into the selected device, or stops.
+fn toggle_microphone() {
+    with_session(|s| async move {
+        let said = s.set_microphone(!s.microphone_on()).await?;
+        say(said, Tone::Info);
+        Ok(())
+    });
+}
+
+/// Injects a tone into the selected device's microphone and reports whether
+/// it was recorded. No host audio.
+fn check_microphone() {
+    let (device, _) = selected();
+    let Some(device) = device else { return };
+    announce(
+        &format!("Checking {}'s microphone.", device.name),
+        Tone::Info,
+    );
+    with_session(|s| async move {
+        let said = s.check_microphone().await?;
+        say(said, Tone::Success);
+        Ok(())
+    });
+}
+
+/// Plays an audio file into the selected device's microphone from the next
+/// recording. Chosen while one is queued or playing, it stops it.
+fn play_file_into_microphone() {
+    let (device, _) = selected();
+    let Some(device) = device else { return };
+    if let Some(session) = session_if_open(&device.id)
+        && session.stop_playing_into_microphone()
+    {
+        return;
+    }
+    let hwnd = with(|app| app.hwnd);
+    let files = ui::open_files(
+        hwnd,
+        &format!(
+            "Choose an audio file to play into {}'s microphone",
+            device.name
+        ),
+        &[(
+            "Sound files",
+            "*.wav;*.mp3;*.flac;*.ogg;*.oga;*.m4a;*.aac;*.mp4",
+        )],
+        false,
+    );
+    let Some(path) = files.into_iter().next() else {
+        return;
+    };
+    let file = std::path::Path::new(&path)
+        .file_name()
+        .map_or(path.clone(), |n| n.to_string_lossy().into_owned());
+    announce(
+        &format!("{file} queued for the next recording."),
+        Tone::Info,
+    );
+    with_session(move |s| async move {
+        let said = s.play_into_microphone(path).await?;
+        say(said, Tone::Info);
+        Ok(())
+    });
+}
+
+/// A menu is opening: names its items for the selected device.
+pub fn menu_opening(menu: windows::Win32::UI::WindowsAndMessaging::HMENU) {
+    let (device, _) = selected();
+    let session = device.and_then(|d| session_if_open(&d.id));
+    let on = session.as_ref().is_some_and(|s| s.microphone_on());
+    let playing = session
+        .as_ref()
+        .is_some_and(|s| s.playing_into_microphone());
+    crate::menu::name_microphone(menu, on, playing);
 }
 
 fn speak_status() {
