@@ -23,6 +23,10 @@ tokio-tungstenite = { version = "0.28", default-features = false, features = ["h
 hmac = "0.13"
 getrandom = "0.4"
 mdns-sd = "0.17"
+directories.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 anyhow.workspace = true

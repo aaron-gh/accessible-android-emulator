@@ -34,6 +34,13 @@ struct Cli {
     command: Command,
 }
 
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum DaemonAction {
+    Install,
+    Uninstall,
+    Status,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Check the Android SDK, emulator and audio, and say what is missing.
@@ -62,6 +69,22 @@ enum Command {
         no_discovery: bool,
         /// Print events as JSON lines, for AAE's apps, which run aae serve:
         /// {"event":"serving",…}, {"event":"code","code":…}, {"event":"notice","text":…}.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Make a pairing code for AAE Remote, for whichever aae serve is
+    /// running, such as one started at login. It works once, for 10 minutes.
+    Pair {
+        /// Print it as JSON, for AAE's apps.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Serve this computer's devices to AAE Remote whenever you log in,
+    /// without AAE open: install, uninstall, or status.
+    Daemon {
+        #[arg(value_enum)]
+        action: DaemonAction,
+        /// Print the status as JSON, for AAE's apps.
         #[arg(long)]
         json: bool,
     },
@@ -727,6 +750,59 @@ async fn run(cli: Cli) -> Result<()> {
             no_discovery,
             json,
         } => serve(port, !no_discovery, json).await,
+        Command::Pair { json } => {
+            let code = aae_remote::security::Pairing::default().new_code();
+            let minutes = aae_remote::security::CODE_LIFETIME.as_secs() / 60;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"code": code, "minutes": minutes, "serving": aae_remote::daemon::running_pid().is_some()})
+                );
+            } else {
+                println!(
+                    "Pairing code: {code}. Enter it in AAE Remote; it works once, for {minutes} minutes."
+                );
+                if aae_remote::daemon::running_pid().is_none() {
+                    println!("Nothing is serving yet: run aae serve, or aae daemon install.");
+                }
+            }
+            Ok(())
+        }
+        Command::Daemon { action, json } => {
+            use aae_remote::daemon;
+            match action {
+                DaemonAction::Install => {
+                    println!("{}", daemon::install().map_err(|e| anyhow::anyhow!(e))?)
+                }
+                DaemonAction::Uninstall => {
+                    println!("{}", daemon::uninstall().map_err(|e| anyhow::anyhow!(e))?)
+                }
+                DaemonAction::Status => {
+                    let status = daemon::status();
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::json!({"installed": status.installed, "running": status.running})
+                        );
+                    } else {
+                        println!(
+                            "{} {}",
+                            if status.installed {
+                                "AAE serves devices whenever you log in."
+                            } else {
+                                "AAE isn't set to serve at login."
+                            },
+                            if status.running {
+                                "It's serving now."
+                            } else {
+                                "Nothing is serving now."
+                            }
+                        );
+                    }
+                }
+            }
+            Ok(())
+        }
         Command::Phones { unpair, json } => {
             let clients = aae_remote::security::Clients::load();
             if json && unpair.is_none() {
@@ -2598,9 +2674,20 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
             println!("{text}");
         }
     };
+    if let Some(pid) = aae_remote::daemon::running_pid() {
+        let text = format!(
+            "AAE is already serving this computer's devices (process {pid}), as at login. Use aae pair for a pairing code."
+        );
+        say(
+            serde_json::json!({"event": "error", "text": text}),
+            text.clone(),
+        );
+        bail!("Already serving.");
+    }
     let engine = aae_ffi::Engine::new()?;
     let name = aae_remote::discovery::computer_name();
     let server = aae_remote::Server::new(engine, name.clone())?;
+    aae_remote::daemon::write_pid();
     let (notices, mut notes) = tokio::sync::mpsc::unbounded_channel();
     server.on_notice(notices);
     let _announcement = if discovery {
@@ -2637,8 +2724,13 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
             ),
         );
     };
-    show_code();
-    if !json {
+    // Run at login there's nobody to read a code: aae pair makes one.
+    use std::io::IsTerminal;
+    let attended = json || std::io::stdin().is_terminal();
+    if attended {
+        show_code();
+    }
+    if !json && attended {
         println!("Press P and Enter for a new pairing code, or Q and Enter to stop.");
     }
     let mut input = tokio::io::BufReader::new(tokio::io::stdin()).lines();
@@ -2664,8 +2756,16 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
             break;
         }
     }
+    aae_remote::daemon::remove_pid();
     if running.is_finished() {
-        running.await??;
+        if let Err(e) = running.await? {
+            let text = format!("Serving stopped: {e}");
+            say(
+                serde_json::json!({"event": "error", "text": text}),
+                text.clone(),
+            );
+            bail!(e);
+        }
     }
     if !json {
         println!("Stopped serving.");

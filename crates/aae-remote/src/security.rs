@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
@@ -152,21 +152,44 @@ impl Clients {
     }
 }
 
-/// The pairing code being offered, if any.
+/// The pairing code being offered, if any. It's kept in a file in AAE's
+/// private data folder, so a code made by any of AAE's programs, such as
+/// `aae pair` or the apps, works with whichever server is running, such as
+/// one started at login.
+#[derive(Default)]
 pub struct Pairing {
-    current: Mutex<Option<Code>>,
+    /// Codes are checked one at a time.
+    lock: Mutex<()>,
 }
 
+#[derive(Serialize, Deserialize)]
 struct Code {
     text: String,
-    made: Instant,
+    /// When it was made, in seconds since 1970.
+    made: u64,
     tries: u32,
 }
 
-impl Default for Pairing {
-    fn default() -> Self {
-        Pairing {
-            current: Mutex::new(None),
+fn code_path() -> PathBuf {
+    folder().join("pairing.json")
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+fn save_code(code: Option<&Code>) {
+    match code {
+        Some(code) => {
+            let _ = std::fs::create_dir_all(folder());
+            if let Ok(json) = serde_json::to_vec(code) {
+                let _ = write_private(&code_path(), &json);
+            }
+        }
+        None => {
+            let _ = std::fs::remove_file(code_path());
         }
     }
 }
@@ -175,12 +198,13 @@ impl Pairing {
     /// Makes a new code, replacing any other. Returns it as shown to people:
     /// "ABCD-EFGH-JKLM".
     pub fn new_code(&self) -> String {
+        let _held = self.lock.lock().unwrap();
         let text = random_text(CODE_LENGTH);
-        *self.current.lock().unwrap() = Some(Code {
+        save_code(Some(&Code {
             text: text.clone(),
-            made: Instant::now(),
+            made: now(),
             tries: 0,
-        });
+        }));
         show_code(&text)
     }
 
@@ -193,31 +217,34 @@ impl Pairing {
         nonce: &str,
         proof: &str,
     ) -> Result<String, &'static str> {
-        let mut current = self.current.lock().unwrap();
-        let Some(code) = current.as_mut() else {
+        let _held = self.lock.lock().unwrap();
+        let code: Option<Code> = std::fs::read(code_path())
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
+        let Some(mut code) = code else {
             return Err(
                 "This computer isn't offering a pairing code. Make a new one on it, then try again.",
             );
         };
-        if code.made.elapsed() > CODE_LIFETIME {
-            *current = None;
+        if now().saturating_sub(code.made) > CODE_LIFETIME.as_secs() {
+            save_code(None);
             return Err("The pairing code has run out. Make a new one on the computer.");
         }
         if equal(
             proof.as_bytes(),
             client_proof(&code.text, fingerprint, nonce).as_bytes(),
         ) {
-            let text = code.text.clone();
-            *current = None;
-            return Ok(text);
+            save_code(None);
+            return Ok(code.text);
         }
         code.tries += 1;
         if code.tries >= CODE_TRIES {
-            *current = None;
+            save_code(None);
             return Err(
                 "That code was wrong too many times, so it no longer works. Make a new one on the computer.",
             );
         }
+        save_code(Some(&code));
         Err("That pairing code isn't right. Check it on the computer, and try again.")
     }
 }
@@ -281,8 +308,19 @@ pub fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    /// The tests share the code file, so they use their own folder, one at a time.
+    fn isolated() -> std::sync::MutexGuard<'static, ()> {
+        static ONE: Mutex<()> = Mutex::new(());
+        let guard = ONE.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("aae-pairing-test-{}", std::process::id()));
+        // SAFETY: the tests that read it hold the lock.
+        unsafe { std::env::set_var("AAE_HOME", &dir) };
+        guard
+    }
+
     #[test]
     fn a_right_proof_pairs_once() {
+        let _one = isolated();
         let pairing = Pairing::default();
         let shown = pairing.new_code();
         assert_eq!(shown.len(), 14);
@@ -295,6 +333,7 @@ mod tests {
 
     #[test]
     fn a_proof_for_another_certificate_fails() {
+        let _one = isolated();
         let pairing = Pairing::default();
         let code = pairing.new_code();
         // A phone shown someone else's certificate proves over that one.
@@ -304,6 +343,7 @@ mod tests {
 
     #[test]
     fn too_many_wrong_tries_end_the_code() {
+        let _one = isolated();
         let pairing = Pairing::default();
         let code = pairing.new_code();
         for _ in 0..CODE_TRIES {
@@ -315,6 +355,7 @@ mod tests {
 
     #[test]
     fn codes_are_twelve_characters_of_the_alphabet() {
+        let _one = isolated();
         let code = normalise_code(&Pairing::default().new_code());
         assert_eq!(code.len(), CODE_LENGTH);
         assert!(code.bytes().all(|b| ALPHABET.contains(&b)));

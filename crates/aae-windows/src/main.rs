@@ -38,7 +38,46 @@ fn main() {
 
 #[cfg(windows)]
 fn main() {
+    if std::env::args().any(|a| a == "--serve") {
+        serve_hidden();
+    }
     window::run();
+}
+
+/// Serving at login (`aae daemon install` sets it up): runs `aae serve`, the
+/// aae.exe next to this app, with no console window, which aae.exe started
+/// directly would show at every login, until it stops. The app's own window
+/// doesn't open.
+#[cfg(windows)]
+fn serve_hidden() -> ! {
+    use std::os::windows::process::CommandExt;
+    let aae = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("aae.exe")));
+    let log = aae_core::paths::data_dir().join("logs");
+    let _ = std::fs::create_dir_all(&log);
+    let output = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log.join("serve.log"));
+    let status = match (aae, output) {
+        (Some(aae), Ok(output)) => {
+            let errors = output.try_clone();
+            let mut command = std::process::Command::new(aae);
+            command
+                .arg("serve")
+                .stdin(std::process::Stdio::null())
+                .stdout(output)
+                // No console window.
+                .creation_flags(0x0800_0000);
+            if let Ok(errors) = errors {
+                command.stderr(errors);
+            }
+            command.status().map(|s| s.code().unwrap_or(1)).unwrap_or(1)
+        }
+        _ => 1,
+    };
+    std::process::exit(status);
 }
 
 /// Records a panic caught on its way out of a Windows callback in AAE's log.

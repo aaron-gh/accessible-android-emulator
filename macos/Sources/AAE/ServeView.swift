@@ -15,6 +15,8 @@ final class Serving: ObservableObject {
     @Published private(set) var code: String?
     @Published private(set) var status = "Not serving."
     @Published private(set) var phones: [PairedPhone] = []
+    /// Serving whenever this person logs in, without AAE open.
+    @Published private(set) var atLogin = false
     /// Says things through VoiceOver, set by the app.
     var announce: @MainActor (String) -> Void = { _ in }
 
@@ -28,7 +30,62 @@ final class Serving: ObservableObject {
         return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
     }
 
+    /// Runs the aae command and returns what it printed.
+    private nonisolated func output(_ aae: URL, _ arguments: [String]) -> Data {
+        let process = Process()
+        process.executableURL = aae
+        process.arguments = arguments
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return data
+    }
+
+    /// Whether serving at login is set up, and whether it's serving now.
+    func refresh() {
+        guard let aae else { return }
+        Task.detached {
+            let data = self.output(aae, ["daemon", "status", "--json"])
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            await MainActor.run {
+                self.atLogin = json?["installed"] as? Bool ?? false
+                if self.atLogin, self.process == nil {
+                    self.on = json?["running"] as? Bool ?? false
+                    self.status = self.on ? "Serving in the background, at login too." : "Set to serve at login, but not serving now."
+                }
+            }
+        }
+        loadPhones()
+    }
+
+    /// Serves at login, or stops: run in the background, by the system.
+    func setAtLogin(_ wanted: Bool) {
+        guard let aae else { return }
+        if wanted, process != nil {
+            // The login server takes over.
+            try? input?.close()
+            input = nil
+            process = nil
+        }
+        Task.detached {
+            let data = self.output(aae, ["daemon", wanted ? "install" : "uninstall"])
+            let said = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            await MainActor.run {
+                self.announce(said.isEmpty ? "That didn't work." : said)
+                self.code = nil
+                self.refresh()
+            }
+        }
+    }
+
     func start() {
+        if atLogin {
+            setAtLogin(true)
+            return
+        }
         guard process == nil else { return }
         guard let aae else {
             status = "This copy of AAE doesn't include the aae command, which serves devices. Download AAE again."
@@ -69,6 +126,10 @@ final class Serving: ObservableObject {
     }
 
     func stop() {
+        if atLogin {
+            setAtLogin(false)
+            return
+        }
         // Closing its input stops it.
         try? input?.close()
         input = nil
@@ -79,8 +140,19 @@ final class Serving: ObservableObject {
         announce("Stopped serving.")
     }
 
+    /// A code for whichever server is running: this one, or the one at login.
     func newCode() {
-        input?.write("p\n".data(using: .utf8)!)
+        guard let aae else { return }
+        Task.detached {
+            let data = self.output(aae, ["pair", "--json"])
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            await MainActor.run {
+                guard let code = json?["code"] as? String else { return }
+                self.code = code
+                let minutes = json?["minutes"] as? Int ?? 10
+                self.announce("Pairing code: \(Self.spoken(code)). It works once, for \(minutes) minutes.")
+            }
+        }
     }
 
     private func received(_ data: Data) {
@@ -97,6 +169,10 @@ final class Serving: ObservableObject {
                 self.code = code
                 let minutes = json["minutes"] as? Int ?? 10
                 announce("Pairing code: \(Self.spoken(code)). It works once, for \(minutes) minutes.")
+            case "error":
+                let text = json["text"] as? String ?? ""
+                status = text
+                announce(text)
             case "notice":
                 let text = json["text"] as? String ?? ""
                 status = text
@@ -156,6 +232,10 @@ struct ServeView: View {
                 get: { serving.on },
                 set: { $0 ? serving.start() : serving.stop() }
             ))
+            Toggle("Keep serving whenever I log in, without AAE open", isOn: Binding(
+                get: { serving.atLogin },
+                set: { serving.setAtLogin($0) }
+            ))
             Text(serving.status)
             if let code = serving.code {
                 HStack {
@@ -165,6 +245,8 @@ struct ServeView: View {
                         .textSelection(.enabled)
                         .accessibilityLabel(Serving.spoken(code))
                 }
+            }
+            if serving.on {
                 Button("New Pairing Code") { serving.newCode() }
             }
             Text("Paired Phones")
@@ -185,7 +267,7 @@ struct ServeView: View {
         }
         .padding()
         .frame(minWidth: 480, minHeight: 320)
-        .onAppear { serving.loadPhones() }
+        .onAppear { serving.refresh() }
     }
 }
 

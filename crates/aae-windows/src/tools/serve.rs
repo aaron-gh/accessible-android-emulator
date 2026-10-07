@@ -4,7 +4,7 @@
 //! code, and lists the paired phones.
 
 use std::cell::RefCell;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdin, Command, Stdio};
 
 use serde_json::Value;
@@ -21,10 +21,12 @@ const SERVE: u16 = 1000;
 const NEW_CODE: u16 = 1001;
 const PHONES: u16 = 1002;
 const UNPAIR: u16 = 1003;
+const AT_LOGIN: u16 = 1004;
 
 #[derive(Clone, Copy)]
 struct Controls {
     serve: HWND,
+    at_login: HWND,
     status: HWND,
     code: HWND,
     phones: HWND,
@@ -43,6 +45,10 @@ struct State {
     status: String,
     code: String,
     phones: Vec<Phone>,
+    /// Serving whenever this person logs in, without AAE open.
+    at_login: bool,
+    /// Serving now, at login or not.
+    serving_elsewhere: bool,
 }
 
 thread_local! {
@@ -90,6 +96,11 @@ pub fn show() {
     panel.text("AAE Remote, the Android app, uses this PC's devices: their sound and vibrations play on the phone, and it sends them keys and touches. Phones on this network find the PC; each pairs once with a code.");
     let serving = STATE.with(|s| s.borrow().child.is_some());
     let serve = panel.check("Serve this PC's devices to AAE Remote", SERVE, serving);
+    let at_login = panel.check(
+        "Keep serving whenever I log in, without AAE open",
+        AT_LOGIN,
+        false,
+    );
     let status = panel.text("Not serving.");
     let code = panel.edit("Pairing code", "");
     ui::send(code, windows::Win32::UI::Controls::EM_SETREADONLY, 1, 0);
@@ -99,13 +110,14 @@ pub fn show() {
     STATE.with(|s| {
         s.borrow_mut().window = Some(Controls {
             serve,
+            at_login,
             status,
             code,
             phones,
         })
     });
     show_state();
-    load_phones();
+    refresh();
     panel.show(Window, Some(serve));
 }
 
@@ -113,7 +125,8 @@ fn show_state() {
     STATE.with(|s| {
         let s = s.borrow();
         let Some(c) = s.window else { return };
-        ui::set_checked(c.serve, s.child.is_some());
+        ui::set_checked(c.serve, s.child.is_some() || s.serving_elsewhere);
+        ui::set_checked(c.at_login, s.at_login);
         panels::set_text(c.status, &s.status);
         if ui::text(c.code) != s.code {
             ui::set_text(c.code, &s.code);
@@ -198,6 +211,11 @@ fn received(event: Value) {
             );
             STATE.with(|s| s.borrow_mut().code = code);
         }
+        Some("error") => {
+            let text = event["text"].as_str().unwrap_or("").to_string();
+            say(text.clone(), Tone::Failure);
+            STATE.with(|s| s.borrow_mut().status = text);
+        }
         Some("notice") => {
             let text = event["text"].as_str().unwrap_or("").to_string();
             say(text.clone(), Tone::Success);
@@ -227,6 +245,79 @@ fn stop() {
     show_state();
 }
 
+/// Runs aae.exe and reads what it printed as JSON.
+fn aae_json(args: &[&str]) -> Option<Value> {
+    let out = command(&aae()?).args(args).output().ok()?;
+    serde_json::from_slice(&out.stdout).ok()
+}
+
+/// Whether serving at login is set up, and whether it's serving now.
+fn refresh() {
+    std::thread::spawn(|| {
+        let status = aae_json(&["daemon", "status", "--json"]);
+        run_on_ui(move || {
+            STATE.with(|s| {
+                let mut s = s.borrow_mut();
+                s.at_login = status.as_ref().is_some_and(|v| v["installed"] == true);
+                s.serving_elsewhere =
+                    s.child.is_none() && status.as_ref().is_some_and(|v| v["running"] == true);
+                if s.serving_elsewhere {
+                    s.status = "Serving in the background, at login too.".into();
+                }
+            });
+            show_state();
+        });
+    });
+    load_phones();
+}
+
+/// Serves at login, or stops: run by Windows, at login and now.
+fn set_at_login(wanted: bool) {
+    if wanted {
+        // The login server takes over from this one.
+        let child = STATE.with(|s| s.borrow_mut().child.take());
+        if let Some((mut child, stdin)) = child {
+            drop(stdin);
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+    }
+    let Some(aae) = aae() else { return };
+    std::thread::spawn(move || {
+        let said = command(&aae)
+            .args(["daemon", if wanted { "install" } else { "uninstall" }])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        run_on_ui(move || {
+            announce(
+                if said.is_empty() {
+                    "That didn't work."
+                } else {
+                    &said
+                },
+                Tone::Info,
+            );
+            STATE.with(|s| s.borrow_mut().code.clear());
+            refresh();
+        });
+    });
+}
+
+/// A code for whichever server is running: this one, or the one at login.
+fn new_code() {
+    std::thread::spawn(|| {
+        let made = aae_json(&["pair", "--json"]);
+        run_on_ui(move || {
+            let Some(made) = made else { return };
+            received(
+                serde_json::json!({"event": "code", "code": made["code"], "minutes": made["minutes"]}),
+            );
+        });
+    });
+}
+
 fn load_phones() {
     let Some(aae) = aae() else { return };
     std::thread::spawn(move || {
@@ -252,19 +343,23 @@ impl Handler for Window {
         };
         match id {
             SERVE => {
-                if ui::checked(c.serve) {
-                    start();
-                } else {
-                    stop();
+                let at_login = STATE.with(|s| s.borrow().at_login);
+                match (ui::checked(c.serve), at_login) {
+                    (true, true) => set_at_login(true),
+                    (true, false) => start(),
+                    (false, true) => set_at_login(false),
+                    (false, false) => stop(),
                 }
             }
+            AT_LOGIN => set_at_login(ui::checked(c.at_login)),
             NEW_CODE => {
-                let sent = STATE.with(|s| {
-                    s.borrow_mut().child.as_mut().map(|(_, stdin)| {
-                        stdin.write_all(b"p\n").and_then(|_| stdin.flush()).is_ok()
-                    })
+                let serving = STATE.with(|s| {
+                    let s = s.borrow();
+                    s.child.is_some() || s.serving_elsewhere
                 });
-                if sent != Some(true) {
+                if serving {
+                    new_code();
+                } else {
                     announce("Turn on serving first.", Tone::Failure);
                 }
             }
