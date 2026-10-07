@@ -156,11 +156,15 @@ jobs:
           codesign -dvv macos/build/AAE.app 2>&1 | grep -qx "Authority=AAE Code Signing"
           codesign -d -r- macos/build/AAE.app
           macos/dmg.sh macos/build/AAE.app macos/dist/AAE-dev.dmg "AAE $AAE_VERSION"
+          # AAE Remote, the Android app, signed with AAE's Android key.
+          android/build-remote.sh macos/dist/AAE-Remote-dev.apk
 
       - uses: actions/upload-artifact@v7
         with:
           name: mac
-          path: macos/dist/AAE-dev.dmg
+          path: |
+            macos/dist/AAE-dev.dmg
+            macos/dist/AAE-Remote-dev.apk
           if-no-files-found: error
 
   publish:
@@ -201,6 +205,10 @@ jobs:
           ### Mac
 
           Download AAE-dev.dmg below, open it, and drag AAE to Applications, replacing the AAE you have. It's version $BASE-dev.${GITHUB_RUN_NUMBER}. It's signed like stable releases, so AAE keeps its permissions. Check for Updates doesn't offer development builds; it offers the next stable release when there is one. The first time, macOS may say it can't check AAE: go to System Settings, Privacy & Security, and choose Open Anyway.
+
+          ### Android: AAE Remote
+
+          AAE Remote uses the devices on a Mac or PC running AAE from an Android phone, with their sound and vibrations on the phone. Download AAE-Remote-dev.apk below on the phone and install it; Android may ask to allow installing apps from your browser. On the computer, turn on File, Serve Devices to Phones, or run aae serve, then pair the phone with the code it shows. It needs Android 8 or later; gesture mode needs Android 11.
           NOTES
           git tag -f dev "$GITHUB_SHA"
           git push -f origin refs/tags/dev
@@ -209,6 +217,6 @@ jobs:
           else
             gh release create dev --prerelease --latest=false --title "Development build ($SHORT)" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
           fi
-          gh release upload dev dist/AAE-dev-windows-x64-setup.exe dist/AAE-dev.dmg --clobber
+          gh release upload dev dist/AAE-dev-windows-x64-setup.exe dist/AAE-dev.dmg dist/AAE-Remote-dev.apk --clobber
           # The zip of earlier development builds, which couldn't update itself.
           gh release delete-asset dev AAE-dev-windows-x64.zip --yes 2>/dev/null || true

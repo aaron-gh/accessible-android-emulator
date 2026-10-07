@@ -2,7 +2,7 @@
 
 AAE lets blind people create, run and test Android virtual devices without sighted help. Each device has a screen reader on from its first boot, takes your keyboard, and plays its audio reliably.
 
-There's a Mac app, a Windows app, the `aae` command line, and an MCP server for AI agents, all over the same core. AAE is in early development: the Mac app is the most complete, and the Windows app is new and being tested.
+There's a Mac app, a Windows app, AAE Remote for Android phones, the `aae` command line, and an MCP server for AI agents, all over the same core. AAE is in early development: the Mac app is the most complete, and the Windows app is new and being tested.
 
 ## Getting AAE
 
@@ -115,9 +115,22 @@ Announcements go straight to NVDA, through NV Access's controller client, which 
 - In a device's own window, the menu's shortcuts act on that device. Device and gesture mode started there take the keyboard in the main window, which has the way back.
 - Battery, Location and Phone looks up places and addresses on OpenStreetMap, which gets only the text you typed; latitude and longitude are used as they are.
 
+## AAE Remote, for Android phones
+
+AAE Remote uses the devices on a Mac or PC running AAE from an Android phone. Google's emulator can't run on a phone, so the devices run on the computer, and the phone is their remote: their sound and vibrations play on the phone, and the phone sends them keys and touches. It needs Android 8 or later, and gesture mode needs Android 11. Its code is in `android/remote`, and the computer's side is `crates/aae-remote`.
+
+- **Getting it:** download `AAE-Remote-dev.apk` from the [dev prerelease](https://github.com/aaron-gh/accessible-android-emulator/releases/tag/dev) on the phone, and install it. Android may ask you to allow installing apps from your browser.
+- **Serving:** on the computer, choose File, Serve Devices to Phones, and turn serving on. Or run `aae serve`, which needs no screen, speakers or desktop app: a computer in a cupboard can run devices for phones, with all their sound going to the phone. The first time, macOS or Windows may ask whether to accept incoming network connections: allow it.
+- **Pairing:** in AAE Remote, choose Pair with a Computer. Computers serving on the same network are listed; for others, type the address. Then enter the twelve-character code the computer shows and speaks. Each code works once, for ten minutes. The connection is encrypted, and the phone remembers the computer's certificate, so it won't connect to anything pretending to be it. `aae phones` lists the paired phones, and `aae phones --unpair <id>` removes one.
+- **Managing:** list, create, start, stop, restart, wipe, copy, rename and delete devices; download Android versions, after you read and accept Google's licence on the phone, and delete them; set up and update the emulator and tools.
+- **Using a device:** while its screen is open, its sound plays on the phone, and its vibrations play on the phone's vibrator, each as long as it was on the device. Android's buttons, Speak Status and rotation are buttons. Testing Tools has the speech log, device log, accessibility inspector, apps, accessibility services, snapshots, battery, location and phone, links and intents, the clipboard, and installing an APK from the phone.
+- **Keyboard mode:** with a keyboard connected to the phone, every key goes to the device. Control-Shift-Escape, or a long press of volume down, comes back.
+- **Gesture mode:** the phone's screen becomes the device's touchscreen, so the device's screen reader gets your gestures, with every finger. A long press of volume down comes back, and volume up and down change the device's volume. Your phone's own screen reader would take the touches, so AAE Remote has an accessibility service, AAE gesture mode, that lets them through while gesture mode is open, and nowhere else. It works with TalkBack, Backtalk and other screen readers. Turn it on in Android's accessibility settings; on Samsung phones it's under Installed apps. In keyboard mode, it also takes keys before your phone's screen reader does.
+- **"Restricted setting":** Android 13 and later block accessibility services in apps installed from a downloaded APK. Try to turn the service on once, then open Settings, Apps, AAE Remote, the More options menu, and choose Allow restricted settings. Then turn it on again. Without the service, gesture mode has buttons for common gestures instead.
+
 ## The command line
 
-The `aae` command comes with both apps: on the Mac it's inside the app, at `/Applications/AAE.app/Contents/Helpers/aae`, and on Windows it's next to the app, at `%LOCALAPPDATA%\Programs\AAE\aae.exe`. `aae help` lists every command, and `aae help <command>` explains one. Commands that act on a device take its name. For example:
+The `aae` command comes with both apps: on the Mac it's inside the app, at `/Applications/AAE.app/Contents/Helpers/aae`, and on Windows it's next to the app, at `%LOCALAPPDATA%\Programs\AAE\aae.exe`. `aae help` lists every command, and `aae help <command>` explains one. `aae serve` serves this computer's devices to AAE Remote. Commands that act on a device take its name. For example:
 
 ```sh
 aae setup
@@ -226,11 +239,13 @@ Development builds are made by `.github/workflows/dev-build.yml`, with the same 
 - `crates/aae-core`: the cross-platform core. It covers the SDK, downloading Android versions, the device store, the emulator, gRPC control, adb, audio, keys, provisioning, the accessibility inspector and the device log.
 - `crates/aae-cli`: the `aae` command.
 - `crates/aae-mcp`: the MCP server, `aae mcp`.
+- `crates/aae-remote`: the server for AAE Remote, `aae serve`: pairing, the devices' sound and vibrations, keys, touches and the testing tools, over TLS and WebSocket.
 - `crates/aae-ffi`: the bridge from the core to the apps, generated with UniFFI for the Mac app and used directly by the Windows app.
 - `macos`: the Mac app, in Swift. `appcast.xml` is its update feed.
 - `crates/aae-windows`: the Windows app. `windows` has its build and release scripts, the installer script, and the read-me that goes with it. `appcast-windows.xml` is its update feed.
 - `crates/aae-core/proto`: the Android Emulator's gRPC definitions, under Apache 2.0.
-- `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume and read the screen for the inspector. It also carries the full keyboard layout, a small tool AAE runs as the shell user to select it, the speech check, the speech log's relay engine, and the silent test tone used to measure audio speed.
+- `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume and read the screen for the inspector. It also carries the full keyboard layout, a small tool AAE runs as the shell user to select it and to watch the vibrator for AAE Remote, the speech check, the speech log's relay engine, and the silent test tone used to measure audio speed.
+- `android/remote`: AAE Remote, the Android app, in Kotlin with Android's standard controls, and its gesture mode accessibility service. `android/build-remote.sh` builds it.
 - `android/espeak`: how AAE builds eSpeak NG: its own app ID, signed like the helper, with eSpeak NG's code unchanged.
 - `android/third_party/espeak-ng`: eSpeak NG's source, as a git submodule.
 

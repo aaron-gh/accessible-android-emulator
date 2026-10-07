@@ -12,8 +12,12 @@ android {
         // it uses. Gesture mode's touch passthrough needs Android 11.
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // AAE's version and build number, so each build installs over the
+        // last: the build number is the commit count, as for the apps.
+        val cargo = rootProject.file("../Cargo.toml").readText()
+        val version = Regex("""(?m)^version = "(.*)"""").find(cargo)?.groupValues?.get(1) ?: "0.0.0"
+        versionCode = System.getenv("AAE_BUILD_NUMBER")?.toIntOrNull() ?: 1
+        versionName = System.getenv("AAE_VERSION") ?: version
     }
 
     // Signed with AAE's own key, as the helper is, so updates install over
