@@ -221,14 +221,42 @@ pub async fn stop(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
 /// The token the emulator expects on gRPC calls. With `-grpc-use-token` each
 /// run gets its own token, which the emulator writes to its discovery file.
 pub fn grpc_token(info: &RuntimeInfo) -> Option<String> {
-    let name = format!("pid_{}.ini", info.pid);
-    discovery_dirs()
-        .into_iter()
-        .map(|dir| dir.join(&name))
-        .find_map(|file| {
-            crate::sdk::read_properties(&file)
-                .ok()?
-                .remove("grpc.token")
+    find_grpc_token(&discovery_dirs(), info)
+}
+
+/// The token from this emulator's discovery file, `pid_<pid>.ini`. On the
+/// Mac and Linux that's the process AAE started. On Windows, emulator.exe
+/// only launches the emulator, which runs as another process and names the
+/// file after itself, so otherwise it's the file with this emulator's ports.
+fn find_grpc_token(dirs: &[std::path::PathBuf], info: &RuntimeInfo) -> Option<String> {
+    let own = format!("pid_{}.ini", info.pid);
+    if let Some(token) = dirs.iter().find_map(|dir| {
+        crate::sdk::read_properties(&dir.join(&own))
+            .ok()?
+            .remove("grpc.token")
+    }) {
+        return Some(token);
+    }
+    let (grpc, console) = (info.grpc_port.to_string(), info.console_port.to_string());
+    dirs.iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("pid_") && n.ends_with(".ini"))
+        })
+        .find_map(|path| {
+            let mut properties = crate::sdk::read_properties(&path).ok()?;
+            let ours = properties.get("grpc.port") == Some(&grpc)
+                && properties.get("port.serial").is_none_or(|p| *p == console);
+            if ours {
+                properties.remove("grpc.token")
+            } else {
+                None
+            }
         })
 }
 
@@ -341,18 +369,95 @@ fn terminate(pid: u32) {
     unsafe {
         libc::kill(pid as libc::pid_t, libc::SIGTERM);
     }
+    // On Windows, emulator.exe only launches the emulator, which runs as a
+    // process of its own, so the whole tree is ended, or it would carry on.
     #[cfg(windows)]
     {
-        use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{
-            OpenProcess, PROCESS_TERMINATE, TerminateProcess,
-        };
-        unsafe {
-            let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
-            if !handle.is_null() {
-                TerminateProcess(handle, 1);
-                CloseHandle(handle);
+        use crate::platform::NoConsole;
+        let ended = Command::new("taskkill")
+            .no_console()
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ended {
+            use windows_sys::Win32::Foundation::CloseHandle;
+            use windows_sys::Win32::System::Threading::{
+                OpenProcess, PROCESS_TERMINATE, TerminateProcess,
+            };
+            unsafe {
+                let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+                if !handle.is_null() {
+                    TerminateProcess(handle, 1);
+                    CloseHandle(handle);
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+
+    fn info(pid: u32) -> RuntimeInfo {
+        RuntimeInfo {
+            pid,
+            console_port: 5556,
+            adb_port: 5557,
+            grpc_port: 8556,
+            log: "emulator.log".into(),
+        }
+    }
+
+    fn write(dir: &std::path::Path, name: &str, grpc: u16, serial: u16, token: &str) {
+        std::fs::write(
+            dir.join(name),
+            format!("port.serial={serial}\ngrpc.port={grpc}\ngrpc.token={token}\n"),
+        )
+        .unwrap();
+    }
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("aae-discovery-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn finds_the_file_named_after_the_process_aae_started() {
+        let dir = temp_dir("own");
+        write(&dir, "pid_100.ini", 8556, 5556, "own");
+        assert_eq!(
+            find_grpc_token(std::slice::from_ref(&dir), &info(100)).as_deref(),
+            Some("own")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn finds_windows_files_named_after_the_emulators_own_process_by_port() {
+        // emulator.exe (pid 100) launched the emulator as pid 13108.
+        let dir = temp_dir("windows");
+        write(&dir, "pid_200.ini", 8554, 5554, "another emulator");
+        write(&dir, "pid_13108.ini", 8556, 5556, "ours");
+        assert_eq!(
+            find_grpc_token(std::slice::from_ref(&dir), &info(100)).as_deref(),
+            Some("ours")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn finds_nothing_for_an_emulator_without_a_file() {
+        let dir = temp_dir("none");
+        write(&dir, "pid_200.ini", 8554, 5554, "another emulator");
+        assert_eq!(
+            find_grpc_token(std::slice::from_ref(&dir), &info(100)),
+            None
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
