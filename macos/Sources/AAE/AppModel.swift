@@ -1764,10 +1764,25 @@ final class AppModel: ObservableObject {
     func setMobileData(_ on: Bool) { changeNetwork { try await $0.setMobileData(on: on) } }
     func setNetworkSpeed(_ name: String) { changeNetwork { try await $0.setNetworkSpeed(name: name) } }
 
-    func setBattery(level: Int, charging: Bool) {
+    func setBattery(level: Int, charging: Bool, health: String) {
         withSession { [weak self] session in
             try await session.setBattery(level: UInt32(max(0, min(level, 100))), charging: charging)
-            self?.announce("Battery at \(level) percent, \(charging ? "charging" : "not charging").", tone: .success)
+            let said = try await session.setBatteryHealth(health: health)
+            self?.announce("Battery at \(level) percent, \(charging ? "charging" : "not charging"). \(said)", tone: .success)
+        }
+    }
+
+    func touchFingerprint(finger: Int) {
+        withSession { [weak self] session in
+            let said = try await session.touchFingerprint(finger: UInt32(finger))
+            self?.announce(said, tone: .success)
+        }
+    }
+
+    func shake() {
+        withSession { [weak self] session in
+            try await session.shake()
+            self?.announce("Shook the device.", tone: .success)
         }
     }
 

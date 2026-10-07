@@ -6,6 +6,8 @@ struct ConditionsView: View {
     @EnvironmentObject var model: AppModel
     @State private var level = 100.0
     @State private var charging = true
+    @State private var health = "good"
+    @State private var finger = 1
     @State private var place = ""
     @State private var from = "5551234"
     @State private var message = ""
@@ -19,9 +21,24 @@ struct ConditionsView: View {
                 }
                 .accessibilityValue("\(Int(level)) percent")
                 Toggle("Charging", isOn: $charging)
-                Button("Set Battery") { model.setBattery(level: Int(level), charging: charging) }
+                Picker("Health", selection: $health) {
+                    ForEach(batteryHealths(), id: \.name) { Text($0.label).tag($0.name) }
+                }
+                Button("Set Battery") { model.setBattery(level: Int(level), charging: charging, health: health) }
             } header: {
                 Text("Battery").accessibilityAddTraits(.isHeader)
+            }
+            Section {
+                Picker("Finger", selection: $finger) {
+                    ForEach(1...10, id: \.self) { Text("Finger \($0)").tag($0) }
+                }
+                Button("Touch Fingerprint Sensor") { model.touchFingerprint(finger: finger) }
+                Text("Enroll fingers in Android's security settings.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Button("Shake the Device") { model.shake() }
+            } header: {
+                Text("Fingerprint and Motion").accessibilityAddTraits(.isHeader)
             }
             Section {
                 TextField("Place, address, or latitude and longitude", text: $place)
@@ -76,7 +93,7 @@ struct ConditionsView: View {
                     Button("Hold") { model.phoneCall(.hold, number: number) }
                     Button("Resume") { model.phoneCall(.resume, number: number) }
                 }
-                Text("When the device calls out, the number it calls can answer or be busy:")
+                Text("Outgoing calls:")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 HStack {

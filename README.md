@@ -80,6 +80,10 @@ Both apps update themselves. Check for Updates never offers a development build;
   - Question mark lists the keys.
 - `aae gesture <device> swipe-right double-tap`; `--at X,Y`. `aae inspect <device> --targets` lists touch targets.
 
+### Battery, fingerprints and motion
+
+The same window sets the battery's level, charging and health (good, failed, dead, over voltage or overheated), touches the fingerprint sensor with one of ten fingers, and shakes the device for apps that act on a shake. To enroll a finger, add a fingerprint in Android's security settings and touch with the same finger each time it asks; a finger that wasn't enrolled is refused, for testing what an app says then. In the terminal: `aae battery <device> 15 --health overheated`, `aae fingerprint <device> 1` and `aae shake <device>`. AI agents have `touch_fingerprint` and `shake`, and a battery health.
+
 ### Testing tools
 
 The inspector, checks and speech log were checked on Android 8, 11, 14 and 16.
@@ -152,7 +156,7 @@ aae stop "Android 16 test"
 - Keyboard, sound and speech: `attach`, `listen`, `playback-volume`, `volume` (the screen reader's own volume), `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `mic`, `speech`.
 - Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
 - Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`.
-- Device conditions: `rotate`, `battery`, `location`, `network`, `sms`, `call`, `clipboard`.
+- Device conditions: `rotate`, `battery`, `fingerprint`, `shake`, `location`, `network`, `sms`, `call`, `clipboard`.
 - AI agents: `mcp`, below.
 
 ## AI agents (MCP)

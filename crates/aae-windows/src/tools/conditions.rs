@@ -1,5 +1,6 @@
-//! The Battery, Location and Phone window: what the device experiences,
-//! from its battery and where it is to text messages and phone calls.
+//! The Battery, Location, Phone and Network window: what the device
+//! experiences, from its battery, fingerprint sensor, motion and where it is
+//! to text messages, phone calls and its network.
 
 use aae_ffi::CallAction;
 use windows::Win32::Foundation::HWND;
@@ -29,6 +30,10 @@ const WIFI: u16 = 1021;
 const DATA: u16 = 1022;
 const SPEED: u16 = 1023;
 const SET_SPEED: u16 = 1024;
+const HEALTH: u16 = 1030;
+const FINGER: u16 = 1031;
+const TOUCH_FINGERPRINT: u16 = 1032;
+const SHAKE: u16 = 1033;
 
 /// The network controls, to show what the device reports after a change.
 #[derive(Clone, Copy)]
@@ -59,6 +64,8 @@ pub fn title(device: Option<&str>) -> String {
 struct Conditions {
     level: HWND,
     charging: HWND,
+    health: HWND,
+    finger: HWND,
     place: HWND,
     from: HWND,
     message: HWND,
@@ -71,7 +78,7 @@ pub fn show() {
         return;
     }
     let name = crate::app::selected().0.map(|d| d.name);
-    let mut panel = Panel::new(KIND, &title(name.as_deref()), 520, 620);
+    let mut panel = Panel::new(KIND, &title(name.as_deref()), 520, 720);
     panel.text("Battery");
     let levels: Vec<String> = (0..=20)
         .rev()
@@ -79,7 +86,18 @@ pub fn show() {
         .collect();
     let level = panel.choice("Battery level", LEVEL, &levels, 0);
     let charging = panel.check("Charging", CHARGING, true);
+    let healths: Vec<String> = aae_ffi::battery_healths()
+        .into_iter()
+        .map(|h| h.label)
+        .collect();
+    let health = panel.choice("Health", HEALTH, &healths, 0);
     panel.buttons(&[("Set Battery", SET_BATTERY)], None);
+    panel.text("Fingerprint and Motion");
+    let fingers: Vec<String> = (1..=10).map(|i| format!("Finger {i}")).collect();
+    let finger = panel.choice("Finger", FINGER, &fingers, 0);
+    panel.buttons(&[("Touch Fingerprint Sensor", TOUCH_FINGERPRINT)], None);
+    panel.text("Enroll fingers in Android's security settings.");
+    panel.buttons(&[("Shake the Device", SHAKE)], None);
     panel.text("Location");
     let place = panel.edit("Place, address, or latitude and longitude", "");
     panel.buttons(&[("Set Location", SET_LOCATION)], None);
@@ -98,7 +116,7 @@ pub fn show() {
         ],
         None,
     );
-    panel.text("When the device calls out, the number it calls can answer or be busy:");
+    panel.text("Outgoing calls:");
     panel.buttons(
         &[("Answer the Device's Call", ANSWER), ("Be Busy", BUSY)],
         None,
@@ -134,6 +152,8 @@ pub fn show() {
         Conditions {
             level,
             charging,
+            health,
+            finger,
             place,
             from,
             message,
@@ -152,8 +172,24 @@ impl Handler for Conditions {
         match id {
             SET_BATTERY => {
                 let level = 100 - ui::combo_selection(self.level).unwrap_or(0) as u32 * 5;
-                set_battery(level, ui::checked(self.charging));
+                let healths = aae_ffi::battery_healths();
+                let health = ui::combo_selection(self.health)
+                    .and_then(|i| healths.get(i))
+                    .map_or("good".to_string(), |h| h.name.clone());
+                set_battery(level, ui::checked(self.charging), health);
             }
+            TOUCH_FINGERPRINT => {
+                let finger = ui::combo_selection(self.finger).unwrap_or(0) as u32 + 1;
+                with_session(move |session| async move {
+                    say(session.touch_fingerprint(finger).await?, Tone::Success);
+                    Ok(())
+                });
+            }
+            SHAKE => with_session(|session| async move {
+                session.shake().await?;
+                say("Shook the device.", Tone::Success);
+                Ok(())
+            }),
             SET_LOCATION => set_location(ui::text(self.place)),
             SEND_MESSAGE => send_message(ui::text(self.from), ui::text(self.message)),
             RING => phone_call(CallAction::Ring, &ui::text(self.number)),
@@ -191,7 +227,7 @@ impl Handler for Conditions {
                     self.command(_panel, SEND_MESSAGE);
                 } else if focus == self.number {
                     self.command(_panel, RING);
-                } else if focus == self.level || focus == self.charging {
+                } else if focus == self.level || focus == self.charging || focus == self.health {
                     self.command(_panel, SET_BATTERY);
                 }
             }
@@ -277,12 +313,13 @@ fn change_network(setting: Setting, on: bool, speed: String) {
     });
 }
 
-fn set_battery(level: u32, charging: bool) {
+fn set_battery(level: u32, charging: bool, health: String) {
     with_session(move |session| async move {
         session.set_battery(level, charging).await?;
+        let health = session.set_battery_health(health).await?;
         let state = if charging { "charging" } else { "not charging" };
         say(
-            format!("Battery at {level} percent, {state}."),
+            format!("Battery at {level} percent, {state}. {health}"),
             Tone::Success,
         );
         Ok(())

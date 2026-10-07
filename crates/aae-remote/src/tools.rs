@@ -231,6 +231,25 @@ pub async fn call(
                     .await?;
                 Value::Null
             }
+            "tools.battery.health" => json!(session.battery_health().await?),
+            "tools.battery.health.set" => {
+                json!(session.set_battery_health(text(params, "health")?).await?)
+            }
+            "tools.battery.healths" => json!(
+                aae_ffi::battery_healths()
+                    .into_iter()
+                    .map(|h| json!({"name": h.name, "label": h.label}))
+                    .collect::<Vec<_>>()
+            ),
+            "tools.fingerprint" => json!(
+                session
+                    .touch_fingerprint(params["finger"].as_u64().unwrap_or(1) as u32)
+                    .await?
+            ),
+            "tools.shake" => {
+                session.shake().await?;
+                Value::Null
+            }
             "tools.app.grant_all" => json!(session.grant_all_permissions(text(params, "package")?).await?),
             "tools.app.access" => {
                 let kind = access_kind(&text(params, "kind")?).ok_or_else(|| failed("Unknown special access."))?;

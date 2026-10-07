@@ -489,6 +489,25 @@ pub fn network_speeds() -> Vec<NetworkSpeedInfo> {
         .collect()
 }
 
+/// A battery health to choose: its name for `set_battery_health`, and in words.
+#[derive(uniffi::Record, Clone)]
+pub struct BatteryHealthInfo {
+    pub name: String,
+    pub label: String,
+}
+
+/// The healths a device's battery can be set to, good first.
+#[uniffi::export]
+pub fn battery_healths() -> Vec<BatteryHealthInfo> {
+    aae_core::control::BatteryHealth::ALL
+        .iter()
+        .map(|h| BatteryHealthInfo {
+            name: h.name().into(),
+            label: h.label().into(),
+        })
+        .collect()
+}
+
 /// What the other end of a phone call does.
 #[derive(uniffi::Enum, Clone)]
 pub enum CallAction {
@@ -2143,6 +2162,50 @@ impl Session {
                 .await?)
         })
         .await
+    }
+
+    /// The battery's health, by name, such as "good".
+    pub async fn battery_health(&self) -> Result<String, AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.battery_health().await?.name().to_string()) }).await
+    }
+
+    /// Sets the battery's health, by name: good, failed, dead, overvoltage
+    /// or overheated. Returns what to say.
+    pub async fn set_battery_health(&self, health: String) -> Result<String, AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move {
+            let health = aae_core::control::BatteryHealth::from_name(&health).ok_or_else(|| {
+                AaeError::Failed {
+                    message:
+                        "The battery's health is good, failed, dead, overvoltage or overheated."
+                            .into(),
+                }
+            })?;
+            controller.set_battery_health(health).await?;
+            Ok(format!("Battery health {}.", health.label().to_lowercase()))
+        })
+        .await
+    }
+
+    /// Touches the fingerprint sensor with a finger, from 1 to 10, and lifts
+    /// it. Returns what to say.
+    pub async fn touch_fingerprint(&self, finger: u32) -> Result<String, AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move {
+            let finger = finger.clamp(1, 10);
+            controller.touch_fingerprint(finger as i32).await?;
+            Ok(format!(
+                "Touched the fingerprint sensor with finger {finger}."
+            ))
+        })
+        .await
+    }
+
+    /// Shakes the device, as for apps that act on a shake.
+    pub async fn shake(&self) -> Result<(), AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.shake().await?) }).await
     }
 
     /// Sets where the device thinks it is.

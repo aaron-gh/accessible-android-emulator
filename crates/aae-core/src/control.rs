@@ -355,7 +355,14 @@ impl Controller {
     }
 
     pub async fn set_battery(&self, level: i32, charging: bool) -> Result<()> {
-        use pb::battery_state::{BatteryCharger, BatteryHealth, BatteryStatus};
+        use pb::battery_state::{BatteryCharger, BatteryStatus};
+        // Keeps the health as it was set.
+        let health = self
+            .emu
+            .clone()
+            .get_battery(())
+            .await
+            .map_or(0, |state| state.into_inner().health);
         let state = pb::BatteryState {
             has_battery: true,
             is_present: true,
@@ -365,7 +372,7 @@ impl Controller {
                 BatteryCharger::None
             } as i32,
             charge_level: level.clamp(0, 100),
-            health: BatteryHealth::Good as i32,
+            health,
             status: if charging {
                 BatteryStatus::Charging
             } else {
@@ -373,6 +380,61 @@ impl Controller {
             } as i32,
         };
         self.emu.clone().set_battery(state).await?;
+        Ok(())
+    }
+
+    /// Sets the battery's health, keeping its level and charging.
+    pub async fn set_battery_health(&self, health: BatteryHealth) -> Result<()> {
+        let mut state = self.emu.clone().get_battery(()).await?.into_inner();
+        state.health = health.proto() as i32;
+        self.emu.clone().set_battery(state).await?;
+        Ok(())
+    }
+
+    /// The battery's health.
+    pub async fn battery_health(&self) -> Result<BatteryHealth> {
+        let state = self.emu.clone().get_battery(()).await?.into_inner();
+        Ok(BatteryHealth::from_proto(state.health))
+    }
+
+    /// Touches the fingerprint sensor with a finger, as Android's settings
+    /// enrolled it, then lifts it. Finger numbers are the emulator's own: a
+    /// finger enrolled while AAE touched with finger 1 is finger 1 after.
+    pub async fn touch_fingerprint(&self, finger: i32) -> Result<()> {
+        let mut emu = self.emu.clone();
+        emu.send_fingerprint(pb::Fingerprint {
+            is_touching: true,
+            touch_id: finger,
+        })
+        .await?;
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        emu.send_fingerprint(pb::Fingerprint {
+            is_touching: false,
+            touch_id: finger,
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Shakes the device, as a hand would: side to side, quickly, for a
+    /// second, so the accelerometer feels it.
+    pub async fn shake(&self) -> Result<()> {
+        use pb::physical_model_value::{Interpolation, PhysicalType};
+        let mut emu = self.emu.clone();
+        let position = |x: f32| pb::PhysicalModelValue {
+            target: PhysicalType::Position as i32,
+            value: Some(pb::ParameterValue {
+                data: vec![x, 0.0, 0.0],
+            }),
+            interpolation: Interpolation::Smooth as i32,
+            ..Default::default()
+        };
+        for step in 0..12 {
+            let x = if step % 2 == 0 { 0.5 } else { -0.5 };
+            emu.set_physical_model(position(x)).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        }
+        emu.set_physical_model(position(0.0)).await?;
         Ok(())
     }
 
@@ -663,5 +725,70 @@ mod tests {
             assert_eq!(Orientation::from_degrees(o.degrees()), o);
             assert_eq!(o.turned_left().turned_right(), o);
         }
+    }
+}
+
+/// A battery's health, as Android reports it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BatteryHealth {
+    Good,
+    Failed,
+    Dead,
+    Overvoltage,
+    Overheated,
+}
+
+impl BatteryHealth {
+    pub const ALL: [BatteryHealth; 5] = [
+        BatteryHealth::Good,
+        BatteryHealth::Failed,
+        BatteryHealth::Dead,
+        BatteryHealth::Overvoltage,
+        BatteryHealth::Overheated,
+    ];
+
+    /// Its name for commands, such as "overheated".
+    pub fn name(self) -> &'static str {
+        match self {
+            BatteryHealth::Good => "good",
+            BatteryHealth::Failed => "failed",
+            BatteryHealth::Dead => "dead",
+            BatteryHealth::Overvoltage => "overvoltage",
+            BatteryHealth::Overheated => "overheated",
+        }
+    }
+
+    /// How to say it, such as "Overheated".
+    pub fn label(self) -> &'static str {
+        match self {
+            BatteryHealth::Good => "Good",
+            BatteryHealth::Failed => "Failed",
+            BatteryHealth::Dead => "Dead",
+            BatteryHealth::Overvoltage => "Over voltage",
+            BatteryHealth::Overheated => "Overheated",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<BatteryHealth> {
+        let name = name.trim().to_lowercase().replace([' ', '-'], "");
+        Self::ALL.into_iter().find(|h| h.name() == name)
+    }
+
+    fn proto(self) -> pb::battery_state::BatteryHealth {
+        use pb::battery_state::BatteryHealth as P;
+        match self {
+            BatteryHealth::Good => P::Good,
+            BatteryHealth::Failed => P::Failed,
+            BatteryHealth::Dead => P::Dead,
+            BatteryHealth::Overvoltage => P::Overvoltage,
+            BatteryHealth::Overheated => P::Overheated,
+        }
+    }
+
+    fn from_proto(value: i32) -> BatteryHealth {
+        Self::ALL
+            .into_iter()
+            .find(|h| h.proto() as i32 == value)
+            .unwrap_or(BatteryHealth::Good)
     }
 }

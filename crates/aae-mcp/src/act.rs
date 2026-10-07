@@ -113,6 +113,18 @@ pub(crate) struct BatteryParam {
     /// From 0 to 100.
     pub level: u32,
     pub charging: bool,
+    /// The battery's health: good, failed, dead, overvoltage or overheated.
+    /// Leave out to keep it as it is.
+    pub health: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(crate) struct FingerprintParam {
+    /// The device's name. Leave it out when only one device is running.
+    pub device: Option<String>,
+    /// Which finger, from 1 to 10. Touch with the same finger while Android's
+    /// settings enroll one, and later to unlock with it; any other is refused.
+    pub finger: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -463,14 +475,18 @@ impl AaeServer {
             async {
                 let (_, session) = self.session(p.device.as_deref()).await?;
                 session.set_battery(p.level.min(100), p.charging).await?;
+                if let Some(health) = p.health {
+                    session.set_battery_health(health).await?;
+                }
                 text(format!(
-                    "The battery is at {}%, {}.",
+                    "The battery is at {}%, {}, health {}.",
                     p.level.min(100),
                     if p.charging {
                         "charging"
                     } else {
                         "not charging"
-                    }
+                    },
+                    session.battery_health().await?
                 ))
             }
             .await,
@@ -539,6 +555,37 @@ impl AaeServer {
                     "{:.1} seconds of audio will play into the device's microphone when an app on it next records.",
                     sound.seconds()
                 ))
+            }
+            .await,
+        )
+    }
+
+    /// Touches the fingerprint sensor with a finger, then lifts it.
+    #[tool(annotations(destructive_hint = false))]
+    async fn touch_fingerprint(
+        &self,
+        Parameters(p): Parameters<FingerprintParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                text(session.touch_fingerprint(p.finger.unwrap_or(1)).await?)
+            }
+            .await,
+        )
+    }
+
+    /// Shakes the device, as for apps that act on a shake.
+    #[tool(annotations(destructive_hint = false))]
+    async fn shake(
+        &self,
+        Parameters(p): Parameters<DeviceParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                session.shake().await?;
+                text("Shook the device.")
             }
             .await,
         )

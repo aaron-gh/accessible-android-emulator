@@ -471,13 +471,25 @@ enum Command {
         #[arg(value_enum)]
         direction: Rotation,
     },
-    /// Set the battery level, from 0 to 100.
+    /// Set battery level (0 to 100), charging and health.
     Battery {
         device: String,
         level: i32,
         #[arg(long)]
         charging: bool,
+        /// Its health: good, failed, dead, overvoltage or overheated.
+        #[arg(long)]
+        health: Option<String>,
     },
+    /// Touch the fingerprint sensor with a finger, 1 to 10.
+    Fingerprint {
+        device: String,
+        /// Which finger, from 1 to 10.
+        #[arg(default_value_t = 1)]
+        finger: i32,
+    },
+    /// Shake the device, as for apps that act on a shake.
+    Shake { device: String },
     /// The device's network: with nothing else, says how it is. Turn airplane
     /// mode, Wi-Fi or mobile data on or off, or set the speed: full, lte,
     /// 3g, slow-3g, edge or gprs. For example: aae network Pixel wifi off speed edge
@@ -2049,14 +2061,44 @@ async fn run(cli: Cli) -> Result<()> {
             device,
             level,
             charging,
+            health,
         } => {
+            use aae_core::control::BatteryHealth;
+            let health = health
+                .map(|h| {
+                    BatteryHealth::from_name(&h).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "The battery's health is good, failed, dead, overvoltage or overheated."
+                        )
+                    })
+                })
+                .transpose()?;
             let (_, controller, _) = ctx.connect(&device).await?;
             controller.set_battery(level, charging).await?;
+            if let Some(health) = health {
+                controller.set_battery_health(health).await?;
+            }
             println!(
-                "Battery at {}%, {}.",
+                "Battery at {}%, {}, health {}.",
                 level.clamp(0, 100),
-                if charging { "charging" } else { "not charging" }
+                if charging { "charging" } else { "not charging" },
+                controller.battery_health().await?.label().to_lowercase()
             );
+            Ok(())
+        }
+        Command::Fingerprint { device, finger } => {
+            if !(1..=10).contains(&finger) {
+                bail!("Fingers are numbered from 1 to 10.");
+            }
+            let (_, controller, _) = ctx.connect(&device).await?;
+            controller.touch_fingerprint(finger).await?;
+            println!("Touched the fingerprint sensor with finger {finger}.");
+            Ok(())
+        }
+        Command::Shake { device } => {
+            let (_, controller, _) = ctx.connect(&device).await?;
+            controller.shake().await?;
+            println!("Shook the device.");
             Ok(())
         }
         Command::Location {

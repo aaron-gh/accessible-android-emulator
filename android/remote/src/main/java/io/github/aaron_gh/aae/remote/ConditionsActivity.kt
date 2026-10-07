@@ -6,7 +6,7 @@ import android.widget.CheckBox
 import android.widget.Spinner
 import org.json.JSONObject
 
-/** What the device experiences: its battery, where it is, and text messages and calls. */
+/** What the device experiences: its battery, fingerprints, motion, where it is, text messages, calls and its network. */
 class ConditionsActivity : ToolActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,12 +26,24 @@ class ConditionsActivity : ToolActivity() {
             ui.column.addView(this)
         }
         val charging = CheckBox(this).apply { text = "Charging"; isChecked = true; ui.column.addView(this) }
+        val healthNames = listOf("good", "failed", "dead", "overvoltage", "overheated")
+        val health = spinner("Health", listOf("Good", "Failed", "Dead", "Over voltage", "Overheated"))
         ui.button("Set Battery") {
             val percent = levels[level.selectedItemPosition]
             call("tools.battery", params().put("level", percent).put("charging", charging.isChecked)) {
-                ui.say("Battery at $percent percent, ${if (charging.isChecked) "charging" else "not charging"}.")
+                call("tools.battery.health.set", params().put("health", healthNames[health.selectedItemPosition])) { said ->
+                    ui.say("Battery at $percent percent, ${if (charging.isChecked) "charging" else "not charging"}. $said")
+                }
             }
         }
+
+        ui.heading("Fingerprint and Motion")
+        val finger = spinner("Finger", (1..10).map { "Finger $it" })
+        ui.button("Touch Fingerprint Sensor") {
+            call("tools.fingerprint", params().put("finger", finger.selectedItemPosition + 1)) { ui.say(it.toString()) }
+        }
+        ui.text("Enroll fingers in Android's security settings.")
+        ui.button("Shake the Device") { call("tools.shake", params()) { ui.say("Shook the device.") } }
 
         ui.heading("Location")
         val place = ui.field("Place, address, or latitude and longitude")
@@ -109,9 +121,22 @@ class ConditionsActivity : ToolActivity() {
         phone("Hang Up", "hang-up") { "Hung up." }
         phone("Hold", "hold") { "Call on hold." }
         phone("Resume", "resume") { "Call taken off hold." }
-        ui.text("When the device calls out, the number it calls can answer or be busy:")
+        ui.text("Outgoing calls:")
         phone("Answer the Device's Call", "answer") { "Answered the device's call." }
         phone("Be Busy", "busy") { "Busy for the device's call." }
         ui.show()
+    }
+
+    /** A labelled list to choose from. */
+    private fun spinner(label: String, rows: List<String>): Spinner {
+        val labelView = ui.text(label)
+        return Spinner(this).apply {
+            id = android.view.View.generateViewId()
+            labelView.labelFor = id
+            adapter = ArrayAdapter(this@ConditionsActivity, android.R.layout.simple_spinner_item, rows).apply {
+                setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            }
+            ui.column.addView(this)
+        }
     }
 }
