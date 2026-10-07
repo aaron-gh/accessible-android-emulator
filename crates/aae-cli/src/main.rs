@@ -1633,8 +1633,7 @@ async fn run(cli: Cli) -> Result<()> {
                     Some(path) => path.clone(),
                     None => {
                         println!("Getting Backtalk's latest development build.");
-                        let downloaded =
-                            provision::download_backtalk(&ctx.sdk, device.meta.api).await?;
+                        let downloaded = provision::download_backtalk(device.meta.api).await?;
                         path = Some(downloaded.clone());
                         downloaded
                     }
@@ -2072,7 +2071,7 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
         let path = match choice {
             "backtalk" => {
                 println!("Getting Backtalk's latest development build.");
-                provision::download_backtalk(&ctx.sdk, device.meta.api).await?
+                provision::download_backtalk(device.meta.api).await?
             }
             "apk" => {
                 print!("Type the path to the APK: ");

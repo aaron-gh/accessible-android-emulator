@@ -8,15 +8,12 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IoContext, Result};
 use crate::paths;
-use crate::platform::NoConsole;
-use crate::sdk::Sdk;
 
 const RELEASE: &str = "https://api.github.com/repos/trypsynth/backtalk/releases/tags/dev";
 const ASSET: &str = "backtalk.apk";
@@ -50,7 +47,7 @@ struct Asset {
 /// Backtalk's latest development build, downloading it if AAE has none or a
 /// newer one is out. Works offline from the copy AAE has. Blocks; call it off
 /// the async runtime.
-pub fn backtalk_apk(sdk: &Sdk) -> Result<PathBuf> {
+pub fn backtalk_apk() -> Result<PathBuf> {
     let dir = paths::data_dir().join("screen-readers");
     let apk = dir.join("backtalk-dev.apk");
     let info_path = dir.join("backtalk-dev.toml");
@@ -85,7 +82,7 @@ pub fn backtalk_apk(sdk: &Sdk) -> Result<PathBuf> {
     std::fs::create_dir_all(&dir).context(|| format!("Creating {}", dir.display()))?;
     let part = dir.join("backtalk-dev.apk.part");
     download(&latest, &part)?;
-    if let Err(e) = verify_signature(sdk, &part) {
+    if let Err(e) = verify_signature(&part) {
         let _ = std::fs::remove_file(&part);
         return Err(e);
     }
@@ -135,33 +132,18 @@ fn download(asset: &Asset, path: &Path) -> Result<()> {
     std::fs::write(path, bytes).context(|| format!("Saving {}", path.display()))
 }
 
-/// Checks the APK is signed with Backtalk's key, using the SDK's apksigner.
-fn verify_signature(sdk: &Sdk, apk: &Path) -> Result<()> {
-    let fail = |reason: String| Error::Apk {
-        path: apk.to_path_buf(),
-        reason,
-    };
-    let apksigner = sdk.apksigner_bin().ok_or_else(|| {
-        fail("the SDK has no build tools, which AAE needs to check downloads".into())
-    })?;
-    let out = Command::new(apksigner)
-        .no_console()
-        .args(["verify", "--print-certs"])
-        .arg(apk)
-        .output()
-        .map_err(|e| fail(format!("apksigner could not run: {e}")))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let signed_by_backtalk = out.status.success()
-        && text.lines().any(|line| {
-            line.contains("certificate SHA-256 digest:")
-                && line.trim_end().ends_with(CERTIFICATE_SHA256)
-        });
-    if signed_by_backtalk {
+/// Checks the APK carries Backtalk's certificate. AAE reads it itself,
+/// rather than with apksigner, which needs Java; Android checks the signature
+/// matches the certificate when it installs the APK.
+fn verify_signature(apk: &Path) -> Result<()> {
+    let digests = crate::apk_signing::certificate_digests(apk)?;
+    if digests.iter().any(|d| d == CERTIFICATE_SHA256) {
         Ok(())
     } else {
-        Err(fail(
-            "it isn't signed with Backtalk's key, so AAE won't install it".into(),
-        ))
+        Err(Error::Apk {
+            path: apk.to_path_buf(),
+            reason: "it isn't signed with Backtalk's key, so AAE won't install it".into(),
+        })
     }
 }
 
@@ -171,4 +153,28 @@ fn write_info(path: &Path, info: &CacheInfo) -> Result<()> {
         reason: e.to_string(),
     })?;
     std::fs::write(path, text).context(|| format!("Writing {}", path.display()))
+}
+
+#[cfg(test)]
+mod signature_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_backtalks_own_build_when_one_is_at_hand() {
+        // The copy AAE keeps, on a computer that has downloaded one.
+        let apk = paths::data_dir().join("screen-readers/backtalk-dev.apk");
+        if apk.is_file() {
+            verify_signature(&apk).unwrap();
+        }
+    }
+
+    #[test]
+    fn refuses_other_apps() {
+        // AAE's helper is signed with another key.
+        let helper = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../android/helper/build/outputs/apk/release/helper-release.apk");
+        if helper.is_file() {
+            assert!(verify_signature(&helper).is_err());
+        }
+    }
 }

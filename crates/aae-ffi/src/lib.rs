@@ -1199,7 +1199,7 @@ impl Engine {
             let (_, _, adb) = emulator::attach(&sdk, &device).await?;
             let apk = match source {
                 ScreenReaderSource::Backtalk => {
-                    provision::download_backtalk(&sdk, device.meta.api).await?
+                    provision::download_backtalk(device.meta.api).await?
                 }
                 ScreenReaderSource::Apk { path } => PathBuf::from(path),
             };

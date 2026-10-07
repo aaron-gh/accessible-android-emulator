@@ -82,7 +82,8 @@ impl Sdk {
         versions.pop().map(|dir| dir.join(format!("aapt2{EXE}")))
     }
 
-    /// The newest `apksigner` in build-tools, used to check downloaded apps' signatures.
+    /// The newest `apksigner` in build-tools. AAE doesn't run it, as it needs
+    /// Java; it's one of the build tools AAE checks are installed.
     pub fn apksigner_bin(&self) -> Option<PathBuf> {
         let name = if cfg!(windows) {
             "apksigner.bat"

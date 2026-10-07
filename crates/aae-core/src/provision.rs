@@ -361,7 +361,7 @@ async fn find_screen_reader(
         ));
     }
     if options.backtalk {
-        let apk = download_backtalk(sdk, api).await?;
+        let apk = download_backtalk(api).await?;
         return Ok(Some(
             install_screen_reader_apk(sdk, adb, &apk, false).await?,
         ));
@@ -422,15 +422,14 @@ async fn measure_audio_inner(device: &mut Device, adb: &Adb) {
 }
 
 /// Downloads Backtalk's latest development build, if this Android version can run it.
-pub async fn download_backtalk(sdk: &Sdk, api: u32) -> Result<PathBuf> {
+pub async fn download_backtalk(api: u32) -> Result<PathBuf> {
     if api < crate::screenreader::BACKTALK_MIN_API {
         return Err(Error::Download(format!(
             "Backtalk needs Android 8.0 or later, and this device is {}.",
             crate::sdk::android_name(api)
         )));
     }
-    let sdk = sdk.clone();
-    tokio::task::spawn_blocking(move || crate::screenreader::backtalk_apk(&sdk))
+    tokio::task::spawn_blocking(crate::screenreader::backtalk_apk)
         .await
         .map_err(|e| Error::Download(e.to_string()))?
 }
@@ -532,11 +531,7 @@ fn keep_screen_reader_copy(apk: &std::path::Path, package: &str) {
 /// AAE's copy, else the one on the device if it's running, else, for
 /// Backtalk, a fresh download. None if the device has none, or it can't be
 /// found.
-pub async fn screen_reader_for_wipe(
-    sdk: &Sdk,
-    device: &Device,
-    adb: Option<&Adb>,
-) -> Option<PathBuf> {
+pub async fn screen_reader_for_wipe(device: &Device, adb: Option<&Adb>) -> Option<PathBuf> {
     let package = device
         .meta
         .screen_reader
@@ -563,7 +558,7 @@ pub async fn screen_reader_for_wipe(
         }
     }
     if package == crate::screenreader::BACKTALK_PACKAGE {
-        return download_backtalk(sdk, device.meta.api).await.ok();
+        return download_backtalk(device.meta.api).await.ok();
     }
     None
 }

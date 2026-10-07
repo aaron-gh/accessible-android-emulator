@@ -79,7 +79,7 @@ pub async fn wipe_device(
         Ok(info) => Some(Adb::new(sdk.adb_bin()?, info.serial())),
         Err(_) => None,
     };
-    let screen_reader = provision::screen_reader_for_wipe(sdk, device, adb.as_ref()).await;
+    let screen_reader = provision::screen_reader_for_wipe(device, adb.as_ref()).await;
     if adb.is_some() {
         emulator::stop(sdk, device, Duration::from_secs(60)).await?;
     }

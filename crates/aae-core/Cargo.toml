@@ -24,6 +24,7 @@ directories.workspace = true
 tracing.workspace = true
 ureq.workspace = true
 sha1.workspace = true
+sha2.workspace = true
 roxmltree.workspace = true
 signalsmith-stretch.workspace = true
 zip.workspace = true

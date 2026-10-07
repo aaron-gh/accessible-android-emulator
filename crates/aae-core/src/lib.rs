@@ -8,6 +8,7 @@
 
 pub mod adb;
 pub mod apk;
+pub mod apk_signing;
 pub mod apps;
 pub mod audio;
 pub mod catalog;
