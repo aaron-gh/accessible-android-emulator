@@ -5,6 +5,20 @@
         <description>Updates for AAE, the Accessible Android Emulator, on Windows.</description>
         <language>en</language>
         <item>
+            <title>Version 0.3.1</title>
+            <pubDate>Wed, 07 Oct 2026 10:11:07 -0000</pubDate>
+            <sparkle:version>70</sparkle:version>
+            <sparkle:shortVersionString>0.3.1</sparkle:shortVersionString>
+            <description><![CDATA[<ul>
+<li>Devices are much faster: they now draw their screens with the computer's graphics adapter. Before, the emulator drew them in software, on the processor.</li>
+<li>Speech no longer fails on a device's first start when the speech engine is slow to answer.</li>
+<li>AAE says when a computer is below what it needs, and gives devices fewer processor cores on small processors.</li>
+<li>Diagnostic reports name the processor and graphics, and keep more personal details out.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.3.1/AAE-0.3.1-windows-x64-setup.exe" sparkle:edSignature="JsaR/8kYrQ1JPzJUKytwnbMQEENPcfvGbVQyqPjynU6EMObI3fCDeHVD20hizxikR7ei3EPE0cClWWo9QZEHBA==" length="30474234" type="application/octet-stream" sparkle:os="windows-x64" sparkle:installerArguments="/S" />
+        </item>
+        <item>
             <title>Version 0.3.0</title>
             <pubDate>Wed, 07 Oct 2026 09:25:28 -0000</pubDate>
             <sparkle:version>62</sparkle:version>
