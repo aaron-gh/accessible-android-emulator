@@ -60,12 +60,19 @@ enum Command {
         /// need its address typed in.
         #[arg(long)]
         no_discovery: bool,
+        /// Print events as JSON lines, for AAE's apps, which run aae serve:
+        /// {"event":"serving",…}, {"event":"code","code":…}, {"event":"notice","text":…}.
+        #[arg(long)]
+        json: bool,
     },
     /// List the phones paired with this computer's AAE, or unpair one.
     Phones {
         /// The id of a phone to unpair, as the list shows it.
         #[arg(long)]
         unpair: Option<String>,
+        /// List them as JSON, for AAE's apps.
+        #[arg(long)]
+        json: bool,
     },
     /// Check everything AAE needs: this computer's virtualisation and sound,
     /// the SDK, AAE's own parts, and each running device's screen reader
@@ -715,9 +722,22 @@ async fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new()?;
     match cli.command {
         Command::Doctor => doctor(&ctx),
-        Command::Serve { port, no_discovery } => serve(port, !no_discovery).await,
-        Command::Phones { unpair } => {
+        Command::Serve {
+            port,
+            no_discovery,
+            json,
+        } => serve(port, !no_discovery, json).await,
+        Command::Phones { unpair, json } => {
             let clients = aae_remote::security::Clients::load();
+            if json && unpair.is_none() {
+                let list: Vec<_> = clients
+                    .list()
+                    .iter()
+                    .map(|c| serde_json::json!({"id": c.id, "name": c.name, "paired": c.paired}))
+                    .collect();
+                println!("{}", serde_json::Value::from(list));
+                return Ok(());
+            }
             match unpair {
                 Some(id) => {
                     if clients.remove(&id) {
@@ -2569,7 +2589,15 @@ fn confirm(question: &str) -> Result<bool> {
 }
 
 /// Serves devices to AAE's Android app until stopped.
-async fn serve(port: u16, discovery: bool) -> Result<()> {
+async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
+    // Lines for people, or JSON for AAE's apps.
+    let say = |event: serde_json::Value, text: String| {
+        if json {
+            println!("{event}");
+        } else {
+            println!("{text}");
+        }
+    };
     let engine = aae_ffi::Engine::new()?;
     let name = aae_remote::discovery::computer_name();
     let server = aae_remote::Server::new(engine, name.clone())?;
@@ -2579,8 +2607,11 @@ async fn serve(port: u16, discovery: bool) -> Result<()> {
         match aae_remote::discovery::announce(&name, port, &server.fingerprint) {
             Ok(a) => Some(a),
             Err(e) => {
-                println!(
-                    "Couldn't announce this computer on the network ({e}); phones will need its address."
+                say(
+                    serde_json::json!({"event": "notice", "text": format!("Couldn't announce this computer on the network ({e}); phones will need its address.")}),
+                    format!(
+                        "Couldn't announce this computer on the network ({e}); phones will need its address."
+                    ),
                 );
                 None
             }
@@ -2589,20 +2620,27 @@ async fn serve(port: u16, discovery: bool) -> Result<()> {
         None
     };
     let running = tokio::spawn(server.clone().run(port));
-    println!("Serving {name}'s devices to AAE's Android app, on port {port}.");
-    println!(
-        "Its certificate's fingerprint starts {}.",
-        &server.fingerprint[..16]
+    say(
+        serde_json::json!({"event": "serving", "name": name, "port": port, "fingerprint": server.fingerprint}),
+        format!(
+            "Serving {name}'s devices to AAE's Android app, on port {port}.\nIts certificate's fingerprint starts {}.",
+            &server.fingerprint[..16]
+        ),
     );
+    let minutes = aae_remote::security::CODE_LIFETIME.as_secs() / 60;
     let show_code = || {
         let code = server.pairing.new_code();
-        println!(
-            "To pair a phone, enter this code in AAE on it: {code}. It works once, for {} minutes.",
-            aae_remote::security::CODE_LIFETIME.as_secs() / 60
+        say(
+            serde_json::json!({"event": "code", "code": code, "minutes": minutes}),
+            format!(
+                "To pair a phone, enter this code in AAE on it: {code}. It works once, for {minutes} minutes."
+            ),
         );
     };
     show_code();
-    println!("Press P and Enter for a new pairing code, or Q and Enter to stop.");
+    if !json {
+        println!("Press P and Enter for a new pairing code, or Q and Enter to stop.");
+    }
     let mut input = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     use tokio::io::AsyncBufReadExt;
     // With no terminal, as when run as a service, it serves until stopped.
@@ -2615,9 +2653,11 @@ async fn serve(port: u16, discovery: bool) -> Result<()> {
                     "q" => break,
                     _ => {}
                 },
+                // An app that runs aae serve stops it by closing its input.
+                _ if json => break,
                 _ => terminal = false,
             },
-            Some(note) = notes.recv() => println!("{note}"),
+            Some(note) = notes.recv() => say(serde_json::json!({"event": "notice", "text": note}), note),
             _ = tokio::signal::ctrl_c() => break,
         }
         if running.is_finished() {
@@ -2627,6 +2667,8 @@ async fn serve(port: u16, discovery: bool) -> Result<()> {
     if running.is_finished() {
         running.await??;
     }
-    println!("Stopped serving.");
+    if !json {
+        println!("Stopped serving.");
+    }
     Ok(())
 }

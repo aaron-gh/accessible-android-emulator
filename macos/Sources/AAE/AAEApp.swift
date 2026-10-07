@@ -4,6 +4,7 @@ import SwiftUI
 struct AAEApp: App {
     @StateObject private var model = AppModel()
     @StateObject private var updater = Updater()
+    @StateObject private var serving = Serving()
 
     var body: some Scene {
         Window("Accessible Android Emulator", id: "main") {
@@ -22,6 +23,7 @@ struct AAEApp: App {
                 Button("New Device…") { model.showingNewDevice = true }
                     .keyboardShortcut("n")
                 AndroidVersionsMenuItem()
+                ServeMenuItem()
             }
             CommandMenu("Device") {
                 Button("Start") { model.start() }
@@ -116,6 +118,11 @@ struct AAEApp: App {
         Window("Android Versions", id: "versions") {
             AndroidVersionsView()
                 .environmentObject(model)
+        }
+        Window("Serve Devices to Phones", id: "serving") {
+            ServeView()
+                .environmentObject(serving)
+                .onAppear { serving.announce = { text in model.announce(text) } }
         }
         Window("Watching for New Builds", id: "watches") {
             WatchView()

@@ -797,6 +797,7 @@ pub fn command(id: u16, notification: u32) {
             None => announce("Select a device first.", Tone::Failure),
         },
         ANDROID_VERSIONS => crate::tools::versions::show(),
+        SERVE => crate::tools::serve::show(),
         WATCH_BUILDS => crate::tools::watch::watch_for_builds(),
         RENAME => rename(),
         COPY_DEVICE => copy_device(),

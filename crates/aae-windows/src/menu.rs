@@ -51,6 +51,7 @@ pub const APPS: u16 = 274;
 pub const SERVICES: u16 = 275;
 pub const SNAPSHOTS: u16 = 276;
 pub const OWN_WINDOW: u16 = 206;
+pub const SERVE: u16 = 106;
 pub const ANDROID_VERSIONS: u16 = 105;
 pub const WATCH_BUILDS: u16 = 243;
 
@@ -82,6 +83,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                     "&Android Versions",
                     Some((ca, b'A' as u16)),
                 ),
+                Item(SERVE, "Serve Devices to &Phones…", None),
                 Item(UPDATE_TOOLS, "&Update Android Tools…", None),
                 Item(SETTINGS, "&Settings…", Some((c, VK_OEM_COMMA.0))),
                 SEPARATOR,
