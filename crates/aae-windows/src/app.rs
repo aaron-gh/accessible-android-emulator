@@ -1968,6 +1968,9 @@ fn gesture_actions(actions: Vec<GestureAction>) {
             GestureAction::WhereIsIt => queue_gesture(session.clone(), |s| {
                 Box::pin(async move { say_touch_point(s, None).await })
             }),
+            GestureAction::Details => queue_gesture(session.clone(), |s| {
+                Box::pin(async move { say_details(s).await })
+            }),
             GestureAction::Help => announce(&gestures::help(), Tone::Info),
             GestureAction::Unknown => Tone::Failure.play(),
         }
@@ -2065,7 +2068,7 @@ async fn step_touch_point(dx: i32, dy: i32, session: Arc<Session>) -> Result<(),
         say(
             under
                 .map(|u| u.label)
-                .unwrap_or_else(|| format!("Nothing. {}", position(point, &screen))),
+                .unwrap_or_else(|| format!("Nothing. {}", position(point, &screen, false))),
             Tone::Info,
         );
     }
@@ -2089,9 +2092,24 @@ async fn say_touch_point(session: Arc<Session>, prefix: Option<&str>) -> Result<
     }
     parts.push(under.map(|u| u.label).unwrap_or_else(|| "Nothing.".into()));
     if prefix.is_none() {
-        parts.push(position(point, &screen));
+        parts.push(position(point, &screen, true));
     }
     say(parts.join(" "), Tone::Info);
+    Ok(())
+}
+
+/// Reads every property of the element at the touch point.
+async fn say_details(session: Arc<Session>) -> Result<(), AaeError> {
+    let screen = session.clone().touch_targets().await?;
+    let point = TOUCH.lock().unwrap().point.unwrap_or(ScreenPoint {
+        x: screen.width / 2,
+        y: screen.height / 2,
+    });
+    let details = session.details_at(point.x, point.y).await?;
+    say(
+        details.unwrap_or_else(|| format!("Nothing. {}", position(point, &screen, true))),
+        Tone::Info,
+    );
     Ok(())
 }
 
@@ -2108,10 +2126,16 @@ fn target_index(point: ScreenPoint, targets: &[TouchTarget]) -> Option<usize> {
 }
 
 /// Where a point is, as percentages across and down the screen.
-fn position(point: ScreenPoint, screen: &TouchTargets) -> String {
+/// With `pixels`, also its pixel position, as `aae gesture --at` takes it.
+fn position(point: ScreenPoint, screen: &TouchTargets, pixels: bool) -> String {
     let across = point.x * 100 / screen.width.max(1);
     let down = point.y * 100 / screen.height.max(1);
-    format!("{across} percent across, {down} percent down.")
+    let at = if pixels {
+        format!(", pixel {}, {}", point.x, point.y)
+    } else {
+        String::new()
+    };
+    format!("{across} percent across, {down} percent down{at}.")
 }
 
 // MARK: - Device actions

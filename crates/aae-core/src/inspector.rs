@@ -262,9 +262,11 @@ impl Node {
         }
         let [l, t, r, b] = self.bounds;
         lines.push(format!(
-            "Position: {l}, {t}; size {} by {} pixels",
+            "Position: {l}, {t}; size {} by {} pixels; centre {}, {}",
             r - l,
-            b - t
+            b - t,
+            (l + r) / 2,
+            (t + b) / 2
         ));
         if !self.flags.is_empty() {
             lines.push(format!("Flags: {}", self.flags.join(", ")));
@@ -348,11 +350,70 @@ impl Target {
 /// testing, but a control that covers most of the screen, usually a layout
 /// that happens to be clickable, is not.
 pub fn targets(tree: &Tree) -> Vec<Target> {
+    targets_with_nodes(tree).into_iter().map(|(t, _)| t).collect()
+}
+
+/// The element under a point: the smallest target containing it, as Tab
+/// stops there, or else the smallest visible element containing it.
+pub fn node_at(tree: &Tree, x: i32, y: i32) -> Option<&Node> {
+    let targets = targets_with_nodes(tree);
+    if let Some((_, node)) = targets
+        .iter()
+        .filter(|(t, _)| t.contains(x, y))
+        .min_by_key(|(t, _)| t.area())
+    {
+        return Some(node);
+    }
+    fn smallest<'a>(node: &'a Node, x: i32, y: i32, best: &mut Option<&'a Node>) {
+        let [l, t, r, b] = node.bounds;
+        if !((l..r).contains(&x) && (t..b).contains(&y)) {
+            return;
+        }
+        let area = |n: &Node| (n.bounds[2] - n.bounds[0]) as i64 * (n.bounds[3] - n.bounds[1]) as i64;
+        if best.is_none_or(|b| area(node) <= area(b)) {
+            *best = Some(node);
+        }
+        for child in &node.children {
+            smallest(child, x, y, best);
+        }
+    }
+    let mut best = None;
+    for window in &tree.windows {
+        smallest(&window.root, x, y, &mut best);
+    }
+    best
+}
+
+impl Node {
+    /// What the screen reader says, then every property, as sentences to speak.
+    pub fn spoken_details(&self) -> String {
+        let mut lines = vec![self.summary()];
+        lines.extend(self.details());
+        lines
+            .iter()
+            .map(|line| {
+                if line.ends_with(['.', '?', '!']) {
+                    line.clone()
+                } else {
+                    format!("{line}.")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+fn targets_with_nodes(tree: &Tree) -> Vec<(Target, &Node)> {
     fn visible(node: &Node) -> bool {
         let [l, t, r, b] = node.bounds;
         r > l && b > t
     }
-    fn walk(node: &Node, inside_control: bool, screen_area: i64, out: &mut Vec<Target>) {
+    fn walk<'a>(
+        node: &'a Node,
+        inside_control: bool,
+        screen_area: i64,
+        out: &mut Vec<(Target, &'a Node)>,
+    ) {
         let control = node.is_control() || node.has("focusable");
         let target = Target {
             label: node.summary(),
@@ -365,7 +426,7 @@ pub fn targets(tree: &Tree) -> Vec<Target> {
                 !inside_control && node.own_label().is_some()
             };
         if worth {
-            out.push(target);
+            out.push((target, node));
         }
         for child in &node.children {
             walk(
@@ -637,6 +698,42 @@ fn check_node(node: &Node, density: f64, screen: [i32; 4], issues: &mut Vec<Issu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_the_element_under_a_point() {
+        let layout = Node {
+            class: Some("android.widget.FrameLayout".into()),
+            bounds: [0, 0, 1000, 2000],
+            children: vec![Node {
+                class: Some("android.widget.Button".into()),
+                text: Some("Allow?".into()),
+                bounds: [100, 100, 300, 200],
+                flags: vec!["clickable".into()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let tree = Tree {
+            density: 2.625,
+            api: 36,
+            truncated: false,
+            windows: vec![Window {
+                kind: "application".into(),
+                title: None,
+                active: true,
+                focused: true,
+                root: layout,
+            }],
+        };
+        let button = node_at(&tree, 150, 150).unwrap();
+        assert_eq!(button.text.as_deref(), Some("Allow?"));
+        assert!(button.spoken_details().contains("Text: Allow? Class: android.widget.Button."));
+        assert!(button.spoken_details().contains("centre 200, 150."));
+        // No target there: the smallest element instead.
+        let layout = node_at(&tree, 900, 1900).unwrap();
+        assert_eq!(layout.short_class(), "FrameLayout");
+        assert!(node_at(&tree, 5000, 5000).is_none());
+    }
 
     #[test]
     fn the_web_page_escapes_what_apps_put_on_screen() {

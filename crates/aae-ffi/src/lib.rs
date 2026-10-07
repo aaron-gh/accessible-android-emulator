@@ -2246,6 +2246,16 @@ impl Session {
     /// The things on the screen that can be touched, in reading order, and
     /// the screen's size as the user sees it. AAE's helper must be on; see
     /// `use_helper`.
+    /// Every property of the element at a point, in touch target pixels, as
+    /// sentences to speak. None when nothing is there.
+    pub async fn details_at(self: Arc<Self>, x: i32, y: i32) -> Result<Option<String>, AaeError> {
+        on_runtime(async move {
+            let tree = inspector::read_tree(&self.adb).await?;
+            Ok(inspector::node_at(&tree, x, y).map(|node| node.spoken_details()))
+        })
+        .await
+    }
+
     pub async fn touch_targets(self: Arc<Self>) -> Result<TouchTargets, AaeError> {
         on_runtime(async move {
             let screen = self.screen().await?;

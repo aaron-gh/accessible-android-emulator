@@ -79,9 +79,9 @@ Below these, Android starts but is too slow to use with a screen reader. Setup a
   - Arrows swipe; hold one arrow and press another for a two-part swipe.
   - Space double tap, T tap, R triple tap, H double tap and hold, L touch and hold.
   - Hold 2, 3 or 4 for that many fingers.
-  - Touch point: Tab and Shift-Tab move between screen elements, Shift-arrows move in steps, C centres, W reports the position. Works without a screen reader running.
+  - Touch point: Tab and Shift-Tab move between screen elements, Shift-arrows move in steps, C centres, W says what's there and its position in percent and pixels, D reads every property of the element there. Works without a screen reader running.
   - Question mark lists the keys.
-- `aae gesture <device> swipe-right double-tap`; `--at X,Y`. `aae inspect <device> --targets` lists touch targets.
+- `aae gesture <device> swipe-right double-tap`; `--at X,Y`. `aae inspect <device> --targets` lists touch targets; `--at X,Y` prints the element at a point.
 
 ### Battery, Location, Phone and Network
 

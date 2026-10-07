@@ -1164,6 +1164,10 @@ final class AppModel: ObservableObject {
             queueGesture { [weak self] session in
                 try await self?.sayTouchPoint(session: session, prefix: nil)
             }
+        case .details:
+            queueGesture { [weak self] session in
+                try await self?.sayDetails(session: session)
+            }
         case .help:
             announce(GestureKeys.helpText)
         case .unknown:
@@ -1237,8 +1241,16 @@ final class AppModel: ObservableObject {
         let point = touchPoint ?? ScreenPoint(x: screen.width / 2, y: screen.height / 2)
         let under = Self.targetIndex(at: point, in: screen.targets).map { screen.targets[$0] }
         touchLabel = under?.label
-        let parts = [prefix, under?.label ?? "Nothing.", prefix == nil ? Self.position(point, screen) : nil]
+        let parts = [prefix, under?.label ?? "Nothing.", prefix == nil ? Self.position(point, screen, pixels: true) : nil]
         announce(parts.compactMap { $0 }.joined(separator: " "))
+    }
+
+    /// Reads every property of the element at the touch point.
+    private func sayDetails(session: Session) async throws {
+        let screen = try await session.touchTargets()
+        let point = touchPoint ?? ScreenPoint(x: screen.width / 2, y: screen.height / 2)
+        let details = try await session.detailsAt(x: point.x, y: point.y)
+        announce(details ?? "Nothing. \(Self.position(point, screen, pixels: true))")
     }
 
     /// The smallest target containing a point.
@@ -1254,11 +1266,13 @@ final class AppModel: ObservableObject {
             }
     }
 
-    /// Where a point is, as percentages across and down the screen.
-    private static func position(_ point: ScreenPoint, _ screen: TouchTargets) -> String {
+    /// Where a point is, as percentages across and down the screen, and with
+    /// `pixels`, its pixel position, as `aae gesture --at` takes it.
+    private static func position(_ point: ScreenPoint, _ screen: TouchTargets, pixels: Bool = false) -> String {
         let across = point.x * 100 / max(screen.width, 1)
         let down = point.y * 100 / max(screen.height, 1)
-        return "\(across) percent across, \(down) percent down."
+        let at = pixels ? ", pixel \(point.x), \(point.y)" : ""
+        return "\(across) percent across, \(down) percent down\(at)."
     }
 
     /// Runs gesture work after any still going, so gestures happen in order.

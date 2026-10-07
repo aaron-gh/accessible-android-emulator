@@ -32,8 +32,10 @@ pub enum GestureAction {
     Step(i32, i32),
     /// Put the touch point back in the middle of the screen.
     Centre,
-    /// Say what's at the touch point.
+    /// Say what's at the touch point, and where.
     WhereIsIt,
+    /// Read every property of the element at the touch point.
+    Details,
     Help,
     /// A key that does nothing in gesture mode.
     Unknown,
@@ -41,7 +43,7 @@ pub enum GestureAction {
 
 pub fn help() -> String {
     format!(
-        "Gesture keys. Arrows swipe. Hold one arrow and press another for a two-part swipe, such as up then left. Space double taps. T taps, R triple taps. H double taps and holds, and L touches and holds, until you let go. Hold 2, 3 or 4 while pressing a key to use that many fingers. Gestures happen at the touch point: Tab and Shift Tab move it from item to item, Shift arrows move it a step, C puts it in the middle, and W says where it is. {} returns to Windows.",
+        "Gesture keys. Arrows swipe. Hold one arrow and press another for a two-part swipe, such as up then left. Space double taps. T taps, R triple taps. H double taps and holds, and L touches and holds, until you let go. Hold 2, 3 or 4 while pressing a key to use that many fingers. Gestures happen at the touch point: Tab and Shift Tab move it from item to item, Shift arrows move it a step, C puts it in the middle, W says what's there and where, and D reads its properties. {} returns to Windows.",
         crate::keyboard::return_shortcut()
     )
 }
@@ -86,7 +88,7 @@ fn is_modifier(key: u16) -> bool {
 
 fn tap(key: u16) -> Option<&'static str> {
     match key {
-        0x39 | 0x1C | 0x20 => Some("double-tap"), // Space, Enter, D
+        0x39 | 0x1C => Some("double-tap"), // Space, Enter
         k if k == EXTENDED | 0x1C => Some("double-tap"), // keypad Enter
         0x14 => Some("tap"),                      // T
         0x13 => Some("triple-tap"),               // R
@@ -107,6 +109,7 @@ fn other(key: u16) -> Option<GestureAction> {
     match key {
         0x2E => Some(GestureAction::Centre),    // C
         0x11 => Some(GestureAction::WhereIsIt), // W
+        0x20 => Some(GestureAction::Details),   // D
         0x35 => Some(GestureAction::Help),      // slash, for question mark
         _ => None,
     }

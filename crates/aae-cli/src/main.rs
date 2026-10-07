@@ -334,6 +334,10 @@ enum Command {
         /// until stopped with Control-C.
         #[arg(long)]
         follow: bool,
+        /// Print every property of the element at X,Y, as gesture mode's D
+        /// reads it.
+        #[arg(long, value_parser = parse_point, conflicts_with_all = ["json", "html", "targets", "follow"])]
+        at: Option<(i32, i32)>,
     },
     /// Check the screen for common accessibility problems.
     Check { device: String },
@@ -1295,6 +1299,7 @@ async fn run(cli: Cli) -> Result<()> {
             html,
             targets,
             follow,
+            at,
         } => {
             let (device, _, adb) = ctx.connect(&device).await?;
             if follow {
@@ -1302,7 +1307,17 @@ async fn run(cli: Cli) -> Result<()> {
             }
             let tree =
                 with_helper(&ctx, &device, &adb, aae_core::inspector::read_tree(&adb)).await?;
-            if targets {
+            if let Some((x, y)) = at {
+                match aae_core::inspector::node_at(&tree, x, y) {
+                    Some(node) => {
+                        println!("{}", node.summary());
+                        for line in node.details() {
+                            println!("{line}");
+                        }
+                    }
+                    None => println!("Nothing at {x}, {y}."),
+                }
+            } else if targets {
                 for target in aae_core::inspector::targets(&tree) {
                     let (x, y) = target.centre();
                     println!("{} (at {x}, {y})", target.label);

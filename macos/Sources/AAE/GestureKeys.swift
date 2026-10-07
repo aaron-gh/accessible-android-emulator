@@ -13,8 +13,10 @@ enum GestureAction: Equatable {
     case step(dx: Int, dy: Int)
     /// Put the touch point back in the middle of the screen.
     case centre
-    /// Say what's at the touch point.
+    /// Say what's at the touch point, and where.
     case whereIsIt
+    /// Read every property of the element at the touch point.
+    case details
     case help
     /// A key that does nothing in gesture mode.
     case unknown
@@ -26,19 +28,19 @@ enum GestureAction: Equatable {
 ///
 /// - An arrow swipes that way when released. Holding one arrow and pressing
 ///   another performs a two-part swipe, such as up then left, at once.
-/// - Space, Return or D double taps, T taps, and R triple taps. H double
+/// - Space or Return double taps, T taps, and R triple taps. H double
 ///   taps and holds, and L touches and holds, for as long as the key is held.
 /// - Holding 2, 3 or 4 while pressing an arrow or a tap key uses that many
 ///   fingers.
 /// - Tab and Shift-Tab move the touch point to the next or previous thing on
 ///   the screen; Shift-arrows move it a step. C puts it back in the middle,
-///   and W says what's there.
+///   W says what's there and where, and D reads its properties.
 /// - Question mark reads these keys out.
 @MainActor
 final class GestureKeys {
     var act: (GestureAction) -> Void = { _ in }
 
-    static var helpText: String { "Gesture keys. Arrows swipe. Hold one arrow and press another for a two-part swipe, such as up then left. Space double taps. T taps, R triple taps. H double taps and holds, and L touches and holds, until you let go. Hold 2, 3 or 4 while pressing a key to use that many fingers. Gestures happen at the touch point: Tab and Shift Tab move it from item to item, Shift arrows move it a step, C puts it in the middle, and W says where it is. \(ReturnShortcut.current.spoken) returns to the Mac." }
+    static var helpText: String { "Gesture keys. Arrows swipe. Hold one arrow and press another for a two-part swipe, such as up then left. Space double taps. T taps, R triple taps. H double taps and holds, and L touches and holds, until you let go. Hold 2, 3 or 4 while pressing a key to use that many fingers. Gestures happen at the touch point: Tab and Shift Tab move it from item to item, Shift arrows move it a step, C puts it in the middle, W says what's there and where, and D reads its properties. \(ReturnShortcut.current.spoken) returns to the Mac." }
 
     /// Keys down, as far as gesture mode knows. A key going down again while
     /// in here is the keyboard repeating it.
@@ -58,7 +60,6 @@ final class GestureKeys {
     private static let taps: [UInt16: String] = [
         0x31: "double-tap", // Space
         0x24: "double-tap", // Return
-        0x02: "double-tap", // D
         0x11: "tap", // T
         0x0F: "triple-tap", // R
     ]
@@ -70,6 +71,7 @@ final class GestureKeys {
     private static let otherKeys: [UInt16: GestureAction] = [
         0x08: .centre, // C
         0x0D: .whereIsIt, // W
+        0x02: .details, // D
         0x2C: .help, // slash, for question mark
     ]
     private static let tab: UInt16 = 0x30
