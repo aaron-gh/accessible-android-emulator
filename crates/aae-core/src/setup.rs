@@ -296,7 +296,7 @@ pub fn install(
     }
     let temp = sdk.root.join(".temp");
     std::fs::create_dir_all(&temp).context(|| format!("Creating {}", temp.display()))?;
-    if let Some(free) = catalog::free_space(&temp) {
+    if let Some(free) = crate::platform::free_space(&temp) {
         // The zip, and the tool unpacked, which is about twice its size.
         let needed = tool.size * 3;
         if free < needed {
@@ -367,8 +367,10 @@ pub enum Virtualisation {
 }
 
 /// Checks the computer's hardware virtualisation: Hypervisor.framework on
-/// macOS, KVM on Linux.
-pub fn virtualisation() -> Virtualisation {
+/// macOS, KVM on Linux, and on Windows, whatever the SDK's emulator finds:
+/// Windows Hypervisor Platform or Google's hypervisor driver.
+pub fn virtualisation(sdk: &Sdk) -> Virtualisation {
+    let _ = sdk;
     #[cfg(target_os = "macos")]
     {
         let mut value: libc::c_int = 0;
@@ -417,10 +419,55 @@ pub fn virtualisation() -> Virtualisation {
             Virtualisation::Available
         }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    {
+        windows_acceleration(sdk)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         Virtualisation::Unknown
     }
+}
+
+/// Asks the emulator whether it can use a hypervisor. It answers between
+/// lines saying "accel:" and "accel", with a status, 0 when it can, then
+/// what it found.
+#[cfg(windows)]
+fn windows_acceleration(sdk: &Sdk) -> Virtualisation {
+    use crate::platform::NoConsole;
+    let Ok(emulator) = sdk.emulator_bin() else {
+        // Not installed yet; it's checked once it is.
+        return Virtualisation::Unknown;
+    };
+    let Ok(out) = std::process::Command::new(emulator)
+        .no_console()
+        .arg("-accel-check")
+        .output()
+    else {
+        return Virtualisation::Unknown;
+    };
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    match parse_accel_check(&text) {
+        Some((0, _)) => Virtualisation::Available,
+        Some((_, found)) => Virtualisation::Missing(format!(
+            "The emulator can't use hardware acceleration: {found} Turn on Windows Hypervisor Platform: in Control Panel, choose Programs, then Turn Windows features on or off, check Windows Hypervisor Platform, and restart. Virtualisation must also be on in the computer's firmware settings."
+        )),
+        None => Virtualisation::Unknown,
+    }
+}
+
+/// The status and message from the emulator's `-accel-check`.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_accel_check(text: &str) -> Option<(i32, String)> {
+    let mut lines = text.lines().map(str::trim);
+    lines.find(|l| *l == "accel:")?;
+    let status = lines.next()?.parse().ok()?;
+    let found: Vec<&str> = lines.take_while(|l| *l != "accel").collect();
+    let mut found = found.join(" ");
+    if !found.is_empty() && !found.ends_with('.') {
+        found.push('.');
+    }
+    Some((status, found))
 }
 
 /// True if a path is AAE's own SDK folder, rather than one shared with
@@ -432,6 +479,21 @@ pub fn is_own_sdk(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_emulators_acceleration_check() {
+        let usable = "accel:\n0\nWHPX(10.0.26100) is installed and usable.\naccel\n";
+        assert_eq!(
+            parse_accel_check(usable),
+            Some((0, "WHPX(10.0.26100) is installed and usable.".into()))
+        );
+        let missing = "accel:\n1\nAEHD is not installed\naccel\n";
+        assert_eq!(
+            parse_accel_check(missing),
+            Some((1, "AEHD is not installed.".into()))
+        );
+        assert_eq!(parse_accel_check("nonsense"), None);
+    }
 
     const XML: &str = r#"<?xml version='1.0' encoding='utf-8'?>
 <sdk:sdk-repository xmlns:sdk="http://schemas.android.com/sdk/android/repo/repository2/03" xmlns:generic="http://schemas.android.com/repository/android/generic/02" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">

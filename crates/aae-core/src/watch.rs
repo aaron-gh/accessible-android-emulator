@@ -13,7 +13,9 @@ pub fn newest_apk(path: &Path) -> Option<PathBuf> {
         return Some(path.to_path_buf());
     }
     fn walk(dir: &Path, depth: usize, best: &mut Option<(SystemTime, PathBuf)>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             let Ok(meta) = entry.metadata() else { continue };
@@ -21,7 +23,10 @@ pub fn newest_apk(path: &Path) -> Option<PathBuf> {
                 if depth > 0 {
                     walk(&path, depth - 1, best);
                 }
-            } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("apk")) {
+            } else if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("apk"))
+            {
                 let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
                 if best.as_ref().is_none_or(|(t, _)| modified > *t) {
                     *best = Some((modified, path));
@@ -58,7 +63,9 @@ pub fn current_build(path: &Path) -> Option<Build> {
 pub async fn next_build(path: &Path, last: Option<&Build>) -> Build {
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let Some(build) = current_build(path) else { continue };
+        let Some(build) = current_build(path) else {
+            continue;
+        };
         if Some(&build) == last {
             continue;
         }
@@ -85,7 +92,10 @@ mod tests {
         std::fs::write(deep.join("app-debug.apk"), b"2").unwrap();
         std::fs::write(deep.join("notes.txt"), b"3").unwrap();
         assert_eq!(newest_apk(&root), Some(deep.join("app-debug.apk")));
-        assert_eq!(newest_apk(&root.join("old.apk")), Some(root.join("old.apk")));
+        assert_eq!(
+            newest_apk(&root.join("old.apk")),
+            Some(root.join("old.apk"))
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

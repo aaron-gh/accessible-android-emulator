@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::{Error, Result};
+use crate::platform::NoConsole;
 
 const ANDROID_NS: &str = "http://schemas.android.com/apk/res/android:";
 
@@ -80,6 +81,7 @@ impl ApkInfo {
         };
         let run = |args: &[&str]| -> Result<String> {
             let out = Command::new(aapt2)
+                .no_console()
                 .args(args)
                 .arg(apk)
                 .output()

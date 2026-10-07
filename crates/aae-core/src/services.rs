@@ -42,7 +42,9 @@ impl Service {
 /// Every installed accessibility service, screen readers first, then by name.
 pub async fn list(adb: &Adb, device: &Device) -> Result<Vec<Service>> {
     let out = adb
-        .shell(&format!("am broadcast -n {HELPER_RECEIVER} -a {LIST_SERVICES}"))
+        .shell(&format!(
+            "am broadcast -n {HELPER_RECEIVER} -a {LIST_SERVICES}"
+        ))
         .await?;
     if !out.contains("result=1") {
         return Err(Error::Adb(
@@ -58,7 +60,9 @@ pub async fn list(adb: &Adb, device: &Device) -> Result<Vec<Service>> {
         .map_err(|e| Error::Adb(format!("AAE's helper sent a list AAE can't read: {e}")))?;
     let enabled = adb.enabled_services().await?;
     for service in &mut services {
-        service.on = enabled.iter().any(|c| same_component(c, &service.component));
+        service.on = enabled
+            .iter()
+            .any(|c| same_component(c, &service.component));
         service.current_screen_reader = device
             .meta
             .screen_reader
@@ -76,7 +80,11 @@ pub fn find<'a>(services: &'a [Service], name: &str) -> Option<&'a Service> {
         .iter()
         .find(|s| same_component(&s.component, name))
         .or_else(|| services.iter().find(|s| s.label.eq_ignore_ascii_case(name)))
-        .or_else(|| services.iter().find(|s| s.package().eq_ignore_ascii_case(name)))
+        .or_else(|| {
+            services
+                .iter()
+                .find(|s| s.package().eq_ignore_ascii_case(name))
+        })
 }
 
 /// Turns a service on, to stay on, or off, to stay off. Turning on a
@@ -125,12 +133,18 @@ pub async fn use_screen_reader(device: &mut Device, adb: &Adb, service: &Service
                 .meta
                 .keep_enabled
                 .retain(|c| !same_component(c, &other.component));
-            device.meta.app_choices.insert(other.component.clone(), false);
+            device
+                .meta
+                .app_choices
+                .insert(other.component.clone(), false);
             adb.disable_service(&other.component).await?;
         }
     }
     if let Some(old) = device.meta.screen_reader.take() {
-        device.meta.keep_enabled.retain(|c| !same_component(c, &old));
+        device
+            .meta
+            .keep_enabled
+            .retain(|c| !same_component(c, &old));
     }
     device.meta.screen_reader = Some(component.clone());
     device.meta.screen_reader_declined = false;

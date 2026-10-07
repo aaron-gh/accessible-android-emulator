@@ -129,7 +129,7 @@ pub async fn install_helper(adb: &Adb) -> Result<()> {
                  or put it at this path"
             .into(),
     })?;
-    adb.install(&helper).await
+    adb.install_own(&helper, HELPER_PACKAGE).await
 }
 
 /// Installs AAE's helper if it is missing, or updates it if this AAE has a

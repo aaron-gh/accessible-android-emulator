@@ -361,7 +361,7 @@ pub fn install(
     }
     let temp = sdk.root.join(".temp");
     std::fs::create_dir_all(&temp).context(|| format!("Creating {}", temp.display()))?;
-    if let Some(free) = free_space(&temp) {
+    if let Some(free) = crate::platform::free_space(&temp) {
         // The zip, and the image unpacked, which is about twice its size.
         let needed = image.size * 3;
         if free < needed {
@@ -537,25 +537,6 @@ pub(crate) fn write_local_package(
     );
     let path = dir.join("package.xml");
     std::fs::write(&path, xml).context(|| format!("Writing {}", path.display()))
-}
-
-/// Free space on the disk holding `path`, in bytes.
-pub(crate) fn free_space(path: &Path) -> Option<u64> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
-        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
-        if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } != 0 {
-            return None;
-        }
-        Some(stat.f_bavail as u64 * stat.f_frsize as u64)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        None
-    }
 }
 
 /// The devices that use an installed Android version.

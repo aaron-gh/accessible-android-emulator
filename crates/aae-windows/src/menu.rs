@@ -1,0 +1,210 @@
+//! The menu bar and its keyboard shortcuts: the Mac app's, with Control for
+//! Command and Alt for Option.
+
+use windows::Win32::UI::Input::KeyboardAndMouse::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::PCWSTR;
+
+use crate::ui;
+
+pub const NEW_DEVICE: u16 = 100;
+pub const UPDATE_TOOLS: u16 = 101;
+pub const SETTINGS: u16 = 102;
+pub const EXIT: u16 = 103;
+pub const PASTE: u16 = 104;
+
+pub const START: u16 = 200;
+pub const STOP: u16 = 201;
+pub const RESTART: u16 = 202;
+pub const KEYBOARD: u16 = 203;
+pub const GESTURES: u16 = 204;
+pub const SPEAK_STATUS: u16 = 205;
+pub const BACK: u16 = 210;
+pub const HOME: u16 = 211;
+pub const RECENTS: u16 = 212;
+pub const NOTIFICATIONS: u16 = 213;
+pub const QUICK_SETTINGS: u16 = 214;
+pub const ROTATE_LEFT: u16 = 220;
+pub const ROTATE_RIGHT: u16 = 221;
+pub const MUTE: u16 = 222;
+pub const VOLUME_UP: u16 = 223;
+pub const VOLUME_DOWN: u16 = 224;
+pub const CHECK_AUDIO: u16 = 225;
+pub const COPY_CLIPBOARD: u16 = 230;
+pub const SEND_CLIPBOARD: u16 = 231;
+pub const TYPE_CLIPBOARD: u16 = 232;
+pub const INSTALL_APP: u16 = 240;
+pub const INSTALL_SCREEN_READER: u16 = 241;
+pub const SCREENSHOT: u16 = 242;
+pub const RENAME: u16 = 250;
+pub const COPY_DEVICE: u16 = 251;
+pub const WIPE: u16 = 252;
+pub const DELETE: u16 = 253;
+
+pub const SELF_TEST: u16 = 300;
+pub const DIAGNOSTIC_REPORT: u16 = 301;
+pub const ABOUT: u16 = 302;
+
+const CONTROL: u8 = 1;
+const SHIFT: u8 = 2;
+const ALT: u8 = 4;
+
+/// A menu item: its command, its name, and its shortcut, if it has one.
+struct Item(u16, &'static str, Option<(u8, u16)>);
+
+const SEPARATOR: Item = Item(0, "", None);
+
+fn menus() -> Vec<(&'static str, Vec<Item>)> {
+    let c = CONTROL;
+    let cs = CONTROL | SHIFT;
+    let ca = CONTROL | ALT;
+    vec![
+        (
+            "&File",
+            vec![
+                Item(NEW_DEVICE, "&New Device…", Some((c, b'N' as u16))),
+                Item(UPDATE_TOOLS, "&Update Android Tools…", None),
+                Item(SETTINGS, "&Settings…", Some((c, VK_OEM_COMMA.0))),
+                SEPARATOR,
+                Item(EXIT, "E&xit", None),
+            ],
+        ),
+        (
+            "&Device",
+            vec![
+                Item(START, "&Start", Some((cs, b'S' as u16))),
+                Item(STOP, "St&op", Some((cs, VK_OEM_PERIOD.0))),
+                Item(RESTART, "&Restart", Some((cs, b'R' as u16))),
+                Item(KEYBOARD, "Use Android &Keyboard", Some((cs, b'E' as u16))),
+                Item(GESTURES, "Use &Gestures", Some((cs, b'G' as u16))),
+                Item(SPEAK_STATUS, "S&peak Status", Some((cs, b'I' as u16))),
+                SEPARATOR,
+                Item(BACK, "&Back", Some((cs, b'B' as u16))),
+                Item(HOME, "&Home", Some((cs, b'H' as u16))),
+                Item(RECENTS, "Recent &Apps", Some((cs, b'A' as u16))),
+                Item(NOTIFICATIONS, "&Notifications", Some((cs, b'N' as u16))),
+                Item(QUICK_SETTINGS, "&Quick Settings", Some((cs, b'Q' as u16))),
+                SEPARATOR,
+                Item(ROTATE_LEFT, "Rotate &Left", Some((cs, VK_LEFT.0))),
+                Item(ROTATE_RIGHT, "Rotate Ri&ght", Some((cs, VK_RIGHT.0))),
+                Item(MUTE, "&Mute Device Audio", Some((cs, b'M' as u16))),
+                Item(VOLUME_UP, "Turn Device Audio &Up", Some((ca, VK_UP.0))),
+                Item(
+                    VOLUME_DOWN,
+                    "Turn Device Audio &Down",
+                    Some((ca, VK_DOWN.0)),
+                ),
+                Item(CHECK_AUDIO, "&Check Audio", Some((ca, b'K' as u16))),
+                SEPARATOR,
+                Item(
+                    COPY_CLIPBOARD,
+                    "&Copy Device Clipboard to Windows",
+                    Some((cs, b'C' as u16)),
+                ),
+                Item(
+                    SEND_CLIPBOARD,
+                    "Send Windows Clipboard to De&vice",
+                    Some((cs, b'V' as u16)),
+                ),
+                Item(
+                    TYPE_CLIPBOARD,
+                    "&Type Windows Clipboard on Device",
+                    Some((ca, b'V' as u16)),
+                ),
+                SEPARATOR,
+                Item(INSTALL_APP, "&Install App…", Some((c, b'I' as u16))),
+                Item(
+                    INSTALL_SCREEN_READER,
+                    "Install Screen Reader &Build…",
+                    Some((cs | ALT, b'I' as u16)),
+                ),
+                Item(SCREENSHOT, "Save Screens&hot…", Some((cs, b'P' as u16))),
+                SEPARATOR,
+                Item(RENAME, "Rena&me…", Some((0, VK_F2.0))),
+                Item(COPY_DEVICE, "Cop&y…", Some((c, b'D' as u16))),
+                Item(WIPE, "&Wipe…", None),
+                Item(DELETE, "&Delete…", Some((0, VK_DELETE.0))),
+            ],
+        ),
+        (
+            "&Help",
+            vec![
+                Item(SELF_TEST, "Run &Self-Test", None),
+                Item(DIAGNOSTIC_REPORT, "Save &Diagnostic Report…", None),
+                SEPARATOR,
+                Item(ABOUT, "&About AAE", None),
+            ],
+        ),
+    ]
+}
+
+fn shortcut_name(modifiers: u8, key: u16) -> String {
+    let mut parts = Vec::new();
+    if modifiers & CONTROL != 0 {
+        parts.push("Ctrl".to_string());
+    }
+    if modifiers & SHIFT != 0 {
+        parts.push("Shift".to_string());
+    }
+    if modifiers & ALT != 0 {
+        parts.push("Alt".to_string());
+    }
+    parts.push(match VIRTUAL_KEY(key) {
+        VK_OEM_COMMA => "Comma".into(),
+        VK_OEM_PERIOD => "Period".into(),
+        VK_LEFT => "Left".into(),
+        VK_RIGHT => "Right".into(),
+        VK_UP => "Up".into(),
+        VK_DOWN => "Down".into(),
+        VK_DELETE => "Del".into(),
+        VK_F2 => "F2".into(),
+        _ => char::from(key as u8).to_string(),
+    });
+    parts.join("+")
+}
+
+/// Builds the menu bar and the table of shortcuts.
+pub fn build() -> (HMENU, HACCEL) {
+    let mut accels = vec![ACCEL {
+        fVirt: FVIRTKEY | FCONTROL,
+        key: b'V' as u16,
+        cmd: PASTE,
+    }];
+    unsafe {
+        let bar = CreateMenu().unwrap();
+        for (title, items) in menus() {
+            let menu = CreatePopupMenu().unwrap();
+            for Item(id, name, shortcut) in items {
+                if id == 0 {
+                    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                    continue;
+                }
+                let mut text = name.to_string();
+                if let Some((modifiers, key)) = shortcut {
+                    text = format!("{text}\t{}", shortcut_name(modifiers, key));
+                    let mut flags = FVIRTKEY;
+                    if modifiers & CONTROL != 0 {
+                        flags |= FCONTROL;
+                    }
+                    if modifiers & SHIFT != 0 {
+                        flags |= FSHIFT;
+                    }
+                    if modifiers & ALT != 0 {
+                        flags |= FALT;
+                    }
+                    accels.push(ACCEL {
+                        fVirt: flags,
+                        key,
+                        cmd: id,
+                    });
+                }
+                let text = ui::wide(&text);
+                let _ = AppendMenuW(menu, MF_STRING, id as usize, PCWSTR(text.as_ptr()));
+            }
+            let title = ui::wide(title);
+            let _ = AppendMenuW(bar, MF_POPUP, menu.0 as usize, PCWSTR(title.as_ptr()));
+        }
+        let table = CreateAcceleratorTableW(&accels).unwrap();
+        (bar, table)
+    }
+}

@@ -41,12 +41,10 @@ echo "Building the app."
 BIN=$(cd macos && swift build -c "$PROFILE" --show-bin-path)
 
 if [[ -x android/gradlew ]] && command -v java >/dev/null; then
-    echo "Building AAE's helper app."
+    source android/signing.sh
+    echo "Building AAE's helper app, signed with the $AAE_ANDROID_SIGNER key."
     (cd android && ./gradlew -q :helper:assembleRelease) || echo "The helper app did not build; the app will look for it elsewhere."
-    if [[ ! -f android/espeak/build/aae-espeak.apk ]]; then
-        echo "Building AAE's eSpeak NG. The first build takes a few minutes."
-        android/build-espeak.sh || echo "eSpeak NG did not build; the app will look for it elsewhere."
-    fi
+    android/build-espeak.sh --if-needed || echo "eSpeak NG did not build; the app will look for it elsewhere."
 fi
 
 echo "Putting AAE.app together."

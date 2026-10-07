@@ -55,24 +55,18 @@ impl Snapshot {
     /// When it was taken, in local time, such as "6 Oct 2026, 20:41".
     pub fn taken(&self) -> Option<String> {
         let secs = self.created?;
-        #[cfg(unix)]
-        {
-            let t = secs as libc::time_t;
-            let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-            if !unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
-                const MONTHS: [&str; 12] = [
-                    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
-                    "Dec",
-                ];
-                return Some(format!(
-                    "{} {} {}, {:02}:{:02}",
-                    tm.tm_mday,
-                    MONTHS[tm.tm_mon.clamp(0, 11) as usize],
-                    tm.tm_year + 1900,
-                    tm.tm_hour,
-                    tm.tm_min
-                ));
-            }
+        if let Some(t) = crate::platform::local_time(u64::try_from(secs).ok()?) {
+            const MONTHS: [&str; 12] = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
+            return Some(format!(
+                "{} {} {}, {:02}:{:02}",
+                t.day,
+                MONTHS[(t.month.clamp(1, 12) - 1) as usize],
+                t.year,
+                t.hour,
+                t.minute
+            ));
         }
         Some(format!("{secs} seconds after 1970"))
     }

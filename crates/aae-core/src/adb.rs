@@ -6,6 +6,7 @@ use std::time::Duration;
 use tokio::process::Command;
 
 use crate::error::{Error, Result};
+use crate::platform::NoConsole;
 
 const ENABLED_SERVICES: &str = "enabled_accessibility_services";
 
@@ -35,6 +36,7 @@ impl Adb {
             Duration::from_secs(60)
         };
         let run = Command::new(&self.bin)
+            .no_console()
             .arg("-s")
             .arg(&self.serial)
             .args(args)
@@ -75,6 +77,7 @@ impl Adb {
     pub async fn run_command(&self, command: &str, limit: Duration) -> Result<(String, i32)> {
         let wrapped = format!("{{ {command}\n}} 2>&1");
         let run = Command::new(&self.bin)
+            .no_console()
             .arg("-s")
             .arg(&self.serial)
             .args(["shell", &wrapped])
@@ -120,6 +123,21 @@ impl Adb {
             Ok(())
         } else {
             Err(Error::Adb(out.trim().to_string()))
+        }
+    }
+
+    /// Installs one of AAE's own apps, such as its helper. If the copy on the
+    /// device is signed with another key, as after switching between
+    /// development and release builds of AAE, it's removed first: AAE's apps
+    /// keep nothing worth losing, and AAE sets them up again.
+    pub async fn install_own(&self, apk: &Path, package: &str) -> Result<()> {
+        match self.install(apk).await {
+            Err(Error::Adb(message)) if message.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") => {
+                tracing::info!("{package} on the device is signed differently; reinstalling it");
+                self.uninstall(package).await?;
+                self.install(apk).await
+            }
+            other => other,
         }
     }
 

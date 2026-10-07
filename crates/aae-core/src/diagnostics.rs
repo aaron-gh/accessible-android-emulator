@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use crate::device::{DeviceStore, human_size};
 use crate::paths;
+use crate::platform::NoConsole;
 use crate::sdk::Sdk;
 use crate::setup;
 
@@ -77,13 +78,13 @@ pub fn report(sdk: &Sdk, store: &DeviceStore, version: &str) -> String {
     let _ = writeln!(
         out,
         "Virtualisation: {}",
-        match setup::virtualisation() {
+        match setup::virtualisation(sdk) {
             setup::Virtualisation::Available => "available".to_string(),
             setup::Virtualisation::Missing(why) => format!("missing. {why}"),
             setup::Virtualisation::Unknown => "unknown".to_string(),
         }
     );
-    if let Some(free) = crate::catalog::free_space(&paths::data_dir()) {
+    if let Some(free) = crate::platform::free_space(&paths::data_dir()) {
         let _ = writeln!(out, "Free disk space: {}", human_size(free));
     }
 
@@ -231,7 +232,7 @@ impl Check {
 pub async fn self_test(sdk: &Sdk, store: &DeviceStore) -> Vec<Check> {
     use Outcome::*;
     let mut checks = Vec::new();
-    checks.push(match setup::virtualisation() {
+    checks.push(match setup::virtualisation(sdk) {
         setup::Virtualisation::Available => Check::new(
             "Virtualisation",
             Passed,
@@ -298,7 +299,7 @@ pub async fn self_test(sdk: &Sdk, store: &DeviceStore) -> Vec<Check> {
     } else {
         Check::new("Android versions", Passed, format!("{images} installed."))
     });
-    if let Some(free) = crate::catalog::free_space(&paths::data_dir()) {
+    if let Some(free) = crate::platform::free_space(&paths::data_dir()) {
         let gb = 1024 * 1024 * 1024;
         checks.push(if free < 10 * gb {
             Check::new(
@@ -380,10 +381,14 @@ fn section(out: &mut String, title: &str) {
     let _ = writeln!(out, "\n== {title} ==");
 }
 
-/// The macOS version, model, processor and memory.
+/// The system version, model, processor and memory.
 fn system_summary() -> String {
     let run = |cmd: &str, args: &[&str]| -> Option<String> {
-        let out = std::process::Command::new(cmd).args(args).output().ok()?;
+        let out = std::process::Command::new(cmd)
+            .no_console()
+            .args(args)
+            .output()
+            .ok()?;
         out.status
             .success()
             .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -399,6 +404,13 @@ fn system_summary() -> String {
             "macOS {version}, {model}, {}, {memory} of memory",
             std::env::consts::ARCH
         )
+    } else if cfg!(windows) {
+        // "Microsoft Windows [Version 10.0.26100.4652]"
+        let version = run("cmd", &["/c", "ver"]).unwrap_or_else(|| "Windows".into());
+        let memory = crate::platform::memory()
+            .map(|m| format!(", {} of memory", human_size(m)))
+            .unwrap_or_default();
+        format!("{version}, {}{memory}", std::env::consts::ARCH)
     } else {
         format!("{}, {}", std::env::consts::OS, std::env::consts::ARCH)
     }
@@ -425,9 +437,18 @@ fn tail(path: &Path, lines: usize) -> String {
 pub fn redact(text: &str) -> String {
     let mut text = text.to_string();
     if let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()) {
-        let home = home.to_string_lossy().trim_end_matches('/').to_string();
+        let home = home
+            .to_string_lossy()
+            .trim_end_matches(['/', '\\'])
+            .to_string();
         if !home.is_empty() {
             text = text.replace(&home, "~");
+            // Windows paths also turn up with forward slashes, and with
+            // doubled backslashes in JSON.
+            if home.contains('\\') {
+                text = text.replace(&home.replace('\\', "/"), "~");
+                text = text.replace(&home.replace('\\', "\\\\"), "~");
+            }
         }
     }
     for (name, with) in personal_names() {
@@ -438,10 +459,14 @@ pub fn redact(text: &str) -> String {
     text
 }
 
-/// The computer's names and the person's full name, as macOS has them.
+/// The computer's names and, on macOS, the person's full name.
 fn personal_names() -> Vec<(String, &'static str)> {
     let run = |cmd: &str, args: &[&str]| -> Option<String> {
-        let out = std::process::Command::new(cmd).args(args).output().ok()?;
+        let out = std::process::Command::new(cmd)
+            .no_console()
+            .args(args)
+            .output()
+            .ok()?;
         let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
         (out.status.success() && !text.is_empty()).then_some(text)
     };
@@ -454,6 +479,10 @@ fn personal_names() -> Vec<(String, &'static str)> {
         }
         if let Some(name) = run("id", &["-F"]) {
             names.push((name, "<name>"));
+        }
+    } else if cfg!(windows) {
+        if let Ok(name) = std::env::var("COMPUTERNAME") {
+            names.push((name, "<computer>"));
         }
     }
     // Longest first, so "Aaron's MacBook Air" goes before "Aaron".

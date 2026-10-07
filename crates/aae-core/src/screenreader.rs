@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IoContext, Result};
 use crate::paths;
+use crate::platform::NoConsole;
 use crate::sdk::Sdk;
 
 const RELEASE: &str = "https://api.github.com/repos/trypsynth/backtalk/releases/tags/dev";
@@ -144,6 +145,7 @@ fn verify_signature(sdk: &Sdk, apk: &Path) -> Result<()> {
         fail("the SDK has no build tools, which AAE needs to check downloads".into())
     })?;
     let out = Command::new(apksigner)
+        .no_console()
         .args(["verify", "--print-certs"])
         .arg(apk)
         .output()

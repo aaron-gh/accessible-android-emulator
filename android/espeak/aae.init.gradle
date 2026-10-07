@@ -4,8 +4,8 @@
 //
 // - A distinct app ID, so AAE's copy never clashes with eSpeak NG installed
 //   from F-Droid or elsewhere, which is signed with a different key.
-// - Release builds signed with the debug key, like AAE's helper, until AAE
-//   has a release key.
+// - Release builds signed with AAE's own key, like AAE's helper, or the debug
+//   key on a computer without it.
 //
 // eSpeak NG's speech service unpacks its bundled voice data itself the first
 // time it starts, so it works as soon as it's installed, with no screen to open.
@@ -17,9 +17,21 @@ allprojects {
                 applicationId = 'io.github.aaron_gh.aae.espeak'
                 versionNameSuffix = '-aae'
             }
+            def aaeKey = new File(System.getenv('AAE_ANDROID_KEYSTORE') ?: "${System.getProperty('user.home')}/.android/aae.keystore")
+            def aaeKeyPassword = System.getenv('AAE_ANDROID_KEY_PASSWORD')
+            if (aaeKey.isFile() && aaeKeyPassword != null) {
+                signingConfigs {
+                    aae {
+                        storeFile = aaeKey
+                        storePassword = aaeKeyPassword
+                        keyAlias = 'aae'
+                        keyPassword = aaeKeyPassword
+                    }
+                }
+            }
             buildTypes {
                 release {
-                    signingConfig = signingConfigs.debug
+                    signingConfig = signingConfigs.findByName('aae') ?: signingConfigs.debug
                 }
             }
         }

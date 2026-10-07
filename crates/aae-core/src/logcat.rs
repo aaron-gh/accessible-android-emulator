@@ -12,6 +12,7 @@ use tokio::process::Command;
 
 use crate::adb::Adb;
 use crate::error::Result;
+use crate::platform::NoConsole;
 
 /// How many lines a [`LogStream`] keeps; older ones are dropped.
 const CAPACITY: usize = 50_000;
@@ -414,6 +415,7 @@ async fn read_log(adb: Adb, history: usize, shared: Arc<Mutex<Shared>>) {
             None => history.to_string(),
         };
         let child = Command::new(&adb.bin)
+            .no_console()
             .args([
                 "-s",
                 &adb.serial,

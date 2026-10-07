@@ -23,7 +23,6 @@ use aae_core::logcat::{self, LogStream};
 use aae_core::provision::{self, ProvisionOptions};
 use aae_core::sdk::{Sdk, android_name, image_kind};
 use aae_core::setup;
-use aae_core::speech::{Announcer, Route};
 use aae_core::{inspector, tts};
 use aae_core::{keys, lifecycle};
 use tokio::sync::mpsc;
@@ -76,7 +75,7 @@ pub trait ProgressListener: Send + Sync {
 }
 
 /// A device, as the host app lists it.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct DeviceInfo {
     /// The emulator's name for it. Stable; use it to refer to the device.
     pub id: String,
@@ -125,7 +124,7 @@ impl DeviceInfo {
 }
 
 /// An Android version installed on this computer.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct ImageInfo {
     /// Pass this to `create_device`.
     pub sysdir: String,
@@ -135,7 +134,7 @@ pub struct ImageInfo {
 }
 
 /// An installed Android version, with what it costs and who uses it.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct InstalledImageInfo {
     /// Pass this to `remove_image`.
     pub sysdir: String,
@@ -150,7 +149,7 @@ pub struct InstalledImageInfo {
 }
 
 /// An Android version AAE can create devices from: installed, or downloadable.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct VersionInfo {
     pub api: u32,
     /// The image type's tag, such as "google_apis".
@@ -165,14 +164,14 @@ pub struct VersionInfo {
 }
 
 /// A licence the user has to accept before a download.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct LicenceInfo {
     pub id: String,
     pub text: String,
 }
 
 /// One of the SDK tools AAE downloads.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct ToolInfo {
     /// Such as "Android Emulator".
     pub name: String,
@@ -182,7 +181,7 @@ pub struct ToolInfo {
 }
 
 /// What setting up the Android SDK still needs.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct SetupStatus {
     pub sdk_path: String,
     /// True for AAE's own SDK folder, false for one shared with Android Studio.
@@ -210,7 +209,7 @@ pub trait DownloadListener: Send + Sync {
 }
 
 /// Where a screen reader comes from.
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Clone)]
 pub enum ScreenReaderSource {
     /// Backtalk's latest development build, downloaded from its project.
     Backtalk,
@@ -219,7 +218,7 @@ pub enum ScreenReaderSource {
 }
 
 /// One row of the accessibility inspector: a window or an element.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct InspectorRow {
     pub index: u32,
     /// The row this one is inside, or none for a window.
@@ -231,7 +230,7 @@ pub struct InspectorRow {
 }
 
 /// An accessibility problem found on the screen.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct IssueInfo {
     /// An error, rather than a warning.
     pub error: bool,
@@ -241,7 +240,7 @@ pub struct IssueInfo {
 }
 
 /// The screen's accessibility tree and the problems found in it.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct Inspection {
     /// Windows and elements, each after the row it's inside.
     pub rows: Vec<InspectorRow>,
@@ -253,7 +252,7 @@ pub struct Inspection {
 }
 
 /// One thing the screen reader said.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct UtteranceInfo {
     /// When, in milliseconds since 1970.
     pub time: u64,
@@ -319,28 +318,28 @@ impl From<AppPartInfo> for provision::AppPart {
 }
 
 /// Whether to turn on an app part.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct AppChoice {
     pub part: AppPartInfo,
     pub on: bool,
 }
 
 /// An installed app and its special parts.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct InstallResult {
     pub package: String,
     pub parts: Vec<AppPartInfo>,
 }
 
 /// A text extra for an intent.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct IntentExtra {
     pub key: String,
     pub value: String,
 }
 
 /// An intent to send.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct IntentInfo {
     pub action: Option<String>,
     pub data: Option<String>,
@@ -351,7 +350,7 @@ pub struct IntentInfo {
 }
 
 /// An installed accessibility service.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct ServiceInfo {
     /// As `package/class`.
     pub component: String,
@@ -364,7 +363,7 @@ pub struct ServiceInfo {
 }
 
 /// An installed app.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct AppInfo {
     pub package: String,
     /// The name people see.
@@ -376,7 +375,7 @@ pub struct AppInfo {
 }
 
 /// A permission an app asks the user for.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct PermissionInfo {
     pub name: String,
     /// In words, such as "take pictures and videos".
@@ -418,7 +417,7 @@ impl From<AccessKind> for aae_core::apps::Access {
 }
 
 /// Special access an app has or hasn't.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct AccessInfo {
     pub kind: AccessKind,
     /// In words, such as "Unrestricted battery use".
@@ -427,14 +426,14 @@ pub struct AccessInfo {
 }
 
 /// An app's permissions and special access.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct AppPermissions {
     pub permissions: Vec<PermissionInfo>,
     pub access: Vec<AccessInfo>,
 }
 
 /// A saved snapshot of a device.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct SnapshotInfo {
     pub id: String,
     pub name: String,
@@ -450,7 +449,7 @@ pub struct SnapshotInfo {
 }
 
 /// What the other end of a phone call does.
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Clone)]
 pub enum CallAction {
     /// Call the device from a number, so it rings.
     Ring,
@@ -472,7 +471,7 @@ pub struct ScreenPoint {
 }
 
 /// Something on the screen that can be touched.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct TouchTarget {
     /// What a screen reader would say, such as "Send, button".
     pub label: String,
@@ -487,7 +486,7 @@ pub struct TouchTarget {
 
 /// The things on the screen that can be touched, and the screen's size as
 /// the user sees it.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct TouchTargets {
     pub width: i32,
     pub height: i32,
@@ -503,7 +502,7 @@ pub enum CheckOutcome {
 }
 
 /// One self-test check.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct CheckInfo {
     pub name: String,
     pub outcome: CheckOutcome,
@@ -511,7 +510,7 @@ pub struct CheckInfo {
 }
 
 /// What the audio check found.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct AudioCheck {
     pub working: bool,
     /// In words.
@@ -519,7 +518,7 @@ pub struct AudioCheck {
 }
 
 /// What a shell command printed, and how it ended.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct CommandResult {
     /// Everything it printed, errors included.
     pub output: String,
@@ -565,7 +564,7 @@ impl From<LogLevel> for logcat::Level {
 }
 
 /// Which log lines to show. Empty fields match everything.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct LogFilter {
     /// An app's package name, or another process name.
     pub process: Option<String>,
@@ -577,7 +576,7 @@ pub struct LogFilter {
 }
 
 /// One line of the device log.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct LogEntryInfo {
     /// Counts up for each line, for asking what's new.
     pub seq: u64,
@@ -638,7 +637,7 @@ impl Session {
 }
 
 /// The kind of hardware a new device has.
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Clone)]
 pub enum DeviceProfile {
     SmallPhone,
     Phone,
@@ -655,12 +654,11 @@ impl From<DeviceProfile> for Profile {
     }
 }
 
-/// AAE's core: the SDK, the devices, and announcements.
+/// AAE's core: the SDK and the devices.
 #[derive(uniffi::Object)]
 pub struct Engine {
     sdk: Sdk,
     store: DeviceStore,
-    announcer: Announcer,
 }
 
 #[uniffi::export]
@@ -686,11 +684,13 @@ impl Engine {
                 )
                 .try_init();
         }
-        tracing::info!("the Mac app started");
+        tracing::info!(
+            "the {} app started",
+            if cfg!(windows) { "Windows" } else { "Mac" }
+        );
         Ok(Arc::new(Engine {
             sdk: Sdk::locate_or_new(),
             store: DeviceStore::open_default()?,
-            announcer: Announcer::new(Route::Best),
         }))
     }
 
@@ -727,16 +727,6 @@ impl Engine {
         tracing::warn!("{message}");
     }
 
-    /// Speaks through the user's screen reader, or a system voice when none is
-    /// running. `interrupt` is for failures, which cut off other speech.
-    pub fn announce(&self, text: String, interrupt: bool) {
-        if interrupt {
-            self.announcer.failure(text);
-        } else {
-            self.announcer.info(text);
-        }
-    }
-
     /// True when the emulator or SDK tools AAE needs aren't installed. Quick,
     /// and works offline; `setup_status` says what exactly.
     pub fn needs_setup(&self) -> bool {
@@ -760,7 +750,7 @@ impl Engine {
             Ok(SetupStatus {
                 sdk_path: sdk.root.display().to_string(),
                 own_sdk: setup::is_own_sdk(&sdk.root),
-                virtualisation_problem: match setup::virtualisation() {
+                virtualisation_problem: match setup::virtualisation(&sdk) {
                     setup::Virtualisation::Missing(how) => Some(how),
                     _ => None,
                 },
@@ -1384,6 +1374,24 @@ impl Session {
         if key_logging() {
             tracing::debug!(
                 "Mac key {keycode:#04x} {} -> Android key {code:?}",
+                if down { "down" } else { "up" }
+            );
+        }
+        match code {
+            Some(code) => self.keys.send(KeyMessage::Evdev(code, down)).is_ok(),
+            None => false,
+        }
+    }
+
+    /// Sends a key by its Windows scan code, with `extended` for keys sent
+    /// with an E0 prefix, as a low-level keyboard hook reports them. Returns
+    /// false if Android has no such key. Never blocks.
+    pub fn windows_key(&self, scan: u16, extended: bool, down: bool) -> bool {
+        let code = keys::windows_scan_to_evdev(scan, extended);
+        if key_logging() {
+            tracing::debug!(
+                "Windows key {scan:#04x}{} {} -> Android key {code:?}",
+                if extended { " (extended)" } else { "" },
                 if down { "down" } else { "up" }
             );
         }

@@ -10,8 +10,9 @@ pub fn data_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("AAE_HOME") {
         return PathBuf::from(dir);
     }
+    // On Windows, the local folder: devices are far too big for a roaming profile.
     ProjectDirs::from("io.github", "aaron-gh", "AAE")
-        .map(|dirs| dirs.data_dir().to_path_buf())
+        .map(|dirs| dirs.data_local_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from(".aae"))
 }
 

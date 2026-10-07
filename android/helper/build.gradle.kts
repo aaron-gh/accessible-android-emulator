@@ -16,12 +16,31 @@ android {
         versionName = "0.15.0"
     }
 
+    // AAE's own key, so every build of AAE, here or on GitHub, signs its apps
+    // the same way, and devices accept each new helper as an update. Its
+    // password comes from AAE_ANDROID_KEY_PASSWORD; macos/build.sh and
+    // windows/build.sh read it from the Keychain. Without the key, builds are
+    // signed with this computer's debug key instead.
+    val aaeKey = file(System.getenv("AAE_ANDROID_KEYSTORE") ?: "${System.getProperty("user.home")}/.android/aae.keystore")
+    val aaeKeyPassword: String? = System.getenv("AAE_ANDROID_KEY_PASSWORD")
+    signingConfigs {
+        create("aae") {
+            storeFile = aaeKey
+            storePassword = aaeKeyPassword
+            keyAlias = "aae"
+            keyPassword = aaeKeyPassword
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signed with the debug key until AAE has a release key. It only
-            // ever runs on AAE's own virtual devices.
-            signingConfig = signingConfigs.getByName("debug")
+            // It only ever runs on AAE's own virtual devices.
+            signingConfig = if (aaeKey.isFile && aaeKeyPassword != null) {
+                signingConfigs.getByName("aae")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

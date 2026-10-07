@@ -1,4 +1,17 @@
 [env]
-# The oldest macOS AAE supports. Prism's C++ build reads this too, so its
-# objects match what Rust links against.
+# The oldest macOS AAE supports. C++ builds, such as the pitch correction,
+# read this too, so their objects match what Rust links against.
 MACOSX_DEPLOYMENT_TARGET = "13.0"
+# C++ in Windows builds, such as the pitch correction, leaves its runtime to
+# the link line below, which links it in statically, so no MinGW DLL is needed.
+CXXSTDLIB_x86_64_pc_windows_gnu = ""
+# Windows builds are cross-compiled on the Mac with MinGW-w64 (brew install mingw-w64).
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+# Link MinGW's C and C++ runtimes in, so the program needs no MinGW DLLs on
+# Windows, which won't have them.
+rustflags = [
+    "-C", "link-args=-static -static-libgcc -Wl,--start-group -l:libstdc++.a -lgcc -lgcc_eh -l:libpthread.a -lmingwex -lmsvcrt -lkernel32 -Wl,--end-group",
+    # Debug symbols would more than double the size of the download.
+    "-C", "strip=symbols",
+]

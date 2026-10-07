@@ -326,6 +326,57 @@ pub fn mac_to_evdev(keycode: u16) -> Option<i32> {
     })
 }
 
+/// The Linux evdev code for a Windows keyboard scan code, as a low-level
+/// keyboard hook reports it: the set 1 code, with `extended` for keys sent
+/// with an E0 prefix. This is how the Windows app forwards keys. Scan codes
+/// are the key's place on the keyboard, whatever the layout, as on the Mac.
+///
+/// Evdev numbers most keys by their set 1 scan code, so those carry over.
+/// The Windows key becomes Meta, as Command does on the Mac.
+pub fn windows_scan_to_evdev(scan: u16, extended: bool) -> Option<i32> {
+    let scan = scan as i32;
+    if extended {
+        return Some(match scan {
+            0x1C => 96,  // keypad Enter
+            0x1D => 97,  // Right Control
+            0x35 => 98,  // keypad /
+            0x37 => 99,  // Print Screen
+            0x38 => 100, // Right Alt
+            0x45 => 69,  // Num Lock, which the hook reports as extended
+            0x46 => 119, // Control-Break, as Pause
+            0x47 => 102, // Home
+            0x48 => 103, // Up
+            0x49 => 104, // Page Up
+            0x4B => 105, // Left
+            0x4D => 106, // Right
+            0x4F => 107, // End
+            0x50 => 108, // Down
+            0x51 => 109, // Page Down
+            0x52 => 110, // Insert
+            0x53 => 111, // Delete
+            0x5B => 125, // Windows, as Meta
+            0x5C => 126, // Right Windows, as Meta
+            0x5D => 127, // Menu
+            0x10 => 165, // Previous Track
+            0x19 => 163, // Next Track
+            0x20 => 113, // Mute
+            0x22 => 164, // Play/Pause
+            0x24 => 166, // Stop
+            0x2E => 114, // Volume Down
+            0x30 => 115, // Volume Up
+            _ => return None,
+        });
+    }
+    Some(match scan {
+        // Pause, which the hook reports as Num Lock's code without the prefix.
+        0x45 => 119,
+        0x01..=0x53 | 0x56..=0x58 => scan,
+        0x64..=0x6E => scan - 0x64 + 183, // F13 to F23
+        0x76 => 194,                      // F24
+        _ => return None,
+    })
+}
+
 /// True for the evdev codes of modifier keys.
 pub fn is_modifier(code: i32) -> bool {
     matches!(code, 29 | 42 | 54 | 56 | 97 | 100 | 125 | 126)
@@ -373,6 +424,22 @@ mod tests {
         assert_eq!(mac_to_evdev(0x3F), None); // Fn
         assert!(is_modifier(125));
         assert!(!is_modifier(30));
+    }
+
+    #[test]
+    fn maps_windows_scan_codes() {
+        assert_eq!(windows_scan_to_evdev(0x1E, false), Some(30)); // A
+        assert_eq!(windows_scan_to_evdev(0x5B, true), Some(125)); // Windows to Meta
+        assert_eq!(windows_scan_to_evdev(0x38, false), Some(56)); // Alt
+        assert_eq!(windows_scan_to_evdev(0x38, true), Some(100)); // Right Alt
+        assert_eq!(windows_scan_to_evdev(0x4D, true), Some(106)); // Right arrow
+        assert_eq!(windows_scan_to_evdev(0x4D, false), Some(77)); // keypad 6
+        assert_eq!(windows_scan_to_evdev(0x01, false), Some(1)); // Escape
+        assert_eq!(windows_scan_to_evdev(0x45, true), Some(69)); // Num Lock
+        assert_eq!(windows_scan_to_evdev(0x45, false), Some(119)); // Pause
+        assert_eq!(windows_scan_to_evdev(0x58, false), Some(88)); // F12
+        assert_eq!(windows_scan_to_evdev(0x64, false), Some(183)); // F13
+        assert_eq!(windows_scan_to_evdev(0x00, false), None);
     }
 
     #[test]

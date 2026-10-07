@@ -2,7 +2,7 @@
 
 AAE lets blind people create, run and test Android virtual devices without sighted help. Each device has a screen reader on from its first boot, takes your keyboard, and plays its audio reliably.
 
-This is an early development build. It has a cross-platform core, the `aae` command line, and a Mac app.
+This is an early development build. It has a cross-platform core, the `aae` command line, a Mac app, and a first Windows app, which is being tested.
 
 ## What works now
 
@@ -87,9 +87,20 @@ The Mac app is in `macos/`. It updates itself: it checks for new versions, and A
 - Gesture mode (Command-Shift-G) turns the keyboard into screen reader gestures, described under Gestures above.
 - Device mode (Command-Shift-E) gives the keyboard to Android, from any AAE window. Every key goes to Android, with Command as Meta. That includes system shortcuts such as Spotlight's Command-Space and Mission Control. VoiceOver's own shortcuts, such as Command-F5, still work. Control-Command-Escape, or the "Return to the Mac" button, brings the keyboard back.
 
+### The Windows app
+
+The Windows app is in `crates/aae-windows`. It's written in Rust with Windows' own standard controls, which screen readers know best, over the same core as the Mac app, and it's built on the Mac. It's a first version, being tested. Announcements go straight to NVDA, through NV Access's controller client, which also shows them in braille, or to JAWS, through its own speech interface. Narrator and other screen readers get them as UI Automation notifications, and with no screen reader, Windows' own voice speaks them. A short sound plays before each one. Shortcuts are the Mac app's, with Control for Command and Alt for Option.
+
+- The main window lists your devices, with buttons for the selected one and its volume. Setting up, New Device (Control-N), starting, stopping and restarting, Speak Status (Control-Shift-I), Android's buttons, notifications and quick settings, rotation, the device's volume and mute, Check Audio, the clipboard both ways, installing apps (Control-I, or copy them in File Explorer and paste with Control-V, or drop them on the window), screen reader builds, screenshots, renaming, copying, wiping and deleting all work as in the Mac app, as do the self-test, the diagnostic report and Settings.
+- Device mode (Control-Shift-E) gives the keyboard to Android, with the Windows key as Meta. Windows' own shortcuts, such as Alt-Tab, the Windows key and Alt-F4, go to Android too; only Control-Alt-Delete and Windows-L can't. The screen reader keeps its keys: while Insert or Caps Lock is held, keys go to Windows. Control-Windows-Escape, or the "Return to Windows" button, brings the keyboard back.
+- Gesture mode (Control-Shift-G) has the same keys as on the Mac.
+- Still to come: the testing tools' windows, Apps, Accessibility Services, Snapshots, Battery, Location and Phone, Android Versions, watching for builds, own windows for devices, and updates. The `aae` command does all of these meanwhile; it comes with the Windows app.
+- Windows needs Windows Hypervisor Platform turned on for the emulator; the self-test says whether the emulator can use it.
+- Development builds: every change to `master` is built for Windows and published as the [dev prerelease](https://github.com/aaron-gh/accessible-android-emulator/releases/tag/dev), replacing the one before, so it can be tried before a stable release. The latest is always at [AAE-dev-windows-x64.zip](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64.zip). Help, About AAE, says which build you have.
+
 ## Building
 
-You need Rust (from [rustup.rs](https://rustup.rs)) and CMake 3.24 or later. You don't need protoc.
+You need Rust (from [rustup.rs](https://rustup.rs)). You don't need protoc or CMake.
 
 ```sh
 cargo build --release
@@ -112,7 +123,18 @@ macos/build.sh
 
 That builds the Rust core, generates the Swift bindings, builds the helper app and eSpeak NG, and puts `macos/build/AAE.app` together.
 
+The Windows app and the Windows `aae` command are built on the Mac too, cross-compiled with MinGW-w64:
+
+```sh
+brew install mingw-w64
+windows/build.sh
+```
+
+That adds Rust's Windows target if it's missing, builds `AccessibleAndroidEmulator.exe` and `aae.exe`, and zips them with the helper app, eSpeak NG, NVDA's controller client and a read-me for testers into `windows/dist`. Both programs carry everything they need, so Windows needs no other files to run them.
+
 eSpeak NG is built from its source, a git submodule in `android/third_party/espeak-ng`, by `android/build-espeak.sh`. The first build takes a few minutes and downloads the Android NDK version it needs. Clone AAE with `--recurse-submodules`, or the script fetches the submodule itself. eSpeak NG is under GPL v3.
+
+The helper and eSpeak NG are signed with AAE's own Android key, at `~/.android/aae.keystore`, with its password in `AAE_ANDROID_KEY_PASSWORD` or, on a Mac, the Keychain item "AAE Android signing key". Without it, they're signed with your computer's debug key. Either way works: when a device has a copy signed with another key, AAE reinstalls it.
 
 AAE finds the built helper and eSpeak NG on its own when you run it from this folder. Alternatively, put them next to the `aae` program as `aae-helper.apk` and `aae-espeak.apk`, or set `AAE_HELPER_APK` and `AAE_ESPEAK_APK` to their paths.
 
@@ -133,6 +155,7 @@ aae stop "Android 16 test"
 To set a default screen reader, so you don't have to choose one each time, put the APK at:
 
 - macOS: `~/Library/Application Support/io.github.aaron-gh.AAE/screen-readers/default.apk`
+- Windows: `%LOCALAPPDATA%\aaron-gh\AAE\data\screen-readers\default.apk`
 
 Alternatively, set `AAE_SCREEN_READER_APK` to its path.
 
@@ -150,14 +173,14 @@ Alternatively, set `AAE_SCREEN_READER_APK` to its path.
 
 ## Where things are kept
 
-Devices live in AAE's data folder, under `devices`. On macOS that's `~/Library/Application Support/io.github.aaron-gh.AAE`. Set `AAE_HOME` to keep them somewhere else, such as an external drive. Each device is an ordinary emulator AVD folder plus an `aae.toml` file. To use AAE's devices from Android Studio, point `ANDROID_AVD_HOME` at the folder.
+Devices live in AAE's data folder, under `devices`. On macOS that's `~/Library/Application Support/io.github.aaron-gh.AAE`, and on Windows `%LOCALAPPDATA%\aaron-gh\AAE\data`. Set `AAE_HOME` to keep them somewhere else, such as an external drive. Each device is an ordinary emulator AVD folder plus an `aae.toml` file. To use AAE's devices from Android Studio, point `ANDROID_AVD_HOME` at the folder.
 
 Android versions are installed into the Android SDK, where Android Studio sees them too.
 
 ## Diagnosing problems
 
-- Help, Run Self-Test in the Mac app, or `aae self-test`, checks everything AAE needs and reads out what it found: the Mac's virtualisation and sound output, the SDK, AAE's own parts, free disk space, and for each running device, its screen reader, AAE's helper and its speech. The app also checks it can capture the keyboard, and that each open device's sound is getting through. It makes no sound.
-- To report a bug, attach a diagnostic report: Help, Save Diagnostic Report in the Mac app, or `aae report`. It's plain text: AAE's version, this computer, the SDK, your devices and the end of their emulator logs, and AAE's own log. Your home folder, computer name and full name are taken out, and it never includes what you typed on a device, your clipboard, or the device's own log.
+- Help, Run Self-Test in the Mac or Windows app, or `aae self-test`, checks everything AAE needs and reads out what it found: the computer's virtualisation and sound output, the SDK, AAE's own parts, free disk space, and for each running device, its screen reader, AAE's helper and its speech. The app also checks it can capture the keyboard, and that each open device's sound is getting through. It makes no sound.
+- To report a bug, attach a diagnostic report: Help, Save Diagnostic Report in the Mac or Windows app, or `aae report`. It's plain text: AAE's version, this computer, the SDK, your devices and the end of their emulator logs, and AAE's own log. Your home folder and computer name, and on the Mac your full name, are taken out, and it never includes what you typed on a device, your clipboard, or the device's own log.
 - AAE keeps its log in its data folder, under `logs`, at most about 4 megabytes. It records AAE's steps and problems, never keys, typed text or clipboards.
 - `AAE_LOG=info aae start "My device"` shows each step of starting a device. Use `debug` for more.
 - `AAE_KEYLOG=1` records every key the Mac app captures. Key codes reveal what you type, so leave it off otherwise.
@@ -169,6 +192,7 @@ Android versions are installed into the Android SDK, where Android Studio sees t
 - `crates/aae-cli`: the `aae` command.
 - `crates/aae-ffi`: the bridge from the core to the host apps, generated with UniFFI.
 - `macos`: the Mac app, in Swift.
+- `crates/aae-windows`: the Windows app, in Rust with Windows' standard controls. `windows` has its build script and the read-me that goes in the zip.
 - `crates/aae-core/proto`: the Android Emulator's gRPC definitions, under Apache 2.0.
 - `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume and read the screen for the inspector. It also carries the full keyboard layout, a small tool AAE runs as the shell user to select it, the speech check, the speech log's relay engine, and the silent test tone used to measure audio speed.
 - `android/espeak`: how AAE builds eSpeak NG: its own app ID, signed like the helper, with eSpeak NG's code unchanged.
@@ -181,3 +205,4 @@ AAE is under the [Apache License 2.0](LICENSE). Parts it includes keep their own
 - The Android Emulator's gRPC definitions, in `crates/aae-core/proto`, are under Apache 2.0.
 - eSpeak NG, in `android/third_party/espeak-ng`, is under the GNU General Public License version 3. AAE builds it unchanged as a separate app that runs on the Android device.
 - Sparkle, which updates the Mac app, is under the MIT licence.
+- NV Access's NVDA controller client, `nvdaControllerClient.dll`, which the Windows app speaks through, is under the GNU Lesser General Public License version 2.1. `windows/build.sh` downloads it from NV Access, checks it, and ships it unchanged with its licence.

@@ -112,7 +112,7 @@ pub async fn ensure_speech(adb: &Adb) -> Result<SpeechFix> {
         }
     }
 
-    adb.install(&espeak_apk()?).await?;
+    adb.install_own(&espeak_apk()?, ESPEAK_PACKAGE).await?;
     adb.put_setting("secure", "tts_default_synth", ESPEAK_PACKAGE)
         .await?;
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -255,16 +255,8 @@ async fn restart_screen_reader(adb: &Adb, screen_reader: Option<&str>) -> Result
 /// A time in milliseconds since 1970 as a local clock time, such as "17:42:06.250".
 pub fn clock_time(ms: u64) -> String {
     let millis = ms % 1000;
-    #[cfg(unix)]
-    {
-        let secs = (ms / 1000) as libc::time_t;
-        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        if !unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {
-            return format!(
-                "{:02}:{:02}:{:02}.{millis:03}",
-                tm.tm_hour, tm.tm_min, tm.tm_sec
-            );
-        }
+    if let Some(t) = crate::platform::local_time(ms / 1000) {
+        return format!("{:02}:{:02}:{:02}.{millis:03}", t.hour, t.minute, t.second);
     }
     let secs = ms / 1000;
     format!(

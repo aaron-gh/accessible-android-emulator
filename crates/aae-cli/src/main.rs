@@ -2242,7 +2242,7 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
         "the"
     };
     println!("Using {own} Android SDK at {}.", sdk.root.display());
-    match setup::virtualisation() {
+    match setup::virtualisation(sdk) {
         Virtualisation::Available => println!("This computer can run the emulator at full speed."),
         Virtualisation::Missing(how) => bail!("{how}"),
         Virtualisation::Unknown => {}
@@ -2359,7 +2359,8 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
 
 fn doctor(ctx: &Ctx) -> Result<()> {
     println!("Android SDK: {}.", ctx.sdk.root.display());
-    if let aae_core::setup::Virtualisation::Missing(how) = aae_core::setup::virtualisation() {
+    if let aae_core::setup::Virtualisation::Missing(how) = aae_core::setup::virtualisation(&ctx.sdk)
+    {
         println!("Problem: {how}");
     }
     match ctx.sdk.emulator_bin() {

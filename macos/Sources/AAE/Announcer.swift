@@ -9,10 +9,6 @@ import AVFoundation
 /// spoken with the system voice, so news like "Mac keyboard on" is never lost.
 ///
 /// Failures interrupt whatever is being said; everything else waits its turn.
-///
-/// The core's Prism route is not used on the Mac: in testing, its VoiceOver
-/// backend sent nothing when VoiceOver's AppleScript control was off, which
-/// is the default, without falling back.
 @MainActor
 final class Announcer {
     static let shared = Announcer()
