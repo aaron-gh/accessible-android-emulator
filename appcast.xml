@@ -5,6 +5,24 @@
         <description>Updates for AAE, the Accessible Android Emulator.</description>
         <language>en</language>
         <item>
+            <title>Version 0.2.1</title>
+            <pubDate>Wed, 07 Oct 2026 07:18:20 -0000</pubDate>
+            <sparkle:version>45</sparkle:version>
+            <sparkle:shortVersionString>0.2.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h2>AAE 0.2.1</h2>
+<ul>
+<li>Fixed: downloading Backtalk failed with "it isn't signed with Backtalk's key" on Macs without Java. AAE now checks Backtalk itself, with no Java needed.</li>
+<li>Fixed: if Android dropped AAE's full keyboard while a device was running, Meta and the Home button stopped working. AAE now selects it again whenever it connects to a device.</li>
+<li>Apps (Option-Command-P): open, stop, clear or uninstall a device's apps, and grant their permissions and special access.</li>
+<li>Accessibility Services (Option-Command-U): turn any accessibility service on or off, and switch screen readers in one step.</li>
+<li>Open Link (Command-Shift-L) and Send Intent, and Watch for New Builds, which installs each new build of an app as it's made.</li>
+<li>AI agents can now run and test devices through AAE's MCP server, including hearing what the screen reader says.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.2.1/AAE-0.2.1.dmg" sparkle:edSignature="8vOb+Y1tCtC0E4CMXTnU4I7r4g5z2j8Xyv2J5gg9p3dVzvRChWpqDL9RWQBcb98/jRvfGrEyThG23swRt00vCg==" length="31375832" type="application/octet-stream" />
+        </item>
+        <item>
             <title>Version 0.2.0</title>
             <pubDate>Tue, 06 Oct 2026 21:22:41 -0000</pubDate>
             <sparkle:version>22</sparkle:version>
