@@ -100,7 +100,9 @@ Announcements go straight to NVDA, through NV Access's controller client, which 
 - Shortcuts are the Mac app's, with Control for Command and Alt for Option: New Device is Control-N, Start is Control-Shift-S, and so on. Rename is F2, and Delete is the Delete key.
 - Device mode sends every key to Android, with the Windows key as Meta, including Windows' own shortcuts such as Alt-Tab, the Windows key and Alt-F4; only Control-Alt-Delete and Windows-L can't be taken. Your screen reader keeps its keys: while Insert or Caps Lock is held, keys go to Windows. Control-Windows-Escape, or the "Return to Windows" button, brings the keyboard back.
 - Installing apps: Install App (Control-I), or drop APKs on the window, or copy them in File Explorer and paste them into it with Control-V.
-- The Windows app doesn't have the testing tools' windows, Apps, Accessibility Services, Snapshots, Battery, Location and Phone, Android Versions, watching for builds, links and intents, or own windows for devices yet. The `aae` command, installed alongside it, does all of these.
+- It has the Mac app's windows, with the same shortcuts: Accessibility Inspector (Control-Alt-I), Speech Log (Control-Alt-L), Device Log (Control-Alt-J), Shell (Control-Alt-T), Apps (Control-Alt-P), Accessibility Services (Control-Alt-U), Snapshots (Control-Alt-S), Battery, Location and Phone (Control-Alt-B), Android Versions (Control-Alt-A), Open Link (Control-Shift-L), Send Intent, Watch for New Builds, and Open in Own Window (Control-Alt-O). Each window stays open beside the main one: Tab moves through it, F5 refreshes it if it has a Refresh button, and Escape closes it.
+- In a device's own window, the menu's shortcuts act on that device. Device and gesture mode started there take the keyboard in the main window, which has the way back.
+- Battery, Location and Phone looks up places and addresses on OpenStreetMap, which gets only the text you typed; latitude and longitude are used as they are.
 
 ## The command line
 

@@ -1,6 +1,6 @@
 Accessible Android Emulator (AAE) for Windows: test build
 
-AAE creates, runs and tests Android virtual devices without sighted help. This is the first Windows build. It is for testing, and parts of the Mac app are still to come; see "Not in the Windows app yet" below.
+AAE creates, runs and tests Android virtual devices without sighted help. This is an early Windows build, for testing.
 
 WHAT YOU NEED
 
@@ -32,9 +32,24 @@ Control Shift G starts gesture mode, where keys perform touch screen gestures. A
 
 The Device menu has everything else, with its shortcuts: Back (Control Shift B), Home (Control Shift H), notifications, rotating, the device's volume, its clipboard, installing apps, screenshots, renaming, copying, wiping and deleting devices. Control Shift I speaks the status. To install apps, choose Install App (Control I), or copy them in File Explorer and paste them into AAE with Control V.
 
-NOT IN THE WINDOWS APP YET
+TESTING TOOLS AND OTHER WINDOWS
 
-The accessibility inspector, speech log, device log, shell, apps, accessibility services, snapshots, battery and location, and the Android versions window. Until they are, the aae command in AAE's folder does all of them: open a command prompt there and run "aae help". For example, "aae inspect Pixel", "aae speech-log Pixel" or "aae services Pixel".
+These open in windows of their own, which stay open beside AAE's main window. Tab moves through a window, F5 refreshes it if it has a Refresh button, and Escape closes it. They act on the device selected in the main window.
+
+- Accessibility Inspector (Control Alt I): the screen's accessibility tree, as a tree or a flat list, each element's details, and the problems found. Copy it as text, or save it as text or JSON.
+- Speech Log (Control Alt L): what the screen reader said, with times, while recording is on.
+- Device Log (Control Alt J): the device's log, filtered by app, level, tag and text. It can read out new errors as they happen.
+- Shell (Control Alt T): runs a command on the device and shows what it printed.
+- Apps (Control Alt P): open, stop, clear, uninstall, and change an app's permissions and special access.
+- Accessibility Services (Control Alt U): choose the screen reader, and turn other services on or off.
+- Snapshots (Control Alt S): save the device as it is, and go back to it later.
+- Battery, Location and Phone (Control Alt B): set the battery, set the location from a place, an address, or latitude and longitude, send a text message, and make or answer phone calls. Places and addresses are looked up on OpenStreetMap, which gets only the text you typed.
+- Android Versions (Control Alt A, in the File menu): the installed Android versions, and updates for the emulator and tools.
+- Open Link (Control Shift L) and Send Intent, to test how apps answer them.
+- Watch for New Builds: installs each new build of an app on your devices as it's made.
+- Open in Own Window (Control Alt O): gives a device a window of its own. While it's in front, the menu's shortcuts act on that device.
+
+The aae command in AAE's folder does all of these too: open a command prompt there and run "aae help".
 
 REPORTING PROBLEMS
 
