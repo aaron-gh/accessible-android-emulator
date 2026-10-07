@@ -14,6 +14,7 @@
 //! the server is started with `--allow-destructive`.
 
 mod act;
+mod manage;
 mod observe;
 
 use std::collections::HashMap;
@@ -83,7 +84,11 @@ pub(crate) struct DeviceParam {
 impl AaeServer {
     pub fn new(options: Options) -> anyhow::Result<Self> {
         let engine = Engine::new().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let tool_router = Self::device_tools() + Self::observe_tools() + Self::act_tools();
+        let mut tool_router =
+            Self::device_tools() + Self::observe_tools() + Self::act_tools() + Self::manage_tools();
+        if options.allow_destructive {
+            tool_router += Self::destructive_tools();
+        }
         Ok(AaeServer {
             engine,
             sessions: Arc::new(Mutex::new(HashMap::new())),
