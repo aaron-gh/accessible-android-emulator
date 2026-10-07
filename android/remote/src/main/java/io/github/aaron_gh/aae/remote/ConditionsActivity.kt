@@ -8,6 +8,11 @@ import org.json.JSONObject
 
 /** What the device experiences: its battery, fingerprints, motion, where it is, text messages, calls and its network. */
 class ConditionsActivity : ToolActivity() {
+    private lateinit var routeSpeed: Spinner
+    private lateinit var routeButton: android.widget.Button
+    private var routePlaying = false
+    private var pendingSpeed = 1.0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (isFinishing) return
@@ -56,6 +61,21 @@ class ConditionsActivity : ToolActivity() {
                 val name = json.optString("place").takeIf { it.isNotEmpty() && it != "null" }?.let { "$it, " } ?: ""
                 ui.say("Location set to $name%.5f, %.5f.".format(json.optDouble("latitude"), json.optDouble("longitude")))
             }
+        }
+
+        val routeSpeeds = listOf(0.5, 1.0, 2.0, 5.0, 10.0)
+        routeSpeed = spinner("Route speed", listOf("Half speed", "As recorded", "Twice as fast", "Five times as fast", "Ten times as fast"))
+        routeSpeed.setSelection(1)
+        routeButton = ui.button("Play GPX Route") {
+            if (routePlaying) {
+                call("tools.route.stop", params())
+                return@button
+            }
+            val pick = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(android.content.Intent.CATEGORY_OPENABLE).setType("*/*")
+            pendingSpeed = routeSpeeds[routeSpeed.selectedItemPosition]
+            @Suppress("DEPRECATION")
+            startActivityForResult(pick, CHOOSE_ROUTE)
         }
 
         ui.heading("Text Message")
@@ -138,5 +158,30 @@ class ConditionsActivity : ToolActivity() {
             }
             ui.column.addView(this)
         }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data
+        if (requestCode != CHOOSE_ROUTE || resultCode != RESULT_OK || uri == null) return
+        val name = fileName(uri, "route.gpx")
+        send(uri, name) { number ->
+            routePlaying = true
+            routeButton.text = "Stop Route"
+            call("tools.route.play", params().put("upload", number).put("speed", pendingSpeed), failed = { routeEnded() }) { said ->
+                routeEnded()
+                ui.say(said.toString())
+            }
+        }
+    }
+
+    private fun routeEnded() {
+        routePlaying = false
+        routeButton.text = "Play GPX Route"
+    }
+
+    companion object {
+        private const val CHOOSE_ROUTE = 1
     }
 }

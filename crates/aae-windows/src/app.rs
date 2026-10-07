@@ -66,7 +66,7 @@ pub(crate) fn engine() -> Option<Arc<Engine>> {
 /// Connections to running devices, by device id.
 static SESSIONS: Mutex<Option<HashMap<String, Arc<Session>>>> = Mutex::new(None);
 
-fn session_if_open(id: &str) -> Option<Arc<Session>> {
+pub(crate) fn session_if_open(id: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().unwrap().as_ref()?.get(id).cloned()
 }
 

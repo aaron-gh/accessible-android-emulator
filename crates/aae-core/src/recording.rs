@@ -41,7 +41,14 @@ pub async fn start(adb: &Adb, path: &Path, seconds: u32) -> Result<PathBuf> {
     // The console splits on spaces, unless the path is in quotes.
     let quoted = format!("\"{}\"", file.display());
     let out = adb
-        .raw(&["emu", "screenrecord", "start", "--time-limit", &limit, &quoted])
+        .raw(&[
+            "emu",
+            "screenrecord",
+            "start",
+            "--time-limit",
+            &limit,
+            &quoted,
+        ])
         .await?;
     if out.contains("KO") {
         return Err(Error::Message(format!(

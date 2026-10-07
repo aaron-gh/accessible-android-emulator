@@ -34,6 +34,8 @@ const HEALTH: u16 = 1030;
 const FINGER: u16 = 1031;
 const TOUCH_FINGERPRINT: u16 = 1032;
 const SHAKE: u16 = 1033;
+const ROUTE_SPEED: u16 = 1034;
+const ROUTE: u16 = 1035;
 
 /// The network controls, to show what the device reports after a change.
 #[derive(Clone, Copy)]
@@ -51,6 +53,41 @@ thread_local! {
     static SHOWN: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
+/// How fast routes play, against their own pace.
+const ROUTE_SPEEDS: &[(f64, &str)] = &[
+    (0.5, "Half speed"),
+    (1.0, "As recorded"),
+    (2.0, "Twice as fast"),
+    (5.0, "Five times as fast"),
+    (10.0, "Ten times as fast"),
+];
+
+/// Moves the device along a route from a GPX file, or stops the one playing.
+fn toggle_route(owner: HWND, speed: f64) {
+    let (device, _) = crate::app::selected();
+    let Some(device) = device else { return };
+    if let Some(session) = crate::app::session_if_open(&device.id)
+        && session.stop_route()
+    {
+        return;
+    }
+    let files = ui::open_files(
+        owner,
+        &format!("Choose a GPX route for {}", device.name),
+        &[("GPX routes", "*.gpx")],
+        false,
+    );
+    let Some(path) = files.into_iter().next() else {
+        return;
+    };
+    with_session(move |session| async move {
+        let about = session.describe_route(path.clone(), speed)?;
+        say(format!("Playing the route: {about}"), Tone::Info);
+        say(session.play_route(path, speed).await?, Tone::Success);
+        Ok(())
+    });
+}
+
 /// Numbers the emulator answers to, when none is given.
 const NUMBER: &str = "5551234";
 
@@ -66,6 +103,7 @@ struct Conditions {
     charging: HWND,
     health: HWND,
     finger: HWND,
+    route_speed: HWND,
     place: HWND,
     from: HWND,
     message: HWND,
@@ -101,6 +139,16 @@ pub fn show() {
     panel.text("Location");
     let place = panel.edit("Place, address, or latitude and longitude", "");
     panel.buttons(&[("Set Location", SET_LOCATION)], None);
+    let route_speed = panel.choice(
+        "Route speed",
+        ROUTE_SPEED,
+        &ROUTE_SPEEDS
+            .iter()
+            .map(|(_, l)| l.to_string())
+            .collect::<Vec<_>>(),
+        1,
+    );
+    panel.buttons(&[("Play GPX Route or Stop It…", ROUTE)], None);
     panel.text("Text Message");
     let from = panel.edit("From", NUMBER);
     let message = panel.edit("Message", "");
@@ -154,6 +202,7 @@ pub fn show() {
             charging,
             health,
             finger,
+            route_speed,
             place,
             from,
             message,
@@ -184,6 +233,12 @@ impl Handler for Conditions {
                     say(session.touch_fingerprint(finger).await?, Tone::Success);
                     Ok(())
                 });
+            }
+            ROUTE => {
+                let speed = ui::combo_selection(self.route_speed)
+                    .and_then(|i| ROUTE_SPEEDS.get(i))
+                    .map_or(1.0, |(s, _)| *s);
+                toggle_route(_panel.hwnd, speed);
             }
             SHAKE => with_session(|session| async move {
                 session.shake().await?;

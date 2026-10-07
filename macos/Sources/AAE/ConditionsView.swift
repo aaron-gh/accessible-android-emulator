@@ -8,6 +8,7 @@ struct ConditionsView: View {
     @State private var charging = true
     @State private var health = "good"
     @State private var finger = 1
+    @State private var routeSpeed = 1.0
     @State private var place = ""
     @State private var from = "5551234"
     @State private var message = ""
@@ -44,6 +45,15 @@ struct ConditionsView: View {
                 TextField("Place, address, or latitude and longitude", text: $place)
                     .onSubmit { model.setLocation(place) }
                 Button("Set Location") { model.setLocation(place) }
+                Picker("Route speed", selection: $routeSpeed) {
+                    Text("Half speed").tag(0.5)
+                    Text("As recorded").tag(1.0)
+                    Text("Twice as fast").tag(2.0)
+                    Text("Five times as fast").tag(5.0)
+                    Text("Ten times as fast").tag(10.0)
+                }
+                let playing = model.selection.map { model.routes.contains($0) } ?? false
+                Button(playing ? "Stop Route" : "Play GPX Route…") { model.toggleRoute(speed: routeSpeed) }
             } header: {
                 Text("Location").accessibilityAddTraits(.isHeader)
             }

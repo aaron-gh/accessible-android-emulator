@@ -80,7 +80,17 @@ Both apps update themselves. Check for Updates never offers a development build;
   - Question mark lists the keys.
 - `aae gesture <device> swipe-right double-tap`; `--at X,Y`. `aae inspect <device> --targets` lists touch targets.
 
-### Display and language
+### Battery, Location, Phone and Network
+
+- Battery level, charging and health (good, failed, dead, over voltage, overheated).
+- Fingerprint touches, fingers 1 to 10. Enroll them in Android's security settings.
+- Shake.
+- Location from coordinates, a place or an address (looked up on OpenStreetMap; only the typed text is sent).
+- Play GPX Route: moves the location once a second along the file's track, route or waypoints, at the file's pace or 30 km/h, with a speed multiplier. Choose again to stop.
+- Text messages to the device; incoming calls, and answer, busy or hang up for outgoing calls.
+- Network: airplane mode, Wi-Fi, mobile data, and speed (full, LTE, 3G, slow 3G, EDGE, GPRS).
+
+CLI: `battery`, `fingerprint`, `shake`, `location`, `route`, `sms`, `call`, `network`.
 
 Display and Language (Option-Command-Comma on the Mac, Control-Alt-Comma on Windows) changes the device's language, font size, display size, dark theme, bold text, high contrast text, colour inversion, colour correction, animations, captions and touch and hold delay, without going through Android's Settings. The languages include two pseudo-locales, accented and longer text, and right to left, for finding text that's cut off or laid out the wrong way; any other language tags can be typed. `aae settings <device>` says them all, `aae settings <device> font-size 150 language ar-XB` changes them, and `aae settings --list` lists the choices. AI agents have `device_settings`, and AAE Remote has Display and Language in Testing Tools. Dark theme needs Android 10, and bold text Android 12.
 
@@ -160,8 +170,9 @@ aae stop "Android 16 test"
 - Keyboard, sound and speech: `attach`, `listen`, `playback-volume`, `volume` (the screen reader's own volume), `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `mic`, `speech`.
 - Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
 - Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`, `record`.
-- Device conditions: `rotate`, `battery`, `fingerprint`, `shake`, `location`, `network`, `settings`, `sms`, `call`, `clipboard`.
-- AI agents: `mcp`, below.
+- Conditions: `rotate`, `battery`, `fingerprint`, `shake`, `location`, `route`, `network`, `settings`, `sms`, `call`, `clipboard`.
+- AAE Remote: `serve`, `pair`, `phones`, `daemon`.
+- AI agents: `mcp`.
 
 ## AI agents (MCP)
 

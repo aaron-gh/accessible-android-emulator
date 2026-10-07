@@ -1462,6 +1462,8 @@ pub struct Session {
     microphone: Mutex<Option<aae_core::microphone::Microphone>>,
     /// A sound file waiting for, or playing into, the device's microphone.
     playing: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
+    /// A route being played.
+    route: Mutex<Option<tokio::task::AbortHandle>>,
     /// The screen recording going on: its file, and when it started.
     recording: Mutex<Option<(std::path::PathBuf, std::time::Instant)>>,
     /// The screen's size and density, read on the first gesture.
@@ -1533,6 +1535,7 @@ impl Session {
             microphone: Mutex::new(None),
             playing: Arc::new(Mutex::new(None)),
             recording: Mutex::new(None),
+            route: Mutex::new(None),
             screen: tokio::sync::Mutex::new(None),
             held: tokio::sync::Mutex::new(None),
         })
@@ -2225,6 +2228,62 @@ impl Session {
                 .await?)
         })
         .await
+    }
+
+    /// Moves the device along a route from a GPX file, at `speed` times its
+    /// own pace (or 30 km/h if it has no times), and returns what to say at
+    /// the end. Replaces any route playing.
+    pub async fn play_route(&self, path: String, speed: f64) -> Result<String, AaeError> {
+        let text = std::fs::read_to_string(&path).map_err(|e| AaeError::Failed {
+            message: format!("{path} can't be read: {e}"),
+        })?;
+        let points = aae_core::route::parse(&text)?;
+        let controller = self.controller.clone();
+        let task = runtime()
+            .spawn(async move { aae_core::route::play(&controller, &points, speed).await });
+        if let Some(earlier) = self.route.lock().unwrap().replace(task.abort_handle()) {
+            earlier.abort();
+        }
+        match task.await {
+            Ok(Ok(())) => Ok("The route has finished.".into()),
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => Ok("Stopped the route.".into()),
+        }
+    }
+
+    /// Says how long a GPX file's route takes at `speed` times its pace, and
+    /// how many points it has, before playing it.
+    pub fn describe_route(&self, path: String, speed: f64) -> Result<String, AaeError> {
+        let text = std::fs::read_to_string(&path).map_err(|e| AaeError::Failed {
+            message: format!("{path} can't be read: {e}"),
+        })?;
+        let points = aae_core::route::parse(&text)?;
+        let seconds = aae_core::route::duration(&points, speed.clamp(0.1, 100.0)).round() as u64;
+        let time = if seconds >= 120 {
+            format!("{} minutes", (seconds + 30) / 60)
+        } else {
+            format!("{seconds} seconds")
+        };
+        Ok(format!("{} points, taking {time}.", points.len()))
+    }
+
+    /// Whether a route is playing.
+    pub fn route_playing(&self) -> bool {
+        self.route
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|task| !task.is_finished())
+    }
+
+    /// Stops the route playing, leaving the device where it got to. Returns
+    /// whether one was.
+    pub fn stop_route(&self) -> bool {
+        self.route.lock().unwrap().take().is_some_and(|task| {
+            let running = !task.is_finished();
+            task.abort();
+            running
+        })
     }
 
     /// Starts recording the screen with its sound into a WebM file (the

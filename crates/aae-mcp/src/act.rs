@@ -135,6 +135,16 @@ pub(crate) struct DeviceSettingsParam {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(crate) struct RouteParam {
+    /// The device's name. Leave it out when only one device is running.
+    pub device: Option<String>,
+    /// The GPX file's full path.
+    pub path: String,
+    /// How many times faster than the route's own pace. 1 if left out.
+    pub speed: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub(crate) struct RecordingParam {
     /// The device's name. Leave it out when only one device is running.
     pub device: Option<String>,
@@ -612,6 +622,49 @@ impl AaeServer {
                     lines.push(format!("{} ({}): {}", setting.label, setting.name, label));
                 }
                 text(lines.join("\n"))
+            }
+            .await,
+        )
+    }
+
+    /// Moves the device along a route from a GPX file, updating its location
+    /// once a second, at the pace of the file's times, or 30 km/h without.
+    /// Returns at once; stop_route stops it.
+    #[tool(annotations(destructive_hint = false))]
+    async fn play_route(
+        &self,
+        Parameters(p): Parameters<RouteParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                let speed = p.speed.unwrap_or(1.0);
+                let about = session.describe_route(p.path.clone(), speed)?;
+                tokio::spawn(async move {
+                    if let Err(e) = session.play_route(p.path, speed).await {
+                        tracing::warn!("playing a route: {e}");
+                    }
+                });
+                text(format!("Playing the route: {about}"))
+            }
+            .await,
+        )
+    }
+
+    /// Stops a route playing, leaving the device where it got to.
+    #[tool(annotations(destructive_hint = false))]
+    async fn stop_route(
+        &self,
+        Parameters(p): Parameters<DeviceParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                text(if session.stop_route() {
+                    "Stopped the route."
+                } else {
+                    "No route was playing."
+                })
             }
             .await,
         )

@@ -403,6 +403,7 @@ pub async fn call(
             // The network.
             "tools.network" => network(&session.network().await?),
             "tools.microphone.stop" => json!(session.stop_playing_into_microphone()),
+            "tools.route.stop" => json!(session.stop_route()),
             "tools.network.set" => {
                 if let Some(on) = params["airplane"].as_bool() {
                     session.set_airplane_mode(on).await?;

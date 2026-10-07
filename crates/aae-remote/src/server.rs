@@ -332,6 +332,31 @@ impl Phone {
                         let result = self.begin_upload(params["name"].as_str().unwrap_or("upload"));
                         self.out.result(&id, result);
                     }
+                    "tools.route.play" => {
+                        // Plays a GPX file the phone sent, then deletes it.
+                        // Answers at the end of the route.
+                        let upload = params["upload"].as_u64().unwrap_or(0) as u32;
+                        let Some((path, _)) = self.uploads.remove(&upload) else {
+                            self.out.result(&id, Err("That file wasn't sent.".into()));
+                            return true;
+                        };
+                        let server = self.server.clone();
+                        let out = self.out.clone();
+                        let device = params["id"].as_str().unwrap_or("").to_string();
+                        let speed = params["speed"].as_f64().unwrap_or(1.0);
+                        tokio::spawn(async move {
+                            let result = async {
+                                let session = server.session(&device).await?;
+                                let path = path.to_string_lossy().into_owned();
+                                let about = session.describe_route(path.clone(), speed)?;
+                                out.json(json!({"type": "progress", "id": id, "message": format!("Playing the route: {about}")}));
+                                Ok::<Value, AaeError>(json!(session.play_route(path, speed).await?))
+                            }
+                            .await;
+                            let _ = std::fs::remove_file(&path);
+                            out.result(&id, result.map_err(|e| e.to_string()));
+                        });
+                    }
                     "tools.microphone.play" => {
                         // Plays an uploaded audio file into the device's
                         // microphone from the next recording, then deletes

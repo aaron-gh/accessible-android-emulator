@@ -946,6 +946,9 @@ final class AppModel: ObservableObject {
         if recordings.remove(id) != nil {
             Task { _ = try? await session.stopRecording() }
         }
+        if routes.remove(id) != nil {
+            _ = session.stopRoute()
+        }
         if playingFiles.remove(id) != nil {
             _ = session.stopPlayingIntoMicrophone()
         }
@@ -2044,6 +2047,38 @@ final class AppModel: ObservableObject {
             announce("Saved \(url.lastPathComponent).", tone: .success)
         } catch {
             announce(error.localizedDescription, tone: .failure)
+        }
+    }
+
+    /// Devices moving along a route.
+    @Published private(set) var routes: Set<String> = []
+
+    /// Moves the selected device along a route from a GPX file, or stops.
+    func toggleRoute(speed: Double) {
+        guard let device = selected else { return }
+        let id = device.id
+        if routes.contains(id) {
+            routes.remove(id)
+            if let session = sessions[id], session.stopRoute() { return }
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.message = "Choose a GPX route for \(device.name)."
+        panel.allowedContentTypes = [UTType(filenameExtension: "gpx") ?? .xml]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        withSession { [weak self] session in
+            guard let self else { return }
+            let about = try session.describeRoute(path: url.path, speed: speed)
+            self.routes.insert(id)
+            self.announce("Playing \(url.lastPathComponent): \(about)")
+            do {
+                let said = try await session.playRoute(path: url.path, speed: speed)
+                self.routes.remove(id)
+                self.announce(said, tone: .success)
+            } catch {
+                self.routes.remove(id)
+                throw error
+            }
         }
     }
 

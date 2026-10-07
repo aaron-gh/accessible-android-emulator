@@ -438,6 +438,29 @@ impl Controller {
         Ok(())
     }
 
+    /// Sets where the device is, moving: with its altitude in metres, speed
+    /// in metres a second, and heading in degrees from north.
+    pub async fn set_moving_location(
+        &self,
+        latitude: f64,
+        longitude: f64,
+        altitude: f64,
+        speed: f64,
+        bearing: f64,
+    ) -> Result<()> {
+        let state = pb::GpsState {
+            passive_update: false,
+            latitude,
+            longitude,
+            altitude,
+            speed,
+            bearing,
+            satellites: 8,
+        };
+        self.emu.clone().set_gps(state).await?;
+        Ok(())
+    }
+
     pub async fn set_location(&self, latitude: f64, longitude: f64) -> Result<()> {
         let state = pb::GpsState {
             passive_update: false,

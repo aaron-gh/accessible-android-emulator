@@ -498,8 +498,17 @@ enum Command {
     },
     /// Shake the device, as for apps that act on a shake.
     Shake { device: String },
-    /// Record the screen with its sound into a WebM file, until Control-C,
-    /// for up to three minutes.
+    /// Move the device along a route from a GPX file, updating its location
+    /// once a second, at the pace of the file's times, or 30 km/h if it has
+    /// none. Control-C stops, leaving it where it got to.
+    Route {
+        device: String,
+        file: PathBuf,
+        /// How many times faster than the route's own pace, such as 2 or 0.5.
+        #[arg(long, default_value_t = 1.0)]
+        speed: f64,
+    },
+    /// Record the screen and audio to a WebM file, up to three minutes.
     Record {
         device: String,
         file: PathBuf,
@@ -2200,6 +2209,30 @@ async fn run(cli: Cli) -> Result<()> {
                 file.display(),
                 started.elapsed().as_secs().min(limit as u64)
             );
+            Ok(())
+        }
+        Command::Route {
+            device,
+            file,
+            speed,
+        } => {
+            use aae_core::route;
+            let text = std::fs::read_to_string(&file)
+                .with_context(|| format!("{} can't be read", file.display()))?;
+            let points = route::parse(&text)?;
+            let (_, controller, _) = ctx.connect(&device).await?;
+            println!(
+                "{} points, taking {:.0} seconds. Press Control-C to stop.",
+                points.len(),
+                route::duration(&points, speed.clamp(0.1, 100.0))
+            );
+            tokio::select! {
+                played = route::play(&controller, &points, speed) => {
+                    played?;
+                    println!("The route has finished.");
+                }
+                _ = tokio::signal::ctrl_c() => println!("Stopped the route."),
+            }
             Ok(())
         }
         Command::Shake { device } => {
