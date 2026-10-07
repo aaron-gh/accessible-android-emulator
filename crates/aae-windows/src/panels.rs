@@ -580,6 +580,10 @@ unsafe fn handle(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESUL
             info.ptMinTrackSize.y = ui::scaled(hwnd, 240);
             LRESULT(0)
         }
+        WM_NEXTDLGCTL => {
+            ui::next_control(hwnd, wparam, lparam);
+            LRESULT(0)
+        }
         WM_CLOSE => {
             dispatch(hwnd, |_, handler| handler.closed());
             unsafe {

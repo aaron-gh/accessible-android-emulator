@@ -210,7 +210,48 @@ pub fn text_area(parent: HWND, text: &str, id: u16, read_only: bool) -> HWND {
     }
     let hwnd = control(parent, w!("EDIT"), "", style, WINDOW_EX_STYLE(0), id);
     set_text(hwnd, text);
+    if read_only {
+        unsafe {
+            let _ = windows::Win32::UI::Shell::SetWindowSubclass(hwnd, Some(read_only_keys), 1, 0);
+        }
+    }
     hwnd
+}
+
+/// A multi-line text box asks for every key, Tab and Escape included, and
+/// hands Tab back with a message only dialogs understand, so in AAE's
+/// windows the focus would be stuck in it, and Escape would close the window
+/// it's in. A read-only one has no use for those keys, so Tab moves on,
+/// Escape is the window's, and only the arrows and the like stay its own.
+unsafe extern "system" fn read_only_keys(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> windows::Win32::Foundation::LRESULT {
+    let result = unsafe { windows::Win32::UI::Shell::DefSubclassProc(hwnd, msg, wparam, lparam) };
+    if msg == WM_GETDLGCODE {
+        return windows::Win32::Foundation::LRESULT(result.0 & !(DLGC_WANTALLKEYS as isize));
+    }
+    result
+}
+
+/// Moves the focus to the next or previous control, as a dialog does for
+/// WM_NEXTDLGCTL, which controls send their window to move on.
+pub fn next_control(window: HWND, wparam: WPARAM, lparam: LPARAM) {
+    unsafe {
+        let target = if lparam.0 & 0xFFFF != 0 {
+            Some(HWND(wparam.0 as *mut _))
+        } else {
+            let focus = windows::Win32::UI::Input::KeyboardAndMouse::GetFocus();
+            GetNextDlgTabItem(window, Some(focus), wparam.0 != 0).ok()
+        };
+        if let Some(target) = target {
+            focus(target);
+        }
+    }
 }
 
 pub fn list_box(parent: HWND, id: u16) -> HWND {
@@ -336,8 +377,31 @@ pub fn text(hwnd: HWND) -> String {
 
 pub fn enable(hwnd: HWND, on: bool) {
     unsafe {
-        if IsWindowEnabled(hwnd).as_bool() != on {
-            let _ = EnableWindow(hwnd, on);
+        if IsWindowEnabled(hwnd).as_bool() == on {
+            return;
+        }
+        // Disabling the control with the focus leaves the focus nowhere,
+        // and the keyboard dead, so it moves on first.
+        if !on && windows::Win32::UI::Input::KeyboardAndMouse::GetFocus() == hwnd {
+            move_focus_from(hwnd);
+        }
+        let _ = EnableWindow(hwnd, on);
+    }
+}
+
+pub fn is_enabled(hwnd: HWND) -> bool {
+    unsafe { IsWindowEnabled(hwnd) }.as_bool()
+}
+
+/// Moves the focus off a control that's about to be hidden or disabled, to
+/// the next one Tab would reach.
+fn move_focus_from(hwnd: HWND) {
+    unsafe {
+        let Ok(parent) = GetParent(hwnd) else { return };
+        if let Ok(next) = GetNextDlgTabItem(parent, Some(hwnd), false)
+            && next != hwnd
+        {
+            focus(next);
         }
     }
 }

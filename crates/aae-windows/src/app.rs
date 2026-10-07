@@ -195,7 +195,7 @@ pub const START_STOP_BUTTON: u16 = 1003;
 pub const RETURN_BUTTON: u16 = 1004;
 pub const VOLUME_SLIDER: u16 = 1005;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 enum Screen {
     Error,
     Setup,
@@ -226,6 +226,8 @@ pub struct App {
     status: String,
     shown_status: String,
     shown_rows: Vec<String>,
+    /// The screen last shown, to put the focus on a new one.
+    shown_screen: Option<Screen>,
     download: Option<(String, u32)>,
     versions: Vec<VersionInfo>,
     needs_setup: bool,
@@ -322,6 +324,7 @@ pub fn start_app(hwnd: HWND) {
             status: String::new(),
             shown_status: String::new(),
             shown_rows: Vec::new(),
+            shown_screen: None,
             download: None,
             versions: Vec::new(),
             needs_setup,
@@ -358,7 +361,9 @@ pub fn focus_start() {
     // happens after the state is put down.
     let control = with(|app| match app.screen() {
         Screen::Devices => app.c.devices,
-        Screen::Setup => app.c.setup_button,
+        // The button is unavailable until AAE knows what to download.
+        Screen::Setup if ui::is_enabled(app.c.setup_button) => app.c.setup_button,
+        Screen::Setup => app.c.setup_text,
         Screen::Error => app.c.setup_text,
         Screen::DeviceMode => app.c.return_button,
     });
@@ -553,6 +558,20 @@ impl App {
         }
         crate::tools::device_changed(self.selected().map(|d| d.name.as_str()));
         self.layout();
+        // A new screen hides the controls of the old one, which may have had
+        // the focus, so it goes to where the new one starts. Device mode
+        // puts it on its button itself.
+        let changed = self
+            .shown_screen
+            .replace(screen)
+            .is_some_and(|s| s != screen);
+        if changed
+            && screen != Screen::DeviceMode
+            && unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }
+                == self.hwnd
+        {
+            run_on_ui(focus_start);
+        }
     }
 
     fn setup_text(&self) -> String {

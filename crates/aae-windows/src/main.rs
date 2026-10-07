@@ -249,6 +249,10 @@ mod window {
                 info.ptMinTrackSize.y = ui::scaled(hwnd, 420);
                 LRESULT(0)
             }
+            WM_NEXTDLGCTL => {
+                ui::next_control(hwnd, wparam, lparam);
+                LRESULT(0)
+            }
             WM_CLOSE => {
                 app::closing();
                 unsafe {
