@@ -152,6 +152,9 @@ pub enum BootStage {
 }
 
 /// Waits until the emulator answers on gRPC and Android has finished booting.
+/// Returns [`Error::BatteryEmpty`] if Android isn't running and the battery is
+/// at 0% and not charging, as when a snapshot was saved after Android shut
+/// down for that.
 pub async fn wait_until_ready(
     sdk: &Sdk,
     info: &RuntimeInfo,
@@ -184,9 +187,14 @@ pub async fn wait_until_ready(
                 stage = BootStage::WaitingForAndroid;
                 progress(stage);
             }
-            if stage == BootStage::WaitingForAndroid && adb.boot_completed().await {
-                progress(BootStage::Ready);
-                return Ok((controller.unwrap(), adb));
+            if stage == BootStage::WaitingForAndroid {
+                if adb.boot_completed().await {
+                    progress(BootStage::Ready);
+                    return Ok((controller.unwrap(), adb));
+                }
+                if c.battery_empty().await.unwrap_or(false) {
+                    return Err(Error::BatteryEmpty);
+                }
             }
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -248,6 +256,25 @@ pub async fn stop(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
     if is_alive(info.pid) {
         terminate(info.pid);
         tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    device.set_runtime(None)
+}
+
+/// Ends a device's emulator without waiting for Android, for a device whose
+/// Android isn't running. Start it next with `cold_boot`, as any state the
+/// emulator saves on the way out is of that Android.
+pub async fn force_stop(device: &Device, info: &RuntimeInfo) -> Result<()> {
+    terminate(info.pid);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while is_alive(info.pid) && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    #[cfg(unix)]
+    if is_alive(info.pid) {
+        unsafe {
+            libc::kill(info.pid as libc::pid_t, libc::SIGKILL);
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
     device.set_runtime(None)
 }

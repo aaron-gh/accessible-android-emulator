@@ -12,13 +12,12 @@ import kotlin.math.roundToInt
  */
 object Volume {
     const val TAG = "AaeHelper"
-    private const val PREFS = "aae"
     private const val KEY_PERCENT = "accessibility_volume_percent"
 
     /** Saves a level from 0 to 100 and applies it. Returns the stream index set. */
     fun set(context: Context, percent: Int): Int {
         val level = percent.coerceIn(0, 100)
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        Storage.prefs(context)
             .edit()
             .putInt(KEY_PERCENT, level)
             .apply()
@@ -26,7 +25,7 @@ object Volume {
     }
 
     fun applySaved(context: Context): Int {
-        val level = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_PERCENT, 100)
+        val level = Storage.prefs(context).getInt(KEY_PERCENT, 100)
         return apply(context, level)
     }
 

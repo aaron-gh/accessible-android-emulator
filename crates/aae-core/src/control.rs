@@ -397,6 +397,19 @@ impl Controller {
         Ok(BatteryHealth::from_proto(state.health))
     }
 
+    /// Whether the battery is at 0% and not charging, where Android shuts down.
+    pub async fn battery_empty(&self) -> Result<bool> {
+        use pb::battery_state::BatteryCharger;
+        let state = self.emu.clone().get_battery(()).await?.into_inner();
+        Ok(state.charge_level == 0 && state.charger == BatteryCharger::None as i32)
+    }
+
+    /// Sets the battery to 100%, charging, with good health.
+    pub async fn charge_battery(&self) -> Result<()> {
+        self.set_battery(100, true).await?;
+        self.set_battery_health(BatteryHealth::Good).await
+    }
+
     /// Touches the fingerprint sensor with a finger, as Android's settings
     /// enrolled it, then lifts it. Finger numbers are the emulator's own: a
     /// finger enrolled while AAE touched with finger 1 is finger 1 after.

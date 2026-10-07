@@ -195,7 +195,7 @@ class RelayTtsService : TextToSpeechService() {
         val id = "aae-relay-" + System.nanoTime()
         val queue = LinkedBlockingQueue<Event>()
         queues[id] = queue
-        val file = File(cacheDir, "$id.wav")
+        val file = File(Storage.cacheDir(this), "$id.wav")
         try {
             if (engine.synthesizeToFile(text, null, file, id) != TextToSpeech.SUCCESS) {
                 callback.error()

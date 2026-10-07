@@ -34,7 +34,6 @@ object SpeechLog {
 
     // The real speech engine the relay passes requests to.
 
-    private const val PREFS = "aae"
     private const val KEY_TARGET = "speech_relay_target"
     private const val KEY_RECORDING = "speech_log_recording"
 
@@ -42,20 +41,20 @@ object SpeechLog {
 
     /** Whether the relay records what's said. On unless AAE said otherwise. */
     fun recording(context: Context): Boolean =
-        recording ?: context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        recording ?: Storage.prefs(context)
             .getBoolean(KEY_RECORDING, true)
             .also { recording = it }
 
     fun setRecording(context: Context, on: Boolean) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_RECORDING, on).commit()
+        Storage.prefs(context).edit().putBoolean(KEY_RECORDING, on).commit()
         recording = on
         if (!on) clear()
     }
 
     fun target(context: Context): String? =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_TARGET, null)
+        Storage.prefs(context).getString(KEY_TARGET, null)
 
     fun setTarget(context: Context, engine: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_TARGET, engine).commit()
+        Storage.prefs(context).edit().putString(KEY_TARGET, engine).commit()
     }
 }

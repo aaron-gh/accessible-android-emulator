@@ -34,6 +34,12 @@ pub enum Progress {
     /// The emulator couldn't start with the computer's graphics adapter, so
     /// AAE started it again drawing in software.
     SoftwareGraphics,
+    /// Android had shut down with the battery empty, so AAE cold boots the
+    /// device with the battery charged.
+    BatteryEmpty,
+    /// The device started with its storage locked, waiting for its screen
+    /// lock. The speech check was skipped.
+    Locked,
     /// The device is ready. Holds the screen reader's package, if there is one.
     Ready(Option<String>),
 }
@@ -58,6 +64,12 @@ impl Progress {
             Progress::SpeechRepaired(what) => what.clone(),
             Progress::SoftwareGraphics => format!(
                 "The emulator couldn't use this computer's graphics adapter, so {device} draws its screen in software, which is slower. Starting it again."
+            ),
+            Progress::BatteryEmpty => format!(
+                "Android on {device} had shut down with the battery at 0% and not charging. Cold booting with the battery charged."
+            ),
+            Progress::Locked => format!(
+                "{device} is locked after a cold boot. Type its PIN or password in device mode and press Enter. Speech is checked at the next start."
             ),
             Progress::QueuedScreenReader(Ok(package)) => {
                 format!("Installed the new build of {package} queued for {device}.")
@@ -154,6 +166,29 @@ pub async fn start_device(
     };
     let ready = emulator::wait_until_ready(sdk, &info, BOOT_TIMEOUT, &mut stages).await;
     let (controller, adb) = match ready {
+        // The quick-boot snapshot was saved after Android shut down: start
+        // without it, and charge the battery so Android stays up.
+        Err(Error::BatteryEmpty) => {
+            drop(stages);
+            progress(Progress::BatteryEmpty);
+            emulator::force_stop(device, &info).await?;
+            let cold = StartOptions {
+                cold_boot: true,
+                ..start.clone()
+            };
+            let info = emulator::start(sdk, store, device, &cold)?;
+            let mut stages = |stage| match stage {
+                BootStage::WaitingForEmulator => {}
+                BootStage::WaitingForAndroid => {
+                    progress(Progress::WaitingForAndroid { first_boot })
+                }
+                BootStage::Ready => progress(Progress::AndroidStarted),
+            };
+            let (controller, adb) =
+                emulator::wait_until_ready(sdk, &info, BOOT_TIMEOUT, &mut stages).await?;
+            controller.charge_battery().await?;
+            (controller, adb)
+        }
         // The graphics adapter, or its driver, may not work with the
         // emulator. Then it's started again drawing in software, and kept
         // that way if that works.
@@ -189,6 +224,10 @@ pub async fn start_device(
         other => other?,
     };
 
+    // After a cold boot of a device with a screen lock. The helper works, but
+    // a speech engine that isn't direct boot aware wouldn't, and failing the
+    // speech check would replace it.
+    let locked = !first_boot && adb.user_locked().await;
     if first_boot {
         provision::provision(sdk, device, &adb, setup, |step| {
             progress(Progress::Setup(step))
@@ -205,7 +244,9 @@ pub async fn start_device(
         if device.meta.audio_speed.is_none() {
             provision::measure_audio(device, &adb).await;
         }
-        if let Some(what) = provision::ensure_device_speech(device, &adb)
+        if locked {
+            progress(Progress::Locked);
+        } else if let Some(what) = provision::ensure_device_speech(device, &adb)
             .await?
             .describe()
         {

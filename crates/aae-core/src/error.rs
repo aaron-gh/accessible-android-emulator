@@ -52,6 +52,9 @@ pub enum Error {
     #[error("The emulator stopped while starting. The last lines of its log were:\n{0}")]
     EmulatorExited(String),
 
+    #[error("Android shut down with the battery at 0% and not charging.")]
+    BatteryEmpty,
+
     #[error("{0}")]
     Download(String),
 

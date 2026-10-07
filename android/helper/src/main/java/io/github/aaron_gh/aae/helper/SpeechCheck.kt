@@ -44,7 +44,7 @@ class SpeechCheck(private val context: Context, private val done: (Result) -> Un
 
     private fun synthesize() {
         val engine = tts ?: return
-        val file = File(context.cacheDir, "speech-check.wav")
+        val file = File(Storage.cacheDir(context), "speech-check.wav")
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) = Unit
 

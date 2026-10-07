@@ -103,6 +103,14 @@ impl Adb {
         matches!(self.shell("getprop sys.boot_completed").await, Ok(v) if v.trim() == "1")
     }
 
+    /// Whether the user's storage is still locked, as after a cold boot of a
+    /// device with a screen lock, until its PIN, pattern or password is
+    /// entered. Apps that aren't direct-boot aware, such as AAE's helper,
+    /// can't run until then.
+    pub async fn user_locked(&self) -> bool {
+        matches!(self.shell("dumpsys user").await, Ok(v) if v.contains("RUNNING_LOCKED"))
+    }
+
     /// Waits until Android has finished booting, up to `timeout`.
     pub async fn wait_for_boot(&self, timeout: Duration) -> bool {
         let deadline = tokio::time::Instant::now() + timeout;
