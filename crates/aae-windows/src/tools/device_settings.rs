@@ -19,10 +19,14 @@ pub const KIND: &str = "device-settings";
 
 const APPLY: u16 = 1000;
 const REFRESH: u16 = 1001;
+const FOR_NEW_DEVICES: u16 = 1002;
+const KEEP_ANDROIDS: u16 = 1003;
 /// The first setting's list; the others follow.
 const FIRST_CHOICE: u16 = 1100;
 
 thread_local! {
+    /// The line saying what new devices start with.
+    static NEW_DEVICES: std::cell::Cell<Option<HWND>> = const { std::cell::Cell::new(None) };
     /// Each setting's list, in the order of SETTINGS, and the language tags field.
     static CONTROLS: RefCell<Option<(Vec<HWND>, HWND, HWND)>> = const { RefCell::new(None) };
     /// The values the device had when last read, by setting name.
@@ -58,6 +62,16 @@ pub fn show() {
         Some(APPLY),
     );
     let status = panel.text("Start the device to change its settings.");
+    panel.text("New Devices");
+    let new_devices = panel.text(&aae_ffi::new_device_settings_description());
+    panel.buttons(
+        &[
+            ("Use These Settings for New Devices", FOR_NEW_DEVICES),
+            ("New Devices Keep Android's Settings", KEEP_ANDROIDS),
+        ],
+        None,
+    );
+    NEW_DEVICES.with(|n| n.set(Some(new_devices)));
     panel.shortcut(VK_F5.0, false, REFRESH);
     let first = lists.first().copied();
     CONTROLS.with(|c| *c.borrow_mut() = Some((lists, tags, status)));
@@ -68,6 +82,7 @@ pub fn show() {
 impl Handler for DeviceSettings {
     fn closed(&mut self) {
         CONTROLS.with(|c| *c.borrow_mut() = None);
+        NEW_DEVICES.with(|n| n.set(None));
     }
 
     fn command(&mut self, _panel: &Panel, id: u16) {
@@ -75,9 +90,31 @@ impl Handler for DeviceSettings {
             APPLY => apply(),
             id if id == IDOK.0 as u16 => apply(),
             REFRESH => load(),
+            FOR_NEW_DEVICES => with_session(|session| async move {
+                let said = session.use_settings_for_new_devices().await?;
+                show_new_devices();
+                say(said, Tone::Success);
+                Ok(())
+            }),
+            KEEP_ANDROIDS => match aae_ffi::forget_new_device_settings() {
+                Ok(said) => {
+                    show_new_devices();
+                    say(said, Tone::Success);
+                }
+                Err(e) => say(e.to_string(), Tone::Failure),
+            },
             _ => {}
         }
     }
+}
+
+/// Shows what new devices start with.
+fn show_new_devices() {
+    ui::run_on_ui(|| {
+        if let Some(line) = NEW_DEVICES.with(|n| n.get()) {
+            panels::set_text(line, &aae_ffi::new_device_settings_description());
+        }
+    });
 }
 
 /// Shows the selected device's settings, if it's running.

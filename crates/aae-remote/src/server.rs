@@ -762,6 +762,8 @@ async fn call(
                 .collect::<Vec<_>>()
         ),
         "images.remove" => json!(engine.remove_image(param(params, "sysdir")?).await?),
+        "settings.new_devices" => json!(aae_ffi::new_device_settings_description()),
+        "settings.new_devices.forget" => json!(aae_ffi::forget_new_device_settings()?),
         "versions.list" => json!(
             engine
                 .versions(

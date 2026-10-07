@@ -92,7 +92,7 @@ Both apps update themselves. Check for Updates never offers a development build;
 
 CLI: `battery`, `fingerprint`, `shake`, `location`, `route`, `sms`, `call`, `network`.
 
-Display and Language (Option-Command-Comma on the Mac, Control-Alt-Comma on Windows) changes the device's language, font size, display size, dark theme, bold text, high contrast text, colour inversion, colour correction, animations, captions and touch and hold delay, without going through Android's Settings. The languages include two pseudo-locales, accented and longer text, and right to left, for finding text that's cut off or laid out the wrong way; any other language tags can be typed. `aae settings <device>` says them all, `aae settings <device> font-size 150 language ar-XB` changes them, and `aae settings --list` lists the choices. AI agents have `device_settings`, and AAE Remote has Display and Language in Testing Tools. Dark theme needs Android 10, and bold text Android 12.
+### Display and Language
 
 Language, font size, display size, dark theme (Android 10+), bold text (Android 12+), high contrast text, colour inversion, colour correction, animations, captions and touch and hold delay. Languages include the pseudo-locales en-XA (accented, longer) and ar-XB (right to left), and any typed language tag. Use These Settings for New Devices applies them to devices created later. `aae settings <device> [name value]...`, `--list`, `--for-new-devices`, `--forget-new-devices`.
 

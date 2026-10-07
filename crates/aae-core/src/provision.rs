@@ -64,6 +64,7 @@ pub enum Step {
     Keyboard,
     SetupWizard,
     StayAwake,
+    Settings,
     Animations,
     ScreenReader,
     Volume,
@@ -79,6 +80,7 @@ impl Step {
             Step::Keyboard => "Setting up the full keyboard",
             Step::SetupWizard => "Skipping the setup wizard",
             Step::StayAwake => "Keeping the screen on",
+            Step::Settings => "Applying your settings for new devices",
             Step::Animations => "Turning off animations",
             Step::ScreenReader => "Setting up the screen reader",
             Step::Volume => "Turning the screen reader's volume up to full",
@@ -290,6 +292,19 @@ pub async fn provision(
         let _ = adb.shell("locksettings set-disabled true").await;
         let _ = adb.shell("input keyevent KEYCODE_WAKEUP").await;
         let _ = adb.shell("wm dismiss-keyguard").await;
+    }
+
+    // Before turning animations off, so asking for that wins.
+    let chosen = crate::device_settings::for_new_devices();
+    if !chosen.is_empty() {
+        progress(Step::Settings);
+        for (name, value) in &chosen {
+            // One that doesn't apply, such as dark theme on Android 9, is
+            // left out rather than stopping setup.
+            if let Err(e) = crate::device_settings::change(adb, name, value).await {
+                tracing::info!("not applying {name} {value}: {e}");
+            }
+        }
     }
 
     if options.disable_animations {

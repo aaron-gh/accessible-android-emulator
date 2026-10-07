@@ -1831,6 +1831,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// What new devices start with, in words.
+    @Published private(set) var newDeviceSettings = newDeviceSettingsDescription()
+
+    func useSettingsForNewDevices() {
+        withSession { [weak self] session in
+            let said = try await session.useSettingsForNewDevices()
+            self?.newDeviceSettings = said
+            self?.announce(said, tone: .success)
+        }
+    }
+
+    func newDevicesKeepAndroidSettings() {
+        do {
+            newDeviceSettings = try forgetNewDeviceSettings()
+            announce(newDeviceSettings, tone: .success)
+        } catch {
+            announce(error.localizedDescription, tone: .failure)
+        }
+    }
+
     func changeDeviceSetting(_ name: String, to value: String) {
         withSession { [weak self] session in
             let said = try await session.changeDeviceSetting(name: name, value: value)

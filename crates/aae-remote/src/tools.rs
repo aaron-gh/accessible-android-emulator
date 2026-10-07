@@ -259,6 +259,7 @@ pub async fn call(
                     }))
                     .collect::<Vec<_>>()
             ),
+            "tools.settings.for_new_devices" => json!(session.use_settings_for_new_devices().await?),
             "tools.settings.set" => json!(
                 session
                     .change_device_setting(text(params, "name")?, text(params, "value")?)

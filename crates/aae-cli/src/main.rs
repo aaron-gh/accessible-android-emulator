@@ -527,6 +527,14 @@ enum Command {
         /// List every setting and its choices.
         #[arg(long)]
         list: bool,
+        /// Say, or with pairs set, what new devices start with when they're
+        /// first set up, instead of a device's: aae settings --for-new-devices
+        /// language en-GB font-size 130.
+        #[arg(long)]
+        for_new_devices: bool,
+        /// New devices start with Android's own settings again.
+        #[arg(long)]
+        forget_new_devices: bool,
     },
     /// Show or change airplane mode, Wi-Fi, mobile data and speed.
     ///
@@ -2149,8 +2157,34 @@ async fn run(cli: Cli) -> Result<()> {
             device,
             changes,
             list,
+            for_new_devices,
+            forget_new_devices,
         } => {
             use aae_core::device_settings::{self as settings, SETTINGS};
+            if forget_new_devices || for_new_devices {
+                if forget_new_devices {
+                    settings::set_for_new_devices(&[])?;
+                } else {
+                    // No device here: every word is a setting or a value.
+                    let words: Vec<String> = device.into_iter().chain(changes).collect();
+                    if words.len() % 2 != 0 {
+                        bail!("Give each setting a value, such as: language en-GB font-size 130");
+                    }
+                    if !words.is_empty() {
+                        let pairs: Vec<(String, String)> = words
+                            .chunks(2)
+                            .map(|p| {
+                                let name = settings::setting(&p[0])
+                                    .map_or(p[0].clone(), |s| s.name.to_string());
+                                (name, p[1].clone())
+                            })
+                            .collect();
+                        settings::set_for_new_devices(&pairs)?;
+                    }
+                }
+                println!("{}", aae_ffi::new_device_settings_description());
+                return Ok(());
+            }
             if list || device.is_none() {
                 for setting in SETTINGS {
                     println!("{} ({}):", setting.name, setting.label);

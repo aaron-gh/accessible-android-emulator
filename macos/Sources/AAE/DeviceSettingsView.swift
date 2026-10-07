@@ -30,6 +30,13 @@ struct DeviceSettingsView: View {
                 Text("Another Language").accessibilityAddTraits(.isHeader)
             }
             Section {
+                Text(model.newDeviceSettings)
+                Button("Use These Settings for New Devices") { model.useSettingsForNewDevices() }
+                Button("New Devices Keep Android's Settings") { model.newDevicesKeepAndroidSettings() }
+            } header: {
+                Text("New Devices").accessibilityAddTraits(.isHeader)
+            }
+            Section {
                 Button("Refresh") { model.loadDeviceSettings() }
                     .keyboardShortcut("r")
             }

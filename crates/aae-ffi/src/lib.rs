@@ -519,6 +519,36 @@ pub struct DeviceSettingInfo {
     pub value: String,
 }
 
+/// What new devices start with, in words: the settings chosen for them, or
+/// that they keep Android's own.
+#[uniffi::export]
+pub fn new_device_settings_description() -> String {
+    describe_new_device_settings()
+}
+
+fn describe_new_device_settings() -> String {
+    use aae_core::device_settings as settings;
+    let chosen = settings::for_new_devices();
+    if chosen.is_empty() {
+        return "New devices start with Android's own display and language settings.".into();
+    }
+    let parts: Vec<String> = chosen
+        .iter()
+        .map(|(name, value)| {
+            let label = settings::setting(name).map_or(name.as_str(), |s| s.label);
+            format!("{label}: {}", settings::label_of(name, value))
+        })
+        .collect();
+    format!("New devices start with {}.", parts.join("; "))
+}
+
+/// New devices start with Android's own display and language settings again.
+#[uniffi::export]
+pub fn forget_new_device_settings() -> Result<String, AaeError> {
+    aae_core::device_settings::set_for_new_devices(&[])?;
+    Ok(describe_new_device_settings())
+}
+
 /// A battery health to choose: its name for `set_battery_health`, and in words.
 #[derive(uniffi::Record, Clone)]
 pub struct BatteryHealthInfo {
@@ -2383,6 +2413,16 @@ impl Session {
                 .collect())
         })
         .await
+    }
+
+    /// Remembers this device's display and language settings as the ones new
+    /// devices start with. Returns what to say.
+    pub async fn use_settings_for_new_devices(&self) -> Result<String, AaeError> {
+        let settings = self.device_settings().await?;
+        let chosen: Vec<(String, String)> =
+            settings.into_iter().map(|s| (s.name, s.value)).collect();
+        aae_core::device_settings::set_for_new_devices(&chosen)?;
+        Ok(describe_new_device_settings())
     }
 
     /// Changes a language, display or accessibility setting. Returns what to

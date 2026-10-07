@@ -468,6 +468,40 @@ pub async fn change(adb: &Adb, name: &str, value: &str) -> Result<String> {
     Ok(format!("{}: {said_label}.", setting.label))
 }
 
+fn new_device_path() -> std::path::PathBuf {
+    crate::paths::data_dir().join("new-device-settings.json")
+}
+
+/// The settings new devices get when they're first set up, by name, in the
+/// order they're applied: chosen once, in the apps' Display and Language
+/// window or with `aae settings --for-new-devices`.
+pub fn for_new_devices() -> Vec<(String, String)> {
+    std::fs::read(new_device_path())
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Remembers the settings new devices get; none forgets them.
+pub fn set_for_new_devices(settings: &[(String, String)]) -> Result<()> {
+    let path = new_device_path();
+    if settings.is_empty() {
+        let _ = std::fs::remove_file(&path);
+        return Ok(());
+    }
+    for (name, _) in settings {
+        if setting(name).is_none() {
+            return Err(Error::Message(format!("\"{name}\" isn't a setting AAE changes.")));
+        }
+    }
+    let json = serde_json::to_vec_pretty(settings).map_err(|e| Error::Message(e.to_string()))?;
+    if let Some(folder) = path.parent() {
+        let _ = std::fs::create_dir_all(folder);
+    }
+    std::fs::write(&path, json)
+        .map_err(|e| Error::Message(format!("{} can't be written: {e}", path.display())))
+}
+
 /// Says a setting's value: the choice's label, or the value itself.
 pub fn label_of(name: &str, value: &str) -> String {
     setting(name)

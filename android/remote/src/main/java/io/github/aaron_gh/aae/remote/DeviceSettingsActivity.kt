@@ -16,6 +16,7 @@ import org.json.JSONObject
 class DeviceSettingsActivity : ToolActivity() {
     private lateinit var lists: LinearLayout
     private lateinit var tags: EditText
+    private lateinit var newDevices: android.widget.TextView
     /** Each setting's name, list, the values of its choices, and its value when read. */
     private val shown = mutableListOf<Shown>()
 
@@ -30,6 +31,15 @@ class DeviceSettingsActivity : ToolActivity() {
         tags = ui.field("Or language tags, such as fr-CA, or fr-FR,en-US")
         ui.button("Apply Changes") { apply() }
         ui.button("Refresh") { load() }
+        ui.heading("New Devices")
+        newDevices = ui.text("")
+        ui.button("Use These Settings for New Devices") {
+            call("tools.settings.for_new_devices", params()) { said -> newDevices.text = said.toString(); ui.say(said.toString()) }
+        }
+        ui.button("New Devices Keep Android's Settings") {
+            call("settings.new_devices.forget") { said -> newDevices.text = said.toString(); ui.say(said.toString()) }
+        }
+        call("settings.new_devices") { newDevices.text = it.toString() }
         ui.show()
         load()
     }
