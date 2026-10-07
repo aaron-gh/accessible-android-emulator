@@ -549,6 +549,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The devices being stopped, by name.
+    var stoppingNames: [String] {
+        busy.filter { $0.value == "Stopping" }.keys.map { id in devices.first { $0.id == id }?.name ?? id }
+    }
+
+    /// Set while quitting waits for devices to stop.
+    var quitWhenStopped: (() -> Void)?
+
     func stop(_ id: String? = nil) {
         guard let engine, let id = id ?? selection, busy[id] == nil else { return }
         if deviceModeID == id {
@@ -567,6 +575,10 @@ final class AppModel: ObservableObject {
             }
             busy[id] = nil
             refresh()
+            if let quit = quitWhenStopped, stoppingNames.isEmpty {
+                quitWhenStopped = nil
+                quit()
+            }
         }
     }
 

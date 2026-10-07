@@ -826,9 +826,44 @@ pub fn files_dropped(files: Vec<String>) {
     }
 }
 
+thread_local! {
+    /// Set while closing waits for devices to stop.
+    static QUITTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The devices being stopped, by name.
+fn stopping_names() -> Vec<String> {
+    with(|app| {
+        app.busy
+            .iter()
+            .filter(|(_, doing)| doing.as_str() == "Stopping")
+            .map(|(id, _)| app.device_name(id))
+            .collect()
+    })
+}
+
 /// Before the window closes: the keyboard back, and the sound off. Devices
-/// keep running, as on the Mac.
-pub fn closing() {
+/// keep running, as on the Mac. False while devices are stopping: a stop first has
+/// Android write its data to disk, then tells the emulator to save and exit,
+/// and quitting before that would leave the emulator running. The window
+/// hides, and closes when they've stopped.
+pub fn closing() -> bool {
+    let stopping = stopping_names();
+    if !stopping.is_empty() {
+        QUITTING.with(|q| q.set(true));
+        let hwnd = with(|app| app.hwnd);
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(
+                hwnd,
+                windows::Win32::UI::WindowsAndMessaging::SW_HIDE,
+            );
+        }
+        announce(
+            &format!("Waiting for {} to stop before quitting.", stopping.join(" and ")),
+            Tone::Info,
+        );
+        return false;
+    }
     crate::updates::stop();
     if keyboard::is_on() {
         leave_device_mode(true);
@@ -837,6 +872,7 @@ pub fn closing() {
         close_session(&id);
     }
     unsafe { PostQuitMessage(0) };
+    true
 }
 
 pub fn resized() {
@@ -1374,7 +1410,19 @@ fn set_up_screen_reader(device: DeviceInfo, source: Option<ScreenReaderSource>) 
                 app.busy.remove(&id);
                 app.refresh();
                 app.render();
-            })
+            });
+            // Closing was waiting for this.
+            if QUITTING.with(|q| q.get()) && stopping_names().is_empty() {
+                let hwnd = with(|app| app.hwnd);
+                unsafe {
+                    let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                        Some(hwnd),
+                        WM_CLOSE,
+                        Default::default(),
+                        Default::default(),
+                    );
+                }
+            }
         });
     });
 }

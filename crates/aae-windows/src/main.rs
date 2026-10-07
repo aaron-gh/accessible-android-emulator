@@ -293,9 +293,10 @@ mod window {
                 LRESULT(0)
             }
             WM_CLOSE => {
-                app::closing();
-                unsafe {
-                    let _ = DestroyWindow(hwnd);
+                if app::closing() {
+                    unsafe {
+                        let _ = DestroyWindow(hwnd);
+                    }
                 }
                 LRESULT(0)
             }

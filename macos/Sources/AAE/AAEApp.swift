@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct AAEApp: App {
     @StateObject private var model = AppModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var updater = Updater()
     @StateObject private var serving = Serving()
 
@@ -10,6 +11,7 @@ struct AAEApp: App {
         Window("Accessible Android Emulator", id: "main") {
             ContentView()
                 .environmentObject(model)
+                .onAppear { appDelegate.model = model }
         }
         .commands {
             CommandGroup(after: .appInfo) {
