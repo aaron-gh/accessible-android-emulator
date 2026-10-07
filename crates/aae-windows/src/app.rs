@@ -827,6 +827,8 @@ pub fn command(id: u16, notification: u32) {
         RENAME => rename(),
         HARDWARE => edit_hardware(),
         COPY_DEVICE => copy_device(),
+        EXPORT_DEVICE => export_device(),
+        IMPORT_DEVICE => import_device(),
         WIPE => wipe(),
         DELETE => delete(),
         SELF_TEST => self_test(),
@@ -2096,6 +2098,85 @@ fn toggle_mute() {
             Tone::Info,
         );
         Ok(())
+    });
+}
+
+/// Exports the selected device, stopped, to one file for another computer.
+fn export_device() {
+    let (device, hwnd) = selected();
+    let Some(device) = device else { return };
+    if device.running {
+        announce(
+            &format!("Stop {} to export it.", device.name),
+            Tone::Failure,
+        );
+        return;
+    }
+    let Some(path) = ui::save_file(
+        hwnd,
+        &format!(
+            "Export {}, with its apps, data and named snapshots",
+            device.name
+        ),
+        &format!("{}.aaedevice", device.name),
+        &[("AAE devices", "*.aaedevice")],
+        "aaedevice",
+    ) else {
+        return;
+    };
+    let Some(engine) = engine() else { return };
+    announce(&format!("Exporting {}.", device.name), Tone::Info);
+    let id = device.id.clone();
+    with(|app| {
+        app.busy.insert(id.clone(), "Exporting".into());
+        app.render();
+    });
+    spawn(async move {
+        let result = engine
+            .export_device(device.id, path, Arc::new(Progress))
+            .await;
+        run_on_ui(move || {
+            with(|app| {
+                app.busy.remove(&id);
+                app.render();
+            })
+        });
+        match result {
+            Ok(said) => say(said, Tone::Success),
+            Err(e) => say(e.to_string(), Tone::Failure),
+        }
+    });
+}
+
+/// Imports a device exported from AAE.
+fn import_device() {
+    let hwnd = with(|app| app.hwnd);
+    let files = ui::open_files(
+        hwnd,
+        "Choose a device exported from AAE",
+        &[("AAE devices", "*.aaedevice")],
+        false,
+    );
+    let Some(path) = files.into_iter().next() else {
+        return;
+    };
+    let Some(engine) = engine() else { return };
+    announce("Importing the device.", Tone::Info);
+    spawn(async move {
+        match engine.import_device(path, Arc::new(Progress)).await {
+            Ok(device) => {
+                let id = device.id.clone();
+                run_on_ui(move || {
+                    with(|app| {
+                        app.refresh();
+                        app.selection = Some(id);
+                        app.render();
+                    })
+                });
+                say(format!("Imported {}.", device.name), Tone::Success);
+            }
+            Err(e) => say(e.to_string(), Tone::Failure),
+        }
     });
 }
 

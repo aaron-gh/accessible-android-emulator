@@ -503,9 +503,21 @@ enum Command {
     },
     /// Shake the device, as for apps that act on a shake.
     Shake { device: String },
-    /// A device's advanced hardware. With nothing else, says it; otherwise
-    /// changes it while the device is stopped, from its next start, such as:
-    /// aae hardware Pixel memory 4096 cores 6 storage 16G screen 1440x3120 density 560
+    /// Export a stopped device, with its apps, data and named snapshots, to
+    /// one file, to import on another computer running AAE with the same
+    /// kind of processor.
+    Export { device: String, file: PathBuf },
+    /// Import a device exported from AAE. Its Android version must be
+    /// installed here.
+    Import {
+        file: PathBuf,
+        /// A name for it, instead of the one it had.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Show or change a stopped device's hardware, from its next start.
+    ///
+    /// Example: aae hardware Pixel memory 4096 cores 6 storage 16G screen 1440x3120 density 560
     Hardware {
         device: String,
         /// Pairs of setting and value: memory (megabytes), cores (or auto,
@@ -2399,6 +2411,42 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
             println!("{}", hardware::write(&mut device, &hw)?);
+            Ok(())
+        }
+        Command::Export { device, file } => {
+            let device = ctx.device(&device)?;
+            let mut said = 0;
+            let file = aae_core::transfer::export(&device, &file, |done, total| {
+                let percent = (done * 100 / total.max(1)) as u32;
+                if percent >= said + 10 {
+                    said = percent / 10 * 10;
+                    println!("{said}%");
+                }
+            })?;
+            println!(
+                "Exported {} to {}, {:.1} gigabytes.",
+                device.meta.name,
+                file.display(),
+                std::fs::metadata(&file).map_or(0, |m| m.len()) as f64 / 1e9
+            );
+            Ok(())
+        }
+        Command::Import { file, name } => {
+            let mut said = 0;
+            let device = aae_core::transfer::import(
+                &ctx.sdk,
+                &ctx.store,
+                &file,
+                name.as_deref(),
+                |done, total| {
+                    let percent = (done * 100 / total.max(1)) as u32;
+                    if percent >= said + 10 {
+                        said = percent / 10 * 10;
+                        println!("{said}%");
+                    }
+                },
+            )?;
+            println!("Imported {}.", device.describe());
             Ok(())
         }
         Command::Shake { device } => {

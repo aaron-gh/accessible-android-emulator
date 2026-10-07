@@ -636,6 +636,54 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Exports the selected device, stopped, to one file for another Mac or PC.
+    func exportDevice() {
+        guard let engine, let device = selected, busy[device.id] == nil else { return }
+        guard !device.running else {
+            announce("Stop \(device.name) to export it.", tone: .failure)
+            return
+        }
+        let panel = NSSavePanel()
+        panel.message = "Export \(device.name), with its apps, data and named snapshots, to import on another computer with the same kind of processor."
+        panel.nameFieldStringValue = "\(device.name).aaedevice"
+        panel.allowedContentTypes = [UTType(filenameExtension: "aaedevice") ?? .zip]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let id = device.id
+        busy[id] = "Exporting"
+        announce("Exporting \(device.name).")
+        let relay = ProgressRelay { [weak self] message in self?.announce(message) }
+        Task {
+            do {
+                let said = try await engine.exportDevice(id: id, path: url.path, listener: relay)
+                announce(said, tone: .success)
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+            busy[id] = nil
+        }
+    }
+
+    /// Imports a device exported from AAE.
+    func importDevice() {
+        guard let engine else { return }
+        let panel = NSOpenPanel()
+        panel.message = "Choose a device exported from AAE."
+        panel.allowedContentTypes = [UTType(filenameExtension: "aaedevice") ?? .zip]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        announce("Importing \(url.deletingPathExtension().lastPathComponent).")
+        let relay = ProgressRelay { [weak self] message in self?.announce(message) }
+        Task {
+            do {
+                let device = try await engine.importDevice(path: url.path, listener: relay)
+                refresh()
+                selection = device.id
+                announce("Imported \(device.name).", tone: .success)
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+        }
+    }
+
     // MARK: - Accessibility inspector
 
     /// Reads the selected device's screen and checks it.

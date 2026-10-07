@@ -24,6 +24,7 @@ struct AAEApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New Device…") { model.showingNewDevice = true }
                     .keyboardShortcut("n")
+                Button("Import Device…") { model.importDevice() }
                 AndroidVersionsMenuItem()
                 ServeMenuItem()
             }
@@ -98,6 +99,7 @@ struct AAEApp: App {
                 RecordMenuItem(model: model)
                 Divider()
                 Button("Hardware…") { model.editHardware() }
+                Button("Export…") { model.exportDevice() }
                 Button("Rename…") { model.renaming = model.selected }
                     .keyboardShortcut("r")
                 Button("Copy…") { model.cloning = model.selected }

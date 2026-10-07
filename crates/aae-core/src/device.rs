@@ -341,6 +341,24 @@ impl DeviceStore {
         device.save_meta()
     }
 
+    /// `name` if no device has it, otherwise it with the first free number
+    /// after it, such as "Pixel 2".
+    pub fn free_name(&self, name: &str) -> Result<String> {
+        let taken: Vec<String> = self
+            .list()?
+            .into_iter()
+            .map(|d| d.meta.name.to_lowercase())
+            .collect();
+        let name = name.trim();
+        if !taken.contains(&name.to_lowercase()) {
+            return Ok(name.to_string());
+        }
+        Ok((2..)
+            .map(|n| format!("{name} {n}"))
+            .find(|n| !taken.contains(&n.to_lowercase()))
+            .expect("some number is free"))
+    }
+
     /// Checks a new name is free and picks an unused id for it.
     fn reserve(&self, name: &str) -> Result<(String, PathBuf)> {
         let base = slug(name).ok_or_else(|| Error::InvalidName(name.to_string()))?;
@@ -370,7 +388,7 @@ impl DeviceStore {
     }
 }
 
-fn load_device(dir: &Path) -> Option<Device> {
+pub(crate) fn load_device(dir: &Path) -> Option<Device> {
     let text = std::fs::read_to_string(dir.join(META_FILE)).ok()?;
     let meta: DeviceMeta = toml::from_str(&text).ok()?;
     let id = dir.file_stem()?.to_str()?.to_string();

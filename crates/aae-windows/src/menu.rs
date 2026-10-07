@@ -47,6 +47,8 @@ pub const SCREENSHOT: u16 = 242;
 pub const RECORD: u16 = 244;
 pub const RENAME: u16 = 250;
 pub const HARDWARE: u16 = 254;
+pub const EXPORT_DEVICE: u16 = 255;
+pub const IMPORT_DEVICE: u16 = 107;
 pub const COPY_DEVICE: u16 = 251;
 pub const WIPE: u16 = 252;
 pub const DELETE: u16 = 253;
@@ -89,6 +91,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
             "&File",
             vec![
                 Item(NEW_DEVICE, "&New Device…", Some((c, b'N' as u16))),
+                Item(IMPORT_DEVICE, "&Import Device…", None),
                 Item(
                     ANDROID_VERSIONS,
                     "&Android Versions",
@@ -188,6 +191,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 Item(RECORD, RECORD_START, Some((ca, b'R' as u16))),
                 SEPARATOR,
                 Item(HARDWARE, "Hard&ware…", None),
+                Item(EXPORT_DEVICE, "E&xport…", None),
                 Item(RENAME, "Rena&me…", Some((0, VK_F2.0))),
                 Item(COPY_DEVICE, "Cop&y…", Some((c, b'D' as u16))),
                 Item(WIPE, "&Wipe…", None),

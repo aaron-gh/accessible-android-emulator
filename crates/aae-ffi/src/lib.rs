@@ -1366,6 +1366,72 @@ impl Engine {
         ))
     }
 
+    /// Exports a stopped device, with its apps, data and named snapshots, to
+    /// one file (ending .aaedevice), to import on another computer with the
+    /// same kind of processor. Returns what to say.
+    pub async fn export_device(
+        &self,
+        id: String,
+        path: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> Result<String, AaeError> {
+        let device = self.store.get(&id)?;
+        let name = device.meta.name.clone();
+        let file = runtime().spawn_blocking(move || {
+            let mut said = 0;
+            aae_core::transfer::export(&device, std::path::Path::new(&path), |done, total| {
+                let percent = (done * 100 / total.max(1)) as u32;
+                if percent >= said + 10 && percent < 100 {
+                    said = percent / 10 * 10;
+                    listener.progress(format!("Exporting: {said} percent."));
+                }
+            })
+        })
+        .await
+        .map_err(|e| AaeError::Failed {
+            message: e.to_string(),
+        })??;
+        let size = std::fs::metadata(&file).map_or(0, |m| m.len());
+        Ok(format!(
+            "Exported {name} to {}, {:.1} gigabytes.",
+            file.file_name()
+                .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
+            size as f64 / 1e9
+        ))
+    }
+
+    /// Imports a device exported from AAE, under the name it had (with a
+    /// number after it if that's taken). Its Android version must be
+    /// installed here.
+    pub async fn import_device(
+        &self,
+        path: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> Result<DeviceInfo, AaeError> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        let device = runtime().spawn_blocking(move || {
+            let mut said = 0;
+            aae_core::transfer::import(
+                &sdk,
+                &store,
+                std::path::Path::new(&path),
+                None,
+                |done, total| {
+                    let percent = (done * 100 / total.max(1)) as u32;
+                    if percent >= said + 10 && percent < 100 {
+                        said = percent / 10 * 10;
+                        listener.progress(format!("Importing: {said} percent."));
+                    }
+                },
+            )
+        })
+        .await
+        .map_err(|e| AaeError::Failed {
+            message: e.to_string(),
+        })??;
+        Ok(DeviceInfo::from_device(&device))
+    }
+
     /// A device's advanced hardware.
     pub fn device_hardware(&self, id: String) -> Result<HardwareInfo, AaeError> {
         let device = self.store.get(&id)?;

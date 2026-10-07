@@ -37,6 +37,7 @@ pub mod screenreader;
 pub mod sdk;
 pub mod services;
 pub mod setup;
+pub mod transfer;
 pub mod tts;
 pub mod watch;
 
