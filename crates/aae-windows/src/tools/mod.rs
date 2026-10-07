@@ -8,6 +8,7 @@ pub mod inspector;
 pub mod links;
 pub mod services;
 pub mod shell;
+pub mod snapshots;
 pub mod speech_log;
 
 use windows::Win32::Foundation::HWND;

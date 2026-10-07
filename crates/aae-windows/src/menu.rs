@@ -49,6 +49,7 @@ pub const DEVICE_LOG: u16 = 272;
 pub const INSPECTOR: u16 = 273;
 pub const APPS: u16 = 274;
 pub const SERVICES: u16 = 275;
+pub const SNAPSHOTS: u16 = 276;
 
 pub const CHECK_UPDATES: u16 = 303;
 pub const SELF_TEST: u16 = 300;
@@ -134,6 +135,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 Item(SERVICES, "Accessibility Ser&vices", Some((ca, b'U' as u16))),
                 Item(OPEN_LINK, "Open &Link…", Some((cs, b'L' as u16))),
                 Item(SEND_INTENT, "Send Int&ent…", None),
+                Item(SNAPSHOTS, "Snaps&hots", Some((ca, b'S' as u16))),
                 Item(
                     CONDITIONS,
                     "Batter&y, Location and Phone",
