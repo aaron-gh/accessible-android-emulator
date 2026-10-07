@@ -65,7 +65,6 @@ pub fn show() {
         return;
     }
     let mut panel = Panel::new(KIND, "Snapshots", 580, 440);
-    panel.text("A snapshot saves everything on the device, so you can come back to it later, such as before testing a sign-in.");
     let status = panel.text("Reading…");
     let list = panel.list("Snapshots", LIST, 10, true);
     panel.buttons(

@@ -14,7 +14,6 @@ class VersionsActivity : ConnectedActivity() {
         super.onCreate(savedInstanceState)
         if (isFinishing) return
         ui.heading("Android Versions")
-        ui.text("A version can be deleted once none of AAE's devices use it. Choose one to delete it.")
         ui.addStatus()
         rows = ui.list("Installed Android versions") { delete(images[it]) }.second
         ui.button("Refresh") { refresh() }

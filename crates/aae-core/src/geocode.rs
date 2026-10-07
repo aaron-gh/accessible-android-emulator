@@ -1,6 +1,5 @@
-//! Finding where a place is, to set a device's location from an address or
-//! a place's name. The Mac app uses Apple's geocoder; elsewhere AAE asks
-//! OpenStreetMap's Nominatim, which only gets the text the user typed.
+//! Geocoding for device locations, through OpenStreetMap's Nominatim. Only
+//! the typed text is sent. The Mac app uses Apple's geocoder instead.
 
 use serde::Deserialize;
 

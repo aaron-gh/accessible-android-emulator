@@ -1,10 +1,7 @@
 //! The device store: AAE's named virtual devices.
 //!
-//! Each device is an ordinary emulator AVD folder (`<id>.avd`) inside AAE's
-//! devices folder, plus an `aae.toml` file holding what AAE knows about it: its
-//! display name, the screen reader it uses, and the accessibility services to
-//! keep on. Because they are ordinary AVDs, the emulator runs them as they are,
-//! and Android Studio can use them by pointing `ANDROID_AVD_HOME` at the folder.
+//! Each device is a standard AVD folder (`<id>.avd`) in AAE's devices folder,
+//! plus `aae.toml` with AAE's metadata ([`DeviceMeta`]).
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};

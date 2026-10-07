@@ -1,12 +1,9 @@
-//! Making sure the device can speak.
+//! Text-to-speech check and repair.
 //!
-//! A screen reader is useless if its speech engine fails, and engines fail
-//! quietly: Google's sometimes downloads voices that then won't load, so every
-//! request fails while the screen reader's earcons still play. AAE checks the
-//! default engine can synthesize speech, repairs it if it can't, and as a last
-//! resort installs AAE's own build of eSpeak NG, a small open-source engine
-//! that works offline. AAE builds it from source (android/build-espeak.sh), and
-//! it unpacks its voice data by itself, so it speaks as soon as it's installed.
+//! Checks the default engine can synthesize. If not, clears Google's voice
+//! data; if that fails, installs AAE's eSpeak NG build
+//! (android/build-espeak.sh) and makes it default. eSpeak NG works offline
+//! immediately after install.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -157,7 +154,7 @@ pub async fn ensure_speech(adb: &Adb) -> Result<SpeechFix> {
         Ok(SpeechFix::InstalledEspeak)
     } else {
         Err(Error::Adb(format!(
-            "The device can't speak. Even eSpeak NG failed: {}. The screen reader will be silent.",
+            "Text-to-speech doesn't work on the device, and eSpeak NG failed too: {}. The screen reader has no speech.",
             after.detail
         )))
     }

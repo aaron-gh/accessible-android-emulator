@@ -7,9 +7,8 @@ import android.util.Log
 import kotlin.math.roundToInt
 
 /**
- * Sets the volume the screen reader speaks at. AAE plays the device's audio
- * and controls loudness on the computer, so the device itself runs at full
- * volume for the clearest sound. The user can choose a lower level.
+ * Sets the accessibility stream volume. Full by default; AAE sets playback
+ * volume on the host.
  */
 object Volume {
     const val TAG = "AaeHelper"

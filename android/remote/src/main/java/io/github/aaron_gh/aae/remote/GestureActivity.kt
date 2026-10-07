@@ -15,12 +15,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Gesture mode: the phone's screen is the device's touchscreen. Touches go to
- * the device as they happen, scaled to its screen, so the device's screen
- * reader gets the gestures itself, with as many fingers as the phone tracks.
- * AAE's gesture mode service lets the touches past the phone's screen reader.
- * A long press of volume down comes back; volume up and down change the
- * device's volume.
+ * Gesture mode: touches go to the device as they happen, scaled to its
+ * screen, with as many pointers as the phone tracks. The AAE gesture mode
+ * service passes them through the phone's screen reader. A long press of
+ * volume down exits; volume up and down change the device's volume.
  *
  * Without the service, or before Android 11, it offers buttons for common
  * gestures instead.
@@ -38,7 +36,7 @@ class GestureActivity : ConnectedActivity(), GestureModeService.Mode {
             (GestureModeService.isOn(accessibility, packageName) || !GestureModeService.touchExplorationOn(accessibility))
         if (passthrough) {
             pad = TouchPad(this)
-            pad.contentDescription = "Gesture mode. Touches go to the device. Hold volume down to come back."
+            pad.contentDescription = "Gesture mode. Touches go to the device. Holding volume down exits."
             setContentView(pad)
         } else {
             fallback(id)
@@ -50,13 +48,13 @@ class GestureActivity : ConnectedActivity(), GestureModeService.Mode {
         ui.heading("Gesture Mode")
         ui.addStatus()
         if (Build.VERSION.SDK_INT >= 30) {
-            ui.text("To use the whole screen for gestures, turn on AAE gesture mode in Android's accessibility settings. It lets your touches through to the device only while gesture mode is open.")
-            ui.text("If Android says it's a restricted setting: open Settings, Apps, AAE Remote, then the More options menu, and choose Allow restricted settings. Then turn it on again. The menu appears only after trying once.")
+            ui.text("Full-screen gestures need the AAE gesture mode accessibility service.")
+            ui.text("If it's a restricted setting: Settings, Apps, AAE Remote, More options, Allow restricted settings. The option appears after one attempt.")
             ui.button("Open Accessibility Settings") {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
         } else {
-            ui.text("Gestures on the whole screen need Android 11 or later. These buttons perform common gestures.")
+            ui.text("Full-screen gestures need Android 11.")
         }
         val gestures = listOf(
             "Swipe right" to "swipe-right", "Swipe left" to "swipe-left",

@@ -253,7 +253,7 @@ struct ScreenReaderQuestion: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             Text(device.backtalkSupported
-                ? "This Android image doesn't include one. What would you like to do?"
+                ? "This Android image doesn't include one."
                 : "This Android image doesn't include one, and Backtalk needs Android 8 or later. You can install a screen reader APK made for \(device.android), such as an older TalkBack, or continue without.")
             HStack {
                 Button("Continue Without", role: .cancel) {

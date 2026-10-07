@@ -21,7 +21,6 @@ struct AppPartsView: View {
             Text("Turn on parts of \(question.package)?")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text("These need your say before they run. AAE remembers your answer for this device.")
             ForEach(question.parts, id: \.component) { part in
                 Toggle("\(part.name), \(part.kindDescription)", isOn: binding(part))
             }

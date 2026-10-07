@@ -8,10 +8,8 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * Plays an exact tone, so AAE can measure the pitch that reaches the computer
- * and spot audio played at the wrong speed. Nobody hears it: AAE measures
- * while it isn't playing the device's audio, and the emulator's own audio
- * output is off.
+ * Plays a fixed-frequency tone for measuring the device's audio speed. AAE
+ * measures it with playback muted.
  */
 object TestTone {
     /** The output's native sample rate, which Android mixes at. */

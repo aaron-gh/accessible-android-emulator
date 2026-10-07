@@ -507,11 +507,9 @@ const GOLDFISH_SPEED: f64 = 44_100.0 / 48_000.0;
 
 /// Measures how fast the device really plays audio: 1.0 when it's right.
 ///
-/// AAE's helper plays a 1,000 Hz tone inside the device while AAE listens to
-/// the audio stream and finds the frequency that actually arrives. Nobody
-/// hears it: call this only while AAE isn't playing the device's audio, and
-/// the emulator's own output is off. A result close to a known fault snaps to
-/// its exact value.
+/// The helper plays a 1,000 Hz tone and AAE measures the frequency in the
+/// audio stream. Call only while AAE isn't playing the device's audio. A
+/// result close to a known fault snaps to its exact value.
 /// The name of the Mac's sound output, or None if it has none.
 /// The device's audio as 16-bit stereo samples at `rate`, interleaved, for
 /// sending elsewhere instead of playing here, as to AAE's Android app.
@@ -637,9 +635,8 @@ impl AudioPlayer {
         }
     }
 
-    /// Checks by making a sound: AAE's helper plays its test tone, with
-    /// AAE's own playback muted so nobody hears it, and the tone has to
-    /// arrive within a few seconds.
+    /// Plays the helper's test tone with playback muted and checks it
+    /// arrives within a few seconds.
     pub async fn probe(&self, adb: &crate::adb::Adb) -> AudioHealth {
         if let AudioHealth::Broken(why) = self.check(adb).await {
             return AudioHealth::Broken(why);

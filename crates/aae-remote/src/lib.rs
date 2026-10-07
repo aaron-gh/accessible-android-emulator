@@ -1,6 +1,5 @@
-//! Serves AAE's devices to AAE's Android app over the network, so a phone can
-//! use devices running on a Mac or PC: list, start and manage them, hear them,
-//! feel their vibrations, and send them keys and touches.
+//! Server for AAE Remote: device management, device audio and vibration to
+//! the phone, keys, touches and microphone to the device.
 
 pub mod daemon;
 pub mod discovery;

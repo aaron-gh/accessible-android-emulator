@@ -1,12 +1,10 @@
 //! Who may connect: the server's certificate, the phones paired with it, and
 //! pairing codes.
 //!
-//! The connection is TLS with a certificate made on this computer. A phone
-//! pairs once, with a code the computer shows and speaks: it proves it knows
-//! the code with an HMAC over the certificate it was shown, so someone in
-//! between, showing their own certificate, can't pass the proof on without
-//! guessing the code first. The phone then keeps the certificate's
-//! fingerprint, and a token that lets it back in.
+//! TLS with a self-signed certificate. A phone pairs once with a code: its
+//! proof is an HMAC of the code over the certificate it received, so a
+//! man-in-the-middle certificate fails without the code. The phone then pins
+//! the certificate's fingerprint and keeps a token for later connections.
 
 use std::path::PathBuf;
 use std::sync::Mutex;

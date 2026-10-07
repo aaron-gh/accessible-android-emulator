@@ -2,14 +2,9 @@ import Combine
 import Sparkle
 import SwiftUI
 
-/// Updates AAE itself, through Sparkle, as most Mac apps update.
-///
-/// Sparkle's own process downloads the new version, checks it was signed
-/// with AAE's key, and offers Install and Relaunch, all in standard AppKit
-/// windows that VoiceOver reads like any other. On first launch Sparkle asks
-/// once whether to check automatically. Automatic checks stay silent unless
-/// there's an update; Check for Updates always answers, even "you're up to
-/// date", because the user asked. The same approach as AVM's updater.
+/// Updates through Sparkle: downloads, verifies AAE's signature, and offers
+/// Install and Relaunch in standard AppKit windows. Automatic checks report
+/// only updates; Check for Updates always reports a result.
 @MainActor
 final class Updater: ObservableObject {
     private let controller = SPUStandardUpdaterController(

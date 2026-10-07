@@ -15,9 +15,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * Builds screens from Android's standard controls, top to bottom, which every
- * screen reader knows: headings, text, buttons and lists, with a status line
- * that screen readers announce when it changes.
+ * Builds screens from standard Android controls, top to bottom: headings,
+ * text, buttons and lists, with a live-region status line.
  */
 class Ui(private val activity: Activity) {
     val column = LinearLayout(activity).apply {

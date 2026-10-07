@@ -322,7 +322,7 @@ pub async fn self_test(sdk: &Sdk, store: &DeviceStore) -> Vec<Check> {
         Err(_) => Check::new(
             "AAE's eSpeak NG",
             Warning,
-            "Not found, so a device whose speech fails can't be given a working voice.",
+            "Not found, so devices whose text-to-speech fails have no fallback engine.",
         ),
     });
     checks.push(match crate::audio::output_name() {
@@ -362,7 +362,7 @@ pub async fn self_test(sdk: &Sdk, store: &DeviceStore) -> Vec<Check> {
         let Ok(adb_bin) = sdk.adb_bin() else { continue };
         let adb = crate::adb::Adb::new(adb_bin, info.serial());
         if !adb.boot_completed().await {
-            checks.push(Check::new(&name, Failed, "Android isn't answering."));
+            checks.push(Check::new(&name, Failed, "Android isn't responding."));
             continue;
         }
         let running = adb.running_services().await.unwrap_or_default();

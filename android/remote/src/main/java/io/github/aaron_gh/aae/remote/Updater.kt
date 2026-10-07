@@ -22,15 +22,12 @@ import java.util.concurrent.TimeUnit
 data class Update(val version: String, val build: Long, val url: String, val sha256: String, val notes: String)
 
 /**
- * Keeps AAE Remote up to date, as the Mac and Windows apps keep themselves:
- * it reads AAE's update feed for Android, offers a newer build, downloads it,
- * checks it against the feed's checksum, and hands it to Android's installer,
- * which asks the person, and installs it only if it's signed with the same
- * key as this one.
+ * Updates AAE Remote: reads the Android update feed, downloads a newer
+ * build, verifies its SHA-256, and passes it to the package installer, which
+ * requires user confirmation and the same signing key.
  *
- * Stable releases come from appcast-android.json in AAE's repository.
- * Development builds, if wanted, come from the dev prerelease. From a
- * development build, the next stable release is offered too.
+ * Stable releases: appcast-android.json. Development builds, if enabled:
+ * the dev prerelease. A development build is offered the next stable release.
  */
 object Updater {
     private const val STABLE = "https://raw.githubusercontent.com/aaron-gh/accessible-android-emulator/master/appcast-android.json"
@@ -111,8 +108,8 @@ object Updater {
         Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
 
     /**
-     * Downloads and installs [update]. [said] hears how it's going, on the main
-     * thread. Android then asks the person to confirm.
+     * Downloads and installs [update], reporting progress to [said] on the
+     * main thread. Android then requires confirmation.
      */
     fun install(context: Context, update: Update, said: (String) -> Unit) {
         val app = context.applicationContext

@@ -22,7 +22,7 @@ pub struct Service {
     pub label: String,
     #[serde(default)]
     pub description: String,
-    /// It explores the screen by touch and speaks, as TalkBack does.
+    /// Requests touch exploration (a screen reader).
     #[serde(default)]
     pub screen_reader: bool,
     /// Turned on in Android's settings.

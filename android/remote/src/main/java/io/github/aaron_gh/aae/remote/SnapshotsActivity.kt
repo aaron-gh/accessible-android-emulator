@@ -14,7 +14,6 @@ class SnapshotsActivity : ToolActivity() {
         super.onCreate(savedInstanceState)
         if (isFinishing) return
         ui.heading("Snapshots")
-        ui.text("A snapshot saves everything on the device, so you can come back to it later.")
         ui.addStatus()
         rows = ui.list("Snapshots") { act(snapshots[it]) }.second
         ui.button("Save Snapshot") {

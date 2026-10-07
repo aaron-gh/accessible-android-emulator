@@ -17,7 +17,7 @@ class ServicesActivity : ToolActivity() {
         super.onCreate(savedInstanceState)
         if (isFinishing) return
         ui.heading("Accessibility Services")
-        ui.text("Choose a service to turn it on or off. Screen readers come first: turning one on makes it the screen reader.")
+        ui.text("Screen readers first; one can be on at a time.")
         ui.addStatus()
         rows = ui.list("Services") { toggle(services[it]) }.second
         ui.button("Refresh") { load() }

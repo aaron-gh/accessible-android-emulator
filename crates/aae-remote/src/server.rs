@@ -22,7 +22,7 @@
 //!   `{"type":"microphone","on":false}` or detaches.
 //!
 //! The server also sends `{"type":"event",…}` messages, such as the attached
-//! device's vibration, and binary messages: the attached device's sound, a 1
+//! device's vibration, and binary messages: the attached device's audio, a 1
 //! then 16-bit little-endian stereo samples at 48 kHz.
 
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ pub fn stopping_path() -> std::path::PathBuf {
     security::folder().join("stopping")
 }
 
-/// The port AAE listens on unless told otherwise.
+/// Default listening port.
 pub const DEFAULT_PORT: u16 = 47735;
 /// The sound sent to phones: 48 kHz stereo.
 pub const AUDIO_RATE: u32 = 48_000;

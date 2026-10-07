@@ -1,11 +1,7 @@
-//! Updates AAE itself, through WinSparkle, as Sparkle does on the Mac.
-//!
-//! WinSparkle checks AAE's Windows update feed, downloads a new version,
-//! checks it was signed with AAE's update key (the same one as the Mac's),
-//! and runs its installer, which replaces AAE and starts it again. It asks
-//! once whether to check automatically. Versions are compared by build
-//! number, the number of commits, so a development build is offered the next
-//! stable release, and development builds are never in the feed.
+//! Updates through WinSparkle: reads the Windows update feed, verifies the
+//! download's signature with AAE's update key (shared with the Mac), and runs
+//! the installer, which restarts AAE. Versions compare by build number (commit
+//! count), so a development build is offered the next stable release.
 //!
 //! WinSparkle.dll ships next to AAE and is loaded when AAE starts; without
 //! it, AAE works but doesn't update.

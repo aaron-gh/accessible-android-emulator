@@ -1,17 +1,8 @@
-//! AAE's MCP server: lets AI agents run, use and inspect AAE's Android
-//! devices, as a tester would, through the Model Context Protocol.
+//! AAE's MCP server, over standard input and output (`aae mcp`), for running,
+//! using and inspecting devices. Uses the same core as the apps. The speech
+//! log gives agents the screen reader's output.
 //!
-//! `aae mcp` runs it over standard input and output, the way agents such as
-//! Claude Code start local servers. It calls the same core as the Mac and
-//! Windows apps, so devices behave exactly as they do there, and an agent can
-//! work on a device while you watch or listen in the app.
-//!
-//! Besides the screen, an agent can hear what a blind user hears: the speech
-//! log records what the screen reader says, so screen reader behaviour can
-//! be tested, not just what's drawn.
-//!
-//! Tools that delete things or run arbitrary commands are left out unless
-//! the server is started with `--allow-destructive`.
+//! Destructive tools and shell commands need `--allow-destructive`.
 
 mod act;
 mod manage;

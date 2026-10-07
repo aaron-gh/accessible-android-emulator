@@ -26,7 +26,7 @@ class AttachedService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL, "Device playing", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Shown while a device's sound plays on this phone."
+                description = "Shown while a device's audio streams to this phone."
             }
         )
         val open = PendingIntent.getActivity(

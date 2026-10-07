@@ -1,7 +1,5 @@
-//! Serve Devices to Phones: runs the aae command next to the app as `aae
-//! serve`, so AAE Remote, the Android app, can use this PC's devices, with
-//! their sound and vibrations on the phone. Shows and speaks the pairing
-//! code, and lists the paired phones.
+//! Serve Devices to Phones: runs `aae serve` for AAE Remote, shows and
+//! announces the pairing code, and lists paired phones.
 
 use std::cell::RefCell;
 use std::io::{BufRead, BufReader};
@@ -93,14 +91,10 @@ pub fn show() {
         return;
     }
     let mut panel = Panel::new(KIND, "Serve Devices to Phones", 520, 460);
-    panel.text("AAE Remote, the Android app, uses this PC's devices: their sound and vibrations play on the phone, and it sends them keys and touches. Phones on this network find the PC; each pairs once with a code.");
+    panel.text("Serves this PC's devices to AAE Remote. Each phone pairs once.");
     let serving = STATE.with(|s| s.borrow().child.is_some());
     let serve = panel.check("Serve this PC's devices to AAE Remote", SERVE, serving);
-    let at_login = panel.check(
-        "Keep serving whenever I log in, without AAE open",
-        AT_LOGIN,
-        false,
-    );
+    let at_login = panel.check("Serve at login, without AAE open", AT_LOGIN, false);
     let status = panel.text("Not serving.");
     let code = panel.edit("Pairing code", "");
     ui::send(code, windows::Win32::UI::Controls::EM_SETREADONLY, 1, 0);

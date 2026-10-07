@@ -21,7 +21,7 @@ struct ScreenReaderBuildView: View {
             Text("Install \(question.package)")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text("Which devices should get this build? A new build of a device's screen reader keeps its settings. Stopped devices get it when they next start.")
+            Text("Install on which devices? Stopped devices get it at next start.")
             ForEach(model.devices, id: \.id) { device in
                 Toggle(label(device), isOn: Binding(
                     get: { chosen.contains(device.id) },

@@ -1627,7 +1627,7 @@ enum KeyMessage {
     Evdev(i32, bool),
 }
 
-/// A screen reader's name as people know it, from its package.
+/// A screen reader's display name, from its package.
 fn screen_reader_name(package: &str) -> String {
     match package {
         p if p.contains("backtalk") => "Backtalk".into(),
@@ -1876,9 +1876,8 @@ impl Session {
             .unwrap_or(1.0)
     }
 
-    /// Checks the device's sound is reaching AAE. Without `probe`, only
-    /// what can be told without a sound; with it, AAE's helper also plays a
-    /// test tone, with AAE's playback muted so nobody hears it.
+    /// Checks the device's audio reaches AAE. With `probe`, also plays the
+    /// helper's test tone with playback muted.
     pub async fn check_audio(&self, probe: bool) -> Result<AudioCheck, AaeError> {
         let adb = self.adb.clone();
         // The player can't cross to the runtime, so wait here, off the lock.
@@ -1906,7 +1905,7 @@ impl Session {
             },
             aae_core::audio::AudioHealth::Quiet => AudioCheck {
                 working: true,
-                message: "Nothing's wrong, but the device hasn't played anything lately.".into(),
+                message: "No recent audio to check.".into(),
             },
             aae_core::audio::AudioHealth::Broken(why) => AudioCheck {
                 working: false,

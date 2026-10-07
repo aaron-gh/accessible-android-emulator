@@ -22,7 +22,7 @@ class ComputersActivity : Activity() {
         super.onCreate(savedInstanceState)
         ui = Ui(this)
         ui.heading("Computers")
-        ui.text("Choose a computer running AAE to use its devices. On the computer, AAE must be serving: run aae serve, or turn on serving in the AAE app.")
+        ui.text("The computer must be serving: aae serve, or Serve Devices to Phones in the AAE app.")
         ui.addStatus()
         rows = ui.list("Computers") { open(computers[it]) }.second
         ui.button("Pair with a Computer") { pair() }

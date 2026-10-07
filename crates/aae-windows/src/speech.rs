@@ -1,14 +1,10 @@
 //! AAE's announcements and tones.
 //!
-//! Announcements go to the user's screen reader, in their own voice and
-//! settings: straight to NVDA or JAWS when one is running, and otherwise, for
-//! Narrator and the rest, as UI Automation notifications. With no screen
-//! reader, Windows' own voice speaks them, so news like "Windows keyboard on"
-//! is never lost.
+//! Announcements go to NVDA or JAWS directly when running, otherwise as UI
+//! Automation notifications; with no screen reader, to SAPI.
 //!
-//! Each announcement waits a moment first, as on the Mac, so the screen reader
-//! finishes reading the menu item or button that caused it. Otherwise its
-//! reading of the newly focused control would cut the announcement off.
+//! Each is delayed briefly so the screen reader's reading of the control
+//! that triggered it doesn't interrupt it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;

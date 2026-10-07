@@ -33,7 +33,7 @@ struct ShellView: View {
                 .frame(maxWidth: 110)
                 .disabled(model.shellHistory.isEmpty)
             }
-            Text("Commands run as Android's shell user and are stopped after two minutes.")
+            Text("Runs as the shell user, with a two-minute limit.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 

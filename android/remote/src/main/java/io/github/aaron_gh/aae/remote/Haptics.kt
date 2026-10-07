@@ -14,8 +14,8 @@ import android.os.VibratorManager
  * device. The computer says what the device played, as Android describes it:
  * screen readers play haptic primitives, such as light ticks and clicks at a
  * given strength with pauses between, and the phone plays the same
- * primitives. Effects it can't rebuild play for as long as they lasted on
- * the device, gently.
+ * primitives. Other effects play as a low-amplitude vibration of the same
+ * duration.
  */
 class Haptics(context: Context) {
     private val vibrator: Vibrator =

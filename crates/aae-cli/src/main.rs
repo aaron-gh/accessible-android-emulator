@@ -60,20 +60,16 @@ enum DaemonAction {
 enum Command {
     /// Check the Android SDK, emulator and audio, and say what is missing.
     Doctor,
-    /// Run AAE's MCP server, so AI agents can run, use and inspect devices.
-    /// It talks MCP over standard input and output: add it to an agent as a
-    /// local server with the command `aae mcp`.
+    /// Run AAE's MCP server for AI agents, over standard input and output.
     Mcp {
         /// Also offer tools that delete devices, apps or data, or run shell
         /// commands on a device.
         #[arg(long)]
         allow_destructive: bool,
     },
-    /// Serve this computer's devices to AAE's Android app, so a phone can
-    /// list, start, manage and use them: their sound plays on the phone, and
-    /// the phone sends keys and touches. Nothing plays here, so it can run on
-    /// a computer with no screen or speakers. Phones pair once with the code
-    /// it shows; press P and Enter for a new code, or Q and Enter to stop.
+    /// Serve this computer's devices to AAE Remote.
+    ///
+    /// P and Enter makes a new pairing code; Q and Enter stops.
     Serve {
         /// The port to listen on.
         #[arg(long, default_value_t = aae_remote::DEFAULT_PORT)]
@@ -87,15 +83,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Make a pairing code for AAE Remote, for whichever aae serve is
-    /// running, such as one started at login. It works once, for 10 minutes.
+    /// Make a pairing code for the running aae serve. Valid once, for 10 minutes.
     Pair {
         /// Print it as JSON, for AAE's apps.
         #[arg(long)]
         json: bool,
     },
-    /// Serve this computer's devices to AAE Remote whenever you log in,
-    /// without AAE open: install, uninstall, or status.
+    /// Serve devices to AAE Remote at login: install, uninstall or status.
     Daemon {
         #[arg(value_enum)]
         action: DaemonAction,
@@ -112,22 +106,15 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Check everything AAE needs: this computer's virtualisation and sound,
-    /// the SDK, AAE's own parts, and each running device's screen reader
-    /// and speech. Makes no sound.
+    /// Check virtualisation, audio, the SDK, AAE's parts and running devices.
     SelfTest,
-    /// Save a diagnostic report to attach to a bug report: AAE, this
-    /// computer, the SDK, your devices, and AAE's log. It never includes
-    /// what you typed on a device, and your home folder, computer name and
-    /// full name are taken out. Read it before sending, if you like: it's
-    /// plain text.
+    /// Save a diagnostic report. Home folder, computer name and full name are removed.
     Report {
         /// Where to save it. Defaults to a dated file in this folder.
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Download the emulator and Android SDK tools AAE needs, so Android
-    /// Studio isn't needed. Checks this computer can run the emulator first.
+    /// Download the emulator and SDK tools AAE needs.
     Setup {
         /// Accept the Google licence the tools are under, after reading it.
         #[arg(long)]
@@ -143,8 +130,7 @@ enum Command {
     },
     /// List the Android versions installed on this computer.
     Images,
-    /// Delete an installed Android version, to free its disk space. Refused
-    /// while any of AAE's devices use it.
+    /// Delete an installed Android version. Refused while a device uses it.
     RemoveImage {
         /// The version, as its API level, such as 35 or 36.1, or a preview's
         /// name, such as 37.2-beta3.
@@ -223,9 +209,7 @@ enum Command {
     Clone { device: String, new_name: String },
     /// Rename a device.
     Rename { device: String, new_name: String },
-    /// Wipe a device back to how it was first set up: its apps, data and
-    /// snapshots are deleted, and its screen reader is set up again. It keeps
-    /// its name, hardware and volume.
+    /// Reset a device to first setup. Keeps its name, hardware and volume.
     Wipe {
         device: String,
         /// Wipe without asking.
@@ -269,7 +253,7 @@ enum Command {
     Restart { device: String },
     /// Stop a running device, saving its state for a quick start next time.
     Stop { device: String },
-    /// Send this terminal's keyboard and play the device's audio. Control-] returns to the terminal.
+    /// Send this terminal's keys to the device and play its audio. Control-] exits.
     Attach {
         device: String,
         /// Send Option as Alt. By default it is sent as Meta, the screen reader's modifier.
@@ -288,9 +272,7 @@ enum Command {
     },
     /// Say what a device is doing.
     Status { device: String },
-    /// Set how loud AAE plays a device's audio on this computer, from 0 to
-    /// 100 percent, remembered for the device. With no percentage, says it.
-    /// (aae volume sets the screen reader's own volume on the device.)
+    /// Set a device's playback volume on this computer, 0 to 100. No value prints it.
     PlaybackVolume { device: String, percent: Option<u8> },
     /// Set a device's audio output: a name, or "default". No value lists outputs.
     AudioOutput {
@@ -300,8 +282,7 @@ enum Command {
     },
     /// Check the device's audio reaches AAE, with a test tone it doesn't play.
     SoundCheck { device: String },
-    /// Measure how fast the device plays audio, so AAE can correct its pitch.
-    /// AAE does this by itself on setup; use this to measure again.
+    /// Measure the device's audio speed, for pitch correction.
     AudioCheck { device: String },
     /// Record what the screen reader says, and show it.
     SpeechLog {
@@ -372,9 +353,7 @@ enum Command {
     /// Press keys on the device, in order.
     #[command(after_help = keys::HELP)]
     Key { device: String, keys: Vec<String> },
-    /// Perform screen reader gestures on the device, in order, such as
-    /// swipe-right, swipe-up-then-left, double-tap or two-finger-swipe-down.
-    /// With no gestures, lists them all.
+    /// Perform screen reader gestures in order. No gestures lists them.
     Gesture {
         device: String,
         gestures: Vec<String>,
@@ -385,9 +364,7 @@ enum Command {
     },
     /// Type text on the device.
     Type { device: String, text: String },
-    /// Install apps. The first time an app has an accessibility service, a
-    /// keyboard, a notification listener or a device administrator, AAE asks
-    /// whether to turn it on, and remembers the answer for that device.
+    /// Install apps, and choose which of their services to turn on.
     Install {
         /// The device, or several separated by commas, such as
         /// "Android 16 test,Android 14 test".
@@ -407,8 +384,7 @@ enum Command {
         #[arg(long)]
         system: bool,
     },
-    /// Do something with one app: open it, stop it, clear its data,
-    /// uninstall it, or see and change its permissions and special access.
+    /// Open, stop, clear, uninstall, or change permissions of one app.
     App {
         device: String,
         /// The app's name, such as Gmail, or its package name.
@@ -416,9 +392,7 @@ enum Command {
         #[command(subcommand)]
         action: AppAction,
     },
-    /// Watch an app's build output, and install each new build on devices
-    /// as soon as it's made, until Control-C. Give the APK, or a folder to
-    /// take the newest APK from, such as the app's build/outputs/apk.
+    /// Install each new build of an APK, or the newest in a folder, until Control-C.
     Watch {
         /// The device, or several separated by commas.
         device: String,
@@ -427,8 +401,7 @@ enum Command {
         #[arg(long)]
         now: bool,
     },
-    /// Open a link on the device, such as a web address or an app's own
-    /// link, in a given app or whichever Android chooses.
+    /// Open a link on the device.
     Link {
         device: String,
         link: String,
@@ -456,11 +429,12 @@ enum Command {
         #[arg(long)]
         broadcast: bool,
     },
-    /// Install a screen reader build and make it the device's screen reader.
-    /// Installing a new build of the same screen reader keeps its settings.
-    /// Stopped devices get it when they next start.
+    /// Install a screen reader build and make it the screen reader.
+    ///
+    /// A new build of the same screen reader keeps its settings. Stopped
+    /// devices get it at next start.
     #[command(
-        after_help = "Use backtalk in place of an APK to download Backtalk's latest development build, or the name of a screen reader already on the device, such as talkback, to switch to it."
+        after_help = "Instead of an APK: backtalk downloads Backtalk's latest development build; an installed screen reader's name, such as talkback, switches to it."
     )]
     ScreenReader {
         /// The device, several separated by commas, or all, for every
@@ -472,8 +446,7 @@ enum Command {
         #[arg(long)]
         replace: bool,
     },
-    /// List the accessibility services installed on a device, by name, and
-    /// which are on; or turn one on, to stay on, or off.
+    /// List accessibility services, or turn one on or off.
     Services {
         device: String,
         #[command(subcommand)]
@@ -617,8 +590,7 @@ enum Command {
         device: String,
         text: Option<String>,
     },
-    /// Set the screen reader's volume on the device, from 0 to 100 percent.
-    /// Installs AAE's helper on the device if it isn't there.
+    /// Set the screen reader's volume on the device, 0 to 100.
     Volume {
         device: String,
         #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
@@ -777,7 +749,7 @@ impl From<AccessArg> for aae_core::apps::Access {
 enum SnapshotAction {
     /// List the snapshots, newest first, with when each was taken and its notes.
     List,
-    /// Save the device as it is now, under a name of your choosing.
+    /// Save the device's current state under a name.
     Save {
         name: String,
         /// Notes to keep with it, such as what it's for.
@@ -995,7 +967,7 @@ async fn run(cli: Cli) -> Result<()> {
                     device.meta.playback_volume = (volume < 1.0).then_some(volume);
                     device.save_meta()?;
                     println!(
-                        "{} plays at {}% from now on. The Mac app picks it up when it next opens the device.",
+                        "{}: playback volume {}%.",
                         device.meta.name,
                         percent.min(100)
                     );
@@ -1078,10 +1050,7 @@ async fn run(cli: Cli) -> Result<()> {
                 PathBuf::from(format!("aae-report-{stamp}.txt"))
             });
             std::fs::write(&path, report)?;
-            println!(
-                "Saved the report to {}. It's plain text, if you'd like to read it before sending it.",
-                path.display()
-            );
+            println!("Saved the report to {}, as plain text.", path.display());
             Ok(())
         }
         Command::Setup {
@@ -1529,11 +1498,14 @@ async fn run(cli: Cli) -> Result<()> {
             provision::update_helper(&ctx.sdk, &adb).await?;
             let status = aae_core::tts::check(&adb).await?;
             if status.ok {
-                println!("{} can speak, with {}.", device.meta.name, status.engine);
+                println!(
+                    "{}: text-to-speech works, with {}.",
+                    device.meta.name, status.engine
+                );
                 return Ok(());
             }
             println!(
-                "{} can't speak: {}. Repairing it.",
+                "{}: text-to-speech failed: {}. Repairing it.",
                 device.meta.name, status.detail
             );
             let fix = provision::ensure_device_speech(&device, &adb).await?;
@@ -2726,8 +2698,8 @@ async fn start(
     Ok(())
 }
 
-/// Asks what to do about a device with no screen reader. Without a terminal
-/// to ask in, says how to add one.
+/// Prompts for a screen reader for a device with none. Without a terminal,
+/// prints how to add one.
 async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Result<()> {
     use std::io::{BufRead, IsTerminal, Write};
     let name = device.meta.name.clone();
@@ -2750,7 +2722,7 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
     // The choices, numbered in order.
     let mut choices = Vec::new();
     if backtalk {
-        println!("{name} has no screen reader. What would you like to do?");
+        println!("{name} has no screen reader. Choose:");
         choices.push(("Download and install Backtalk.", "backtalk"));
     } else {
         println!(
@@ -2912,11 +2884,11 @@ async fn latency(ctx: &Ctx, name: &str, names: &str, trials: usize) -> Result<()
     for (i, result) in results.iter().enumerate() {
         match result {
             Some(d) => println!("Trial {}: {} milliseconds.", i + 1, d.as_millis()),
-            None => println!("Trial {}: nothing heard.", i + 1),
+            None => println!("Trial {}: no audio detected.", i + 1),
         }
     }
     if heard.is_empty() {
-        bail!("Nothing was heard. Check the screen reader is on and speech is working.");
+        bail!("No audio detected. Check the screen reader is on and text-to-speech works.");
     }
     heard.sort_unstable();
     println!(
@@ -3000,11 +2972,7 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
         .map(|t| t.name.clone())
         .collect();
     if !elsewhere.is_empty() {
-        let pronoun = if elsewhere.len() == 1 { "it" } else { "them" };
-        println!(
-            "AAE didn't install the {} here, so it leaves updates to whatever installed {pronoun}, such as Android Studio.",
-            elsewhere.join(" or the ")
-        );
+        println!("Managed outside AAE: {}.", elsewhere.join(", "));
     }
     if update {
         wanted.extend(updates.iter().cloned());
@@ -3287,7 +3255,7 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
             ),
         );
     };
-    // Run at login there's nobody to read a code: aae pair makes one.
+    // No terminal at login to show a code; aae pair makes one.
     use std::io::IsTerminal;
     let attended = json || std::io::stdin().is_terminal();
     if attended {

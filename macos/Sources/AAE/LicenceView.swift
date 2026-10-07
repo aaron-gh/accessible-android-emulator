@@ -13,7 +13,6 @@ struct LicenceView: View {
             Text("Google's licence for \(request.version)")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text("To download \(request.version), you need to accept Google's licence. It's below.")
             ReadOnlyText(text: request.licence.text, label: "Licence text")
                 .frame(minHeight: 320)
             HStack {

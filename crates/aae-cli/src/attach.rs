@@ -1,14 +1,10 @@
-//! Using a device from the terminal: its audio plays here and the keyboard goes to it.
+//! `aae attach`: plays the device's audio and sends terminal keys to it.
 //!
-//! This is the command-line stand-in for the Mac app's device mode. A terminal
-//! only sees the keys it is sent, so Command combinations and some Option
-//! combinations never reach it, and VoiceOver may echo keys as you type. Turn
-//! VoiceOver off while attached to hear only the device's screen reader.
-//!
-//! Terminals that support the kitty keyboard protocol (iTerm2, Ghostty, kitty,
-//! WezTerm) report every key with its modifiers, and AAE turns that on when it
-//! can. macOS Terminal doesn't: it turns Option-Left and Option-Right into
-//! "word back" and "word forward", which look the same as Option-B and Option-F.
+//! A terminal receives only the keys it is sent: no Command combinations and
+//! some Option combinations are lost. The kitty keyboard protocol (iTerm2,
+//! Ghostty, kitty, WezTerm) reports every key with modifiers and is enabled
+//! when available. macOS Terminal sends Option-Left and Option-Right as
+//! Option-B and Option-F.
 
 use std::time::Duration;
 

@@ -11,9 +11,6 @@ struct AndroidVersionsView: View {
             Text("Installed Android Versions")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text("A version can be deleted once none of AAE's devices use it. Android Studio shares these files, so its devices may use them too.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
 
             List(model.installedImages, id: \.sysdir, selection: $selection) { image in
                 VStack(alignment: .leading, spacing: 2) {
@@ -38,7 +35,7 @@ struct AndroidVersionsView: View {
                 .accessibilityAddTraits(.isHeader)
             if let status = model.setupStatus {
                 if !status.managedElsewhere.isEmpty {
-                    Text("AAE didn't install the \(status.managedElsewhere.joined(separator: " or the ")) here, so it leaves updates to whatever installed \(status.managedElsewhere.count == 1 ? "it" : "them"), such as Android Studio.")
+                    Text("Managed outside AAE: \(status.managedElsewhere.joined(separator: ", ")).")
                 }
                 if status.updates.isEmpty {
                     if status.managedElsewhere.isEmpty {

@@ -303,8 +303,8 @@ fn read_new(c: Controls) {
         };
         let latest = session.log_latest();
         let new = session.log_entries(s.seen, s.chosen.filter(), LIMIT as u32);
-        // Lines already there when the window opened, or the filter changed,
-        // aren't news.
+        // Don't announce lines present when the window opened or the filter
+        // changed.
         let news = s.seen != 0;
         s.seen = latest.max(new.last().map_or(0, |e| e.seq));
         if !new.is_empty() {

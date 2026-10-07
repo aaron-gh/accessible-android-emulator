@@ -282,8 +282,8 @@ thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
 }
 
-/// Works with the app's state. Never asks a question or opens a form while
-/// in here: forms run the window's messages, which may need the state too.
+/// Runs `work` with the app's state borrowed. Don't open a form inside it:
+/// forms pump window messages, which may borrow the state again.
 pub(crate) fn with<R>(work: impl FnOnce(&mut App) -> R) -> R {
     APP.with(|cell| {
         let mut app = cell.borrow_mut();
@@ -1059,7 +1059,7 @@ pub(crate) fn run_setup(update: bool) {
             };
             run_on_ui(move || with(|app| app.download = Some((what.into(), 0))));
             say(
-                format!("Downloading {what}. Press Control Shift I to hear how far it's got."),
+                format!("Downloading {what}. Control Shift I reports progress."),
                 Tone::Info,
             );
             engine.install_tools(update, Arc::new(Download)).await?;
@@ -1311,7 +1311,7 @@ async fn install_version(engine: &Arc<Engine>, version: &VersionInfo) -> Option<
         run_on_ui(move || with(|app| app.download = Some((what, 0))));
         say(
             format!(
-                "Downloading {}, {}. Press Control Shift I to hear how far it's got.",
+                "Downloading {}, {}. Control Shift I reports progress.",
                 version.description, version.size
             ),
             Tone::Info,
@@ -1399,7 +1399,7 @@ pub(crate) fn start(id: Option<String>) {
 fn screen_reader_question(device: DeviceInfo) {
     let hwnd = with(|app| app.hwnd);
     let detail = if device.backtalk_supported {
-        "This Android image doesn't include one. What would you like to do?".to_string()
+        "This Android image doesn't include one.".to_string()
     } else {
         format!(
             "This Android image doesn't include one, and Backtalk needs Android 8 or later. You can install a screen reader APK made for {}, such as an older TalkBack, or continue without.",
@@ -2788,8 +2788,7 @@ async fn after_install(
 /// start on, the rest off. The answers are remembered for this device.
 fn ask_parts(package: &str, parts: Vec<AppPartInfo>) -> Vec<AppChoice> {
     let hwnd = with(|app| app.hwnd);
-    let mut form = Form::new(&format!("Turn on parts of {package}?"))
-        .text("These need your say before they run. AAE remembers your answer for this device.");
+    let mut form = Form::new(&format!("Turn on parts of {package}?"));
     for part in &parts {
         form = form.field(Field::Check {
             label: format!("{}, {}", part.name, part.kind_description),
@@ -2925,8 +2924,8 @@ fn install_screen_reader_build() {
 
 // MARK: - Sound
 
-/// Checks the selected device's sound reaches AAE, with a test tone nobody
-/// hears, and offers to restart AAE's audio if it doesn't.
+/// Checks the selected device's audio reaches AAE with a muted test tone,
+/// and offers to restart AAE's audio if not.
 fn check_audio() {
     let (device, _) = selected();
     let Some(device) = device else { return };

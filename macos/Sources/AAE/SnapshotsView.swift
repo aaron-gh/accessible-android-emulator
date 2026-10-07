@@ -12,9 +12,6 @@ struct SnapshotsView: View {
             Text(model.snapshotsDevice.map { "Snapshots of \($0)" } ?? "Snapshots")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text("A snapshot saves everything on the device, so you can come back to it later, such as before testing a sign-in.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
 
             List(model.snapshots, id: \.id, selection: $selection) { snapshot in
                 VStack(alignment: .leading, spacing: 2) {

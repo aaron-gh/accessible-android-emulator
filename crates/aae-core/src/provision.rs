@@ -37,11 +37,9 @@ pub struct ProvisionOptions {
     /// When no screen reader is chosen, download and install Backtalk, rather
     /// than using the image's own TalkBack or none.
     pub backtalk: bool,
-    /// Install AAE's helper and use it to turn the screen reader's volume to
-    /// full. AAE controls loudness on the computer, so this gives the clearest sound.
+    /// Install the helper and set the accessibility volume to full.
     pub full_volume: bool,
-    /// Keep the screen on and the lock screen off, so the screen reader never
-    /// goes quiet because the device went to sleep.
+    /// Keep the screen on and the lock screen off.
     pub stay_awake: bool,
 }
 

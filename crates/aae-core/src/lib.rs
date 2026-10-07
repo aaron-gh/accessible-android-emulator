@@ -1,10 +1,8 @@
 //! Core of the Accessible Android Emulator (AAE).
 //!
-//! The core owns everything that is the same on every host platform: finding the
-//! Android SDK, the device store, starting and stopping emulators, talking to them
-//! over gRPC and adb, playing their audio, and setting each device up so its
-//! screen reader is on from the first boot. Host interfaces (the Mac app, the
-//! `aae` command line, and later Windows and Linux) are thin layers over this.
+//! Platform-independent parts: Android SDK, device store, emulator control
+//! over gRPC and adb, audio, and provisioning. The apps, CLI, MCP and remote
+//! server are layers over this.
 
 pub mod adb;
 pub mod apk;

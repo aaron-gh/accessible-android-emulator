@@ -1,6 +1,5 @@
-//! A thin layer over Windows' standard controls: creating them, reading and
-//! setting them, and running work on the window thread. Standard controls are
-//! what Windows screen readers know best, so AAE uses nothing else.
+//! A thin layer over standard Win32 controls: creating, reading and setting
+//! them, and running work on the window thread.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;

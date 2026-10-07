@@ -60,7 +60,7 @@ pub fn show() {
     let command = panel.edit("Command", "");
     let recent = panel.choice("Recent commands", RECENT, &[], 0);
     let run = panel.buttons(&[("Run", RUN)], Some(RUN))[0];
-    panel.text("Commands run as Android's shell user and are stopped after two minutes.");
+    panel.text("Runs as the shell user, with a two-minute limit.");
     let output = panel.area("Output", "", true, 16, true);
     panel.buttons(
         &[("Copy All", COPY), ("Save…", SAVE), ("Clear", CLEAR)],

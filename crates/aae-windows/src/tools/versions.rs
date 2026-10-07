@@ -128,11 +128,7 @@ fn tools_text(status: &SetupStatus) -> String {
     let mut lines = Vec::new();
     let elsewhere = &status.managed_elsewhere;
     if !elsewhere.is_empty() {
-        lines.push(format!(
-            "AAE didn't install the {} here, so it leaves updates to whatever installed {}, such as Android Studio.",
-            elsewhere.join(" or the "),
-            if elsewhere.len() == 1 { "it" } else { "them" }
-        ));
+        lines.push(format!("Managed outside AAE: {}.", elsewhere.join(", ")));
     }
     if status.updates.is_empty() {
         if elsewhere.is_empty() {

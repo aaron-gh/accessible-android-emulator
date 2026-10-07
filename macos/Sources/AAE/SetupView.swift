@@ -12,7 +12,7 @@ struct SetupView: View {
                 .font(.title2)
                 .accessibilityAddTraits(.isHeader)
             if let status = model.setupStatus {
-                Text("AAE needs Google's Android emulator and tools. It downloads them once, \(status.missingSize) in all, and checks each download.")
+                Text("Needs Google's Android emulator and tools: \(status.missingSize).")
                 ForEach(status.missing, id: \.name) { tool in
                     Text("\(tool.name) \(tool.revision), \(tool.size)")
                 }

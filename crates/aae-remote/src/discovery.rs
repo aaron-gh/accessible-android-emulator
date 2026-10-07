@@ -45,7 +45,7 @@ impl Drop for Announcement {
     }
 }
 
-/// This computer's name, as people know it, for phones to list.
+/// This computer's display name, for discovery.
 pub fn computer_name() -> String {
     let run = |cmd: &str, args: &[&str]| -> Option<String> {
         let out = std::process::Command::new(cmd).args(args).output().ok()?;

@@ -226,13 +226,13 @@ struct ServeView: View {
             Text("Serve Devices to Phones")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text("AAE Remote, the Android app, uses this Mac's devices: their sound and vibrations play on the phone, and it sends them keys and touches. Phones on this network find the Mac; each pairs once with a code.")
+            Text("Serves this Mac's devices to AAE Remote. Each phone pairs once.")
                 .foregroundStyle(.secondary)
             Toggle("Serve this Mac's devices to AAE Remote", isOn: Binding(
                 get: { serving.on },
                 set: { $0 ? serving.start() : serving.stop() }
             ))
-            Toggle("Keep serving whenever I log in, without AAE open", isOn: Binding(
+            Toggle("Serve at login, without AAE open", isOn: Binding(
                 get: { serving.atLogin },
                 set: { serving.setAtLogin($0) }
             ))

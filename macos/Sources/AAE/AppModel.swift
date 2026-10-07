@@ -289,7 +289,7 @@ final class AppModel: ObservableObject {
                 }
                 let what = update ? "the updates" : "the Android emulator and tools"
                 download = (what, 0)
-                announce("Downloading \(what). Press Command Shift I to hear how far it's got.")
+                announce("Downloading \(what). Command Shift I reports progress.")
                 let relay = DownloadRelay(
                     percent: { [weak self] percent in
                         guard let self, let current = self.download else { return }
@@ -413,7 +413,7 @@ final class AppModel: ObservableObject {
                 try engine.acceptLicence(licence: licence)
             }
             download = (version.description, 0)
-            announce("Downloading \(version.description), \(version.size). Press Command Shift I to hear how far it's got.")
+            announce("Downloading \(version.description), \(version.size). Command Shift I reports progress.")
             let relay = DownloadRelay(
                 percent: { [weak self] percent in
                     guard let self, let current = self.download else { return }
@@ -833,8 +833,8 @@ final class AppModel: ObservableObject {
                 if !self.logPaused {
                     let latest = session.logLatest()
                     let new = session.logEntries(since: seen, filter: self.logFilter, limit: Self.logLimit)
-                    // Lines already there when the window opened, or the filter
-                    // changed, aren't news.
+                    // Don't announce lines present when the window opened or
+                    // the filter changed.
                     let isNews = seen != 0
                     seen = max(latest, new.last?.seq ?? 0)
                     if !new.isEmpty {
@@ -2050,8 +2050,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Checks the selected device's sound reaches AAE, with a test tone
-    /// nobody hears, and offers to restart AAE's audio if it doesn't.
+    /// Checks the selected device's audio reaches AAE with a muted test tone,
+    /// and offers to restart AAE's audio if not.
     func checkAudio() {
         guard let device = selected else { return }
         announce("Checking \(device.name)'s sound.")

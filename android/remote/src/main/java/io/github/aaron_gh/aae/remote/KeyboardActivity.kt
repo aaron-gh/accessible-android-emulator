@@ -8,8 +8,8 @@ import org.json.JSONObject
 /**
  * Keyboard mode: every key of a keyboard attached to the phone goes to the
  * device, by its Linux key code, which Android gives as the key's scan code.
- * Control, Shift and Escape together come back, as does a long press of
- * volume down; plain Escape goes to the device.
+ * Control-Shift-Escape or a long press of volume down exits; plain Escape
+ * goes to the device.
  *
  * With AAE gesture mode's service on, keys go to the device before the
  * phone's screen reader can take them for its own shortcuts. Without it, the
@@ -25,7 +25,7 @@ class KeyboardActivity : ConnectedActivity(), GestureModeService.Mode {
         if (Remote.attached == null) return finish()
         ui.heading("Keyboard Mode")
         surface = ui.text(
-            "Keys go to the device. Press Control, Shift and Escape together, or hold volume down, to come back."
+            "Keys go to the device. Control-Shift-Escape, or holding volume down, exits."
         )
         surface.isFocusable = true
         surface.isFocusableInTouchMode = true
