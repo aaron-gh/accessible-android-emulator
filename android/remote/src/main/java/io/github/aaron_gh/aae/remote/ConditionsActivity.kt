@@ -1,0 +1,73 @@
+package io.github.aaron_gh.aae.remote
+
+import android.os.Bundle
+import android.widget.ArrayAdapter
+import android.widget.CheckBox
+import android.widget.Spinner
+import org.json.JSONObject
+
+/** What the device experiences: its battery, where it is, and text messages and calls. */
+class ConditionsActivity : ToolActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (isFinishing) return
+        ui.heading("Battery, Location and Phone")
+        ui.addStatus()
+
+        ui.heading("Battery")
+        val levelLabel = ui.text("Battery level")
+        val levels = (100 downTo 0 step 5).toList()
+        val level = Spinner(this).apply {
+            id = android.view.View.generateViewId()
+            levelLabel.labelFor = id
+            adapter = ArrayAdapter(this@ConditionsActivity, android.R.layout.simple_spinner_item, levels.map { "$it percent" }).apply {
+                setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            }
+            ui.column.addView(this)
+        }
+        val charging = CheckBox(this).apply { text = "Charging"; isChecked = true; ui.column.addView(this) }
+        ui.button("Set Battery") {
+            val percent = levels[level.selectedItemPosition]
+            call("tools.battery", params().put("level", percent).put("charging", charging.isChecked)) {
+                ui.say("Battery at $percent percent, ${if (charging.isChecked) "charging" else "not charging"}.")
+            }
+        }
+
+        ui.heading("Location")
+        val place = ui.field("Place, address, or latitude and longitude")
+        ui.button("Set Location") {
+            val text = place.text.toString().trim()
+            if (text.isEmpty()) return@button
+            ui.say("Looking up $text.")
+            call("tools.location", params().put("place", text)) { result ->
+                val json = result as JSONObject
+                val name = json.optString("place").takeIf { it.isNotEmpty() && it != "null" }?.let { "$it, " } ?: ""
+                ui.say("Location set to $name%.5f, %.5f.".format(json.optDouble("latitude"), json.optDouble("longitude")))
+            }
+        }
+
+        ui.heading("Text Message")
+        val from = ui.field("From").apply { setText("5551234") }
+        val message = ui.field("Message")
+        ui.button("Send Text Message") {
+            if (message.text.isEmpty()) return@button ui.say("Write a message first.")
+            call("tools.sms", params().put("from", from.text.toString()).put("text", message.text.toString())) {
+                ui.say("Sent a text message from ${from.text}.")
+            }
+        }
+
+        ui.heading("Phone Call")
+        val number = ui.field("Number").apply { setText("5551234") }
+        fun phone(label: String, action: String, said: () -> String) = ui.button(label) {
+            call("tools.call", params().put("action", action).put("number", number.text.toString())) { ui.say(said()) }
+        }
+        phone("Call the Device", "ring") { "${number.text} is calling the device." }
+        phone("Hang Up", "hang-up") { "Hung up." }
+        phone("Hold", "hold") { "Call on hold." }
+        phone("Resume", "resume") { "Call taken off hold." }
+        ui.text("When the device calls out, the number it calls can answer or be busy:")
+        phone("Answer the Device's Call", "answer") { "Answered the device's call." }
+        phone("Be Busy", "busy") { "Busy for the device's call." }
+        ui.show()
+    }
+}

@@ -40,6 +40,10 @@ pub const DEFAULT_PORT: u16 = 47735;
 pub const AUDIO_RATE: u32 = 48_000;
 /// The first byte of a binary message carrying sound.
 pub const AUDIO_FRAME: u8 = 1;
+/// The first byte of a binary message from the phone carrying part of a
+/// file it's sending, after `upload.begin`: then the upload's number, four
+/// bytes big-endian, then the data.
+pub const UPLOAD_FRAME: u8 = 2;
 
 pub struct Server {
     pub engine: Arc<Engine>,
@@ -154,10 +158,17 @@ impl Server {
             out: Out(out),
             client: None,
             attached: None,
+            uploads: HashMap::new(),
+            next_upload: 1,
         };
         while let Some(Ok(message)) = stream.next().await {
-            let Message::Text(text) = message else {
-                continue;
+            let text = match message {
+                Message::Text(text) => text,
+                Message::Binary(bytes) => {
+                    phone.upload_part(&bytes);
+                    continue;
+                }
+                _ => continue,
             };
             let Ok(message) = serde_json::from_str::<Value>(&text) else {
                 continue;
@@ -170,6 +181,9 @@ impl Server {
             tracing::info!("{} at {address} disconnected", client.name);
         }
         phone.detach();
+        for (_, (path, _)) in phone.uploads.drain() {
+            let _ = std::fs::remove_file(path);
+        }
         writer.abort();
     }
 }
@@ -202,6 +216,9 @@ struct Phone {
     client: Option<security::Client>,
     /// The device whose sound and vibration go to this phone.
     attached: Option<media::Attachment>,
+    /// Files being sent from the phone, such as APKs, by number.
+    uploads: HashMap<u32, (std::path::PathBuf, std::fs::File)>,
+    next_upload: u32,
 }
 
 impl Phone {
@@ -243,6 +260,34 @@ impl Phone {
                         self.detach();
                         self.out.result(&id, Ok(Value::Null));
                     }
+                    "upload.begin" => {
+                        let result = self.begin_upload(params["name"].as_str().unwrap_or("upload"));
+                        self.out.result(&id, result);
+                    }
+                    "tools.install" => {
+                        // Installs a file the phone sent, then deletes it.
+                        let upload = params["upload"].as_u64().unwrap_or(0) as u32;
+                        let Some((path, _)) = self.uploads.remove(&upload) else {
+                            self.out.result(&id, Err("That file wasn't sent.".into()));
+                            return true;
+                        };
+                        let server = self.server.clone();
+                        let out = self.out.clone();
+                        let device = params["id"].as_str().unwrap_or("").to_string();
+                        tokio::spawn(async move {
+                            let result = async {
+                                let session = server.session(&device).await?;
+                                let installed = session.install_apk(path.to_string_lossy().into_owned()).await?;
+                                Ok::<Value, AaeError>(json!({
+                                    "package": installed.package,
+                                    "parts": installed.parts.iter().map(crate::tools::part).collect::<Vec<_>>(),
+                                }))
+                            }
+                            .await;
+                            let _ = std::fs::remove_file(&path);
+                            out.result(&id, result.map_err(|e| e.to_string()));
+                        });
+                    }
                     _ => {
                         let server = self.server.clone();
                         let out = self.out.clone();
@@ -262,6 +307,43 @@ impl Phone {
             _ => {}
         }
         true
+    }
+
+    /// Starts receiving a file, kept in a temporary folder until used.
+    fn begin_upload(&mut self, name: &str) -> Result<Value, String> {
+        let number = self.next_upload;
+        self.next_upload += 1;
+        let dir = std::env::temp_dir().join("aae-uploads");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        // Only the file's own name, so it can't point anywhere else.
+        let safe: String = name
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or("upload")
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || ".-_".contains(c) {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let path = dir.join(format!("{}-{number}-{safe}", security::random_text(8)));
+        let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+        self.uploads.insert(number, (path, file));
+        Ok(json!(number))
+    }
+
+    fn upload_part(&mut self, bytes: &[u8]) {
+        use std::io::Write;
+        if bytes.len() < 5 || bytes[0] != UPLOAD_FRAME {
+            return;
+        }
+        let number = u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
+        if let Some((_, file)) = self.uploads.get_mut(&number) {
+            let _ = file.write_all(&bytes[5..]);
+        }
     }
 
     fn pair(&mut self, name: &str, nonce: &str, proof: &str) -> bool {
@@ -381,6 +463,9 @@ async fn call(
     params: &Value,
     progress: Progress,
 ) -> Result<Value, AaeError> {
+    if let Some(result) = crate::tools::call(server, method, params).await {
+        return result;
+    }
     let engine = &server.engine;
     let id = || param(params, "id");
     Ok(match method {

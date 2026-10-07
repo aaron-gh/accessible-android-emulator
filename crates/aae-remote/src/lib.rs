@@ -7,6 +7,7 @@ mod json;
 mod media;
 pub mod security;
 pub mod server;
+mod tools;
 mod vibration;
 
 pub use server::{DEFAULT_PORT, Server};

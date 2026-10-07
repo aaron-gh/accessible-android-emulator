@@ -31,6 +31,7 @@ class DeviceActivity : ConnectedActivity() {
         fun running(text: String, action: () -> Unit) = whileRunning.add(ui.button(text, action))
         running("Use Keyboard") { startActivity(Intent(this, KeyboardActivity::class.java)) }
         running("Gesture Mode") { startActivity(Intent(this, GestureActivity::class.java)) }
+        running("Testing Tools") { startActivity(Intent(this, ToolsActivity::class.java).putExtra("id", id)) }
         running("Speak Status") { call("device.status", idParams()) { ui.say(it.toString()) } }
         running("Back") { press("back") }
         running("Home") { press("home") }

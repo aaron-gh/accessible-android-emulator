@@ -28,6 +28,15 @@
         <activity android:name=".NewDeviceActivity" />
         <activity android:name=".VersionsActivity" />
         <activity android:name=".SetupActivity" />
+        <activity android:name=".ToolsActivity" />
+        <activity android:name=".SpeechLogActivity" />
+        <activity android:name=".LogActivity" />
+        <activity android:name=".InspectorActivity" />
+        <activity android:name=".AppsActivity" />
+        <activity android:name=".ServicesActivity" />
+        <activity android:name=".SnapshotsActivity" />
+        <activity android:name=".ConditionsActivity" />
+        <activity android:name=".LinkActivity" />
         <activity
             android:name=".KeyboardActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout" />

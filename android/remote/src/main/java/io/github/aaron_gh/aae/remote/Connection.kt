@@ -179,6 +179,21 @@ class Connection private constructor(
         socket?.send(JSONObject().put("type", "touch").put("points", points).toString())
     }
 
+    /** Sends part of a file, after upload.begin gave it [number]. False if it couldn't be queued. */
+    fun uploadPart(number: Int, data: ByteArray, length: Int): Boolean {
+        val socket = socket ?: return false
+        // OkHttp queues up to 16 MB; wait for room rather than fail.
+        while (socket.queueSize() > 4L * 1024 * 1024) Thread.sleep(20)
+        val frame = ByteArray(5 + length)
+        frame[0] = UPLOAD_FRAME
+        frame[1] = (number ushr 24).toByte()
+        frame[2] = (number ushr 16).toByte()
+        frame[3] = (number ushr 8).toByte()
+        frame[4] = number.toByte()
+        System.arraycopy(data, 0, frame, 5, length)
+        return socket.send(ByteString.of(*frame))
+    }
+
     fun close() {
         listener = null
         sound = null
@@ -189,6 +204,7 @@ class Connection private constructor(
 
     companion object {
         const val AUDIO_FRAME: Byte = 1
+        const val UPLOAD_FRAME: Byte = 2
         const val DEFAULT_PORT = 47735
 
         /** Signs in to a paired computer. */
