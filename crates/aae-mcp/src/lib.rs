@@ -13,6 +13,8 @@
 //! Tools that delete things or run arbitrary commands are left out unless
 //! the server is started with `--allow-destructive`.
 
+mod observe;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -80,7 +82,7 @@ pub(crate) struct DeviceParam {
 impl AaeServer {
     pub fn new(options: Options) -> anyhow::Result<Self> {
         let engine = Engine::new().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let tool_router = Self::device_tools();
+        let tool_router = Self::device_tools() + Self::observe_tools();
         Ok(AaeServer {
             engine,
             sessions: Arc::new(Mutex::new(HashMap::new())),

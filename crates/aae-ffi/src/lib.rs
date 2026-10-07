@@ -1726,6 +1726,27 @@ impl Session {
         .await
     }
 
+    /// The screen's size in pixels as the user sees it, turned as it is,
+    /// which gesture positions are given in.
+    pub async fn screen_size(self: Arc<Self>) -> Result<ScreenPoint, AaeError> {
+        on_runtime(async move {
+            let screen = self.screen().await?;
+            let (width, height) = gestures::user_size(&screen);
+            Ok(ScreenPoint {
+                x: width as i32,
+                y: height as i32,
+            })
+        })
+        .await
+    }
+
+    /// A screenshot as PNG, scaled to at most `width` pixels across, or the
+    /// screen's own size for 0.
+    pub async fn screenshot_png(&self, width: u32) -> Result<Vec<u8>, AaeError> {
+        let controller = self.controller.clone();
+        on_runtime(async move { Ok(controller.screenshot_png_scaled(width).await?) }).await
+    }
+
     /// Turns AAE's helper on (true), for reading the screen, or back to how
     /// the device keeps it (false).
     pub async fn use_helper(&self, on: bool) -> Result<(), AaeError> {

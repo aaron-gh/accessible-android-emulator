@@ -374,11 +374,22 @@ pub fn target_at(targets: &[Target], x: i32, y: i32) -> Option<&Target> {
         .min_by_key(|t| t.area())
 }
 
-/// Reads the screen's accessibility tree through AAE's helper.
+/// Reads the screen's accessibility tree through AAE's helper. Just after
+/// the helper is turned on, Android takes a moment to connect it, so this
+/// waits up to three seconds for it.
 pub async fn read_tree(adb: &Adb) -> Result<Tree> {
-    let out = adb
-        .shell(&format!("am broadcast -n {HELPER_RECEIVER} -a {DUMP_TREE}"))
-        .await?;
+    let mut out = String::new();
+    for attempt in 0..12 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        out = adb
+            .shell(&format!("am broadcast -n {HELPER_RECEIVER} -a {DUMP_TREE}"))
+            .await?;
+        if out.contains("result=1") {
+            break;
+        }
+    }
     if !out.contains("result=1") {
         return Err(Error::Adb(
             "AAE's helper service isn't running, so it can't read the screen. Start the device again to turn it on."

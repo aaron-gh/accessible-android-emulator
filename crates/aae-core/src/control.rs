@@ -427,8 +427,15 @@ impl Controller {
 
     /// A screenshot as PNG bytes.
     pub async fn screenshot_png(&self) -> Result<Vec<u8>> {
+        self.screenshot_png_scaled(0).await
+    }
+
+    /// A screenshot scaled down to at most `width` pixels across, keeping its
+    /// shape; 0 keeps the screen's own size.
+    pub async fn screenshot_png_scaled(&self, width: u32) -> Result<Vec<u8>> {
         let format = pb::ImageFormat {
             format: pb::image_format::ImgFormat::Png as i32,
+            width,
             ..Default::default()
         };
         Ok(self
