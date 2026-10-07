@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::adb::Adb;
+use crate::device::Device;
 use crate::error::{Error, Result};
 use crate::paths;
 
@@ -209,11 +210,18 @@ async fn default_engine(adb: &Adb) -> Result<Option<String>> {
     adb.setting("secure", "tts_default_synth").await
 }
 
-/// Turns the speech log on: AAE's helper becomes the default speech engine and
-/// passes every request to the real one, recording the text. Returns the real
-/// engine, which the caller keeps to restore later. The screen reader is
-/// restarted so it uses the relay.
-pub async fn start_speech_log(adb: &Adb, screen_reader: Option<&str>) -> Result<String> {
+/// Makes AAE's speech relay the default speech engine, passing every request
+/// to the real one, recording the text if `log`. Returns the real engine,
+/// which the caller keeps to restore later, and what was checked (see
+/// below). The screen reader is expected to follow the default engine, as
+/// TalkBack and those built on it do; AAE doesn't restart it.
+///
+/// Speech is then checked through the relay, and the real engine put back if
+/// it fails, so the device is never left silent. The check takes seconds,
+/// as the relay starts its real engine cold, and once it has passed for a
+/// helper version and real engine it keeps passing, so it's skipped when
+/// `verified` says it already passed for them.
+async fn start_relay(adb: &Adb, log: bool, verified: Option<&str>) -> Result<(String, String)> {
     let current = default_engine(adb).await?;
     let target = match current {
         Some(engine) if engine != RELAY_ENGINE => engine,
@@ -223,7 +231,7 @@ pub async fn start_speech_log(adb: &Adb, screen_reader: Option<&str>) -> Result<
     };
     let out = adb
         .shell(&format!(
-            "am broadcast -n {HELPER_RECEIVER} -a {SPEECH_RELAY} --es target {target}"
+            "am broadcast -n {HELPER_RECEIVER} -a {SPEECH_RELAY} --es target {target} --ez log {log}"
         ))
         .await?;
     if !out.contains("result=1") {
@@ -234,26 +242,70 @@ pub async fn start_speech_log(adb: &Adb, screen_reader: Option<&str>) -> Result<
     }
     adb.put_setting("secure", "tts_default_synth", RELAY_ENGINE)
         .await?;
-    restart_screen_reader(adb, screen_reader).await?;
+    let helper = adb
+        .version_code("io.github.aaron_gh.aae.helper")
+        .await?
+        .unwrap_or(0);
+    let checked = format!("{helper} {target}");
+    if verified == Some(checked.as_str()) {
+        return Ok((target, checked));
+    }
     let status = check(adb).await?;
     if !status.ok {
         // Never leave the device silent: go back to the real engine.
         adb.put_setting("secure", "tts_default_synth", &target)
             .await?;
-        restart_screen_reader(adb, screen_reader).await?;
         return Err(Error::Adb(format!(
-            "Speech didn't work through the speech log ({}), so it was turned off.",
+            "Speech didn't work through AAE's speech relay ({}), so it was turned off.",
             status.detail
         )));
     }
-    Ok(target)
+    Ok((target, checked))
 }
 
-/// Turns the speech log off, making `engine` the default speech engine again.
-pub async fn stop_speech_log(adb: &Adb, engine: &str, screen_reader: Option<&str>) -> Result<()> {
-    adb.put_setting("secure", "tts_default_synth", engine)
-        .await?;
-    restart_screen_reader(adb, screen_reader).await
+/// Makes `engine` the default speech engine again, instead of the relay.
+async fn stop_relay(adb: &Adb, engine: &str) -> Result<()> {
+    adb.put_setting("secure", "tts_default_synth", engine).await
+}
+
+/// Sets the speech relay's roles: speech log, speech bridge, both or neither.
+/// The relay is the default engine while either is on; otherwise the real
+/// engine is restored. Saves the device metadata. Needs the current helper.
+pub async fn set_relay(
+    adb: &Adb,
+    device: &mut Device,
+    speech_log: bool,
+    bridge: bool,
+) -> Result<()> {
+    match (speech_log || bridge, device.meta.speech_log_engine.clone()) {
+        (true, None) => {
+            let verified = device.meta.relay_verified.clone();
+            let (engine, checked) = start_relay(adb, speech_log, verified.as_deref()).await?;
+            device.meta.speech_log_engine = Some(engine);
+            device.meta.relay_verified = Some(checked);
+        }
+        (true, Some(_)) => {
+            let out = adb
+                .shell(&format!(
+                    "am broadcast -n {HELPER_RECEIVER} -a {SPEECH_RELAY} --ez log {speech_log}"
+                ))
+                .await?;
+            if !out.contains("result=1") {
+                return Err(Error::Adb(format!(
+                    "AAE's helper couldn't change the speech log: {}",
+                    out.trim()
+                )));
+            }
+        }
+        (false, Some(engine)) => {
+            stop_relay(adb, &engine).await?;
+            device.meta.speech_log_engine = None;
+        }
+        (false, None) => {}
+    }
+    device.meta.speech_log = Some(speech_log);
+    device.meta.speech_bridge = bridge;
+    device.save_meta()
 }
 
 /// What the screen reader said after `since` (milliseconds since 1970).
@@ -273,18 +325,6 @@ pub async fn speech_log(adb: &Adb, since: u64, clear: bool) -> Result<Vec<Uttera
         .ok_or_else(|| Error::Adb("AAE's helper didn't send the speech log.".into()))?;
     serde_json::from_str(json)
         .map_err(|e| Error::Adb(format!("The speech log couldn't be read: {e}")))
-}
-
-/// Switches the screen reader off and on, so it connects to the default speech
-/// engine afresh.
-async fn restart_screen_reader(adb: &Adb, screen_reader: Option<&str>) -> Result<()> {
-    if let Some(reader) = screen_reader {
-        adb.disable_service(reader).await?;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        adb.ensure_services(&[reader.to_string()], crate::provision::SERVICE_TIMEOUT)
-            .await?;
-    }
-    Ok(())
 }
 
 /// A time in milliseconds since 1970 as a local clock time, such as "17:42:06.250".

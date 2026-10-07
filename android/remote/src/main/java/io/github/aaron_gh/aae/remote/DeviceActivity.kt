@@ -21,6 +21,7 @@ class DeviceActivity : ConnectedActivity() {
     private lateinit var about: TextView
     private lateinit var startStop: Button
     private lateinit var microphoneButton: Button
+    private lateinit var bridgeButton: Button
     private val whileRunning = mutableListOf<Button>()
     /** Starting, stopping, restarting or wiping: those buttons wait till it's done. */
     private var busy = false
@@ -39,6 +40,8 @@ class DeviceActivity : ConnectedActivity() {
         running("Testing Tools") { startActivity(Intent(this, ToolsActivity::class.java).putExtra("id", id)) }
         microphoneButton = ui.button("Turn On Microphone") { toggleMicrophone() }
         whileRunning.add(microphoneButton)
+        bridgeButton = ui.button("Turn On Speech Bridge") { toggleBridge() }
+        whileRunning.add(bridgeButton)
         running("Speak Status") { call("device.status", idParams()) { ui.say(it.toString()) } }
         running("Back") { press("back") }
         running("Home") { press("home") }
@@ -76,6 +79,15 @@ class DeviceActivity : ConnectedActivity() {
 
     private fun nameMicrophone() {
         microphoneButton.text = if (Remote.microphoneOn) "Turn Off Microphone" else "Turn On Microphone"
+    }
+
+    /** The speech bridge: the device's speech goes to the phone's text-to-speech instead of its audio. */
+    private fun toggleBridge() {
+        val on = device?.optBoolean("speech_bridge") != true
+        ui.say(if (on) "Turning the speech bridge on." else "Turning the speech bridge off.")
+        call("device.speech_bridge", idParams().put("on", on)) { said ->
+            refresh { ui.say(said.toString()) }
+        }
     }
 
     /** The phone's microphone into the device, for voice typing or calls on it. */
@@ -124,6 +136,7 @@ class DeviceActivity : ConnectedActivity() {
             startStop.text = if (running) "Stop" else "Start"
             startStop.isEnabled = !busy
             whileRunning.forEach { it.isEnabled = running && !busy }
+            bridgeButton.text = if (d.optBoolean("speech_bridge")) "Turn Off Speech Bridge" else "Turn On Speech Bridge"
             if (running) attach()
             then()
         }

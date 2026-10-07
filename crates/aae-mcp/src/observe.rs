@@ -217,7 +217,7 @@ impl AaeServer {
     }
 
     /// Starts recording what the device's screen reader says, so speech_log
-    /// can read it. This restarts the screen reader. Recording stays on, for
+    /// can read it. Recording stays on, for
     /// the app and later sessions too, until speech_log_stop.
     #[tool(annotations(destructive_hint = false, idempotent_hint = true))]
     async fn speech_log_start(
@@ -236,7 +236,7 @@ impl AaeServer {
         )
     }
 
-    /// Stops recording what the screen reader says. This restarts the screen reader.
+    /// Stops recording what the screen reader says.
     #[tool(annotations(destructive_hint = false, idempotent_hint = true))]
     async fn speech_log_stop(
         &self,
@@ -254,8 +254,8 @@ impl AaeServer {
         )
     }
 
-    /// Reads what the screen reader said, oldest first, with times. This is
-    /// what a blind user hears. The speech log must be recording; see
+    /// Reads the screen reader's utterances, oldest first, with times. The
+    /// speech log must be recording; see
     /// speech_log_start. Pass the reply's next_since to get only what's new.
     #[tool(annotations(read_only_hint = true))]
     async fn speech_log(
@@ -267,7 +267,7 @@ impl AaeServer {
                 let (_, session) = self.session(p.device.as_deref()).await?;
                 if !session.speech_log_on() {
                     anyhow::bail!(
-                        "The speech log isn't recording. Start it with speech_log_start, which restarts the screen reader."
+                        "The speech log isn't recording. Start it with speech_log_start."
                     );
                 }
                 let since = p.since.unwrap_or(0);

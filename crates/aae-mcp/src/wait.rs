@@ -90,7 +90,7 @@ impl AaeServer {
                         }
                         if !session.speech_log_on() {
                             anyhow::bail!(
-                                "The speech log isn't recording. Start it with speech_log_start, which restarts the screen reader."
+                                "The speech log isn't recording. Start it with speech_log_start."
                             );
                         }
                         // Only what's said from now on.

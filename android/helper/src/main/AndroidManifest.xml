@@ -35,8 +35,10 @@
                 android:resource="@xml/helper_service" />
         </service>
 
-        <!-- AAE's speech relay: when AAE's speech log is on, this is the
-             device's speech engine, passing each request to the real one. -->
+        <!-- AAE's speech relay: while AAE's speech log or speech bridge is on,
+             this is the device's speech engine. It passes each request to the
+             real one, recording it for the speech log, or sends it to the
+             computer's voice. -->
         <service
             android:name=".RelayTtsService"
             android:exported="true"

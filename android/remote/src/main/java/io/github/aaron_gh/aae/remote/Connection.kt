@@ -190,6 +190,11 @@ class Connection private constructor(
         socket.send(ByteString.of(*frame))
     }
 
+    /** The phone has finished, or stopped, an utterance it was sent for the speech bridge. */
+    fun speechDone(id: Long) {
+        socket?.send(JSONObject().put("type", "speech_done").put("id", id).toString())
+    }
+
     /** The attached device stops hearing the phone's microphone. */
     fun microphoneOff() {
         socket?.send(JSONObject().put("type", "microphone").put("on", false).toString())

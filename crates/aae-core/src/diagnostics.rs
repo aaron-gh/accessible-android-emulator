@@ -188,7 +188,12 @@ pub fn report(sdk: &Sdk, store: &DeviceStore, version: &str) -> String {
                     let _ = writeln!(out, "  Audio speed: {speed}");
                 }
                 if let Some(engine) = &m.speech_log_engine {
-                    let _ = writeln!(out, "  Speech log on, relaying to {engine}");
+                    let _ = writeln!(
+                        out,
+                        "  Speech relay on (speech log {}, speech bridge {}), relaying to {engine}",
+                        if m.speech_log_on() { "on" } else { "off" },
+                        if m.speech_bridge { "on" } else { "off" }
+                    );
                 }
                 if m.pending_screen_reader.is_some() {
                     let _ = writeln!(out, "  A screen reader build is queued for its next start.");

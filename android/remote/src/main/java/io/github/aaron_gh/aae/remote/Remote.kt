@@ -22,6 +22,8 @@ object Remote {
 
     private var sound: SoundOut? = null
     private var microphone: PhoneMicrophone? = null
+    /** Speaks for the attached device's screen reader, for the speech bridge. */
+    private var voice: PhoneVoice? = null
     /** Whether the attached device hears the phone's microphone. */
     val microphoneOn get() = microphone != null
     private var haptics: Haptics? = null
@@ -71,6 +73,10 @@ object Remote {
             override fun event(name: String, data: JSONObject) {
                 // The computer couldn't send it in.
                 if (name == "microphone" && !data.optBoolean("on")) stopMicrophone()
+                when (name) {
+                    "speak" -> phoneVoice()?.speak(data.optLong("id"), data.optString("text"), data.optString("language"))
+                    "speech_stop" -> voice?.stop()
+                }
                 if (name == "vibration") {
                     if (data.optBoolean("on")) haptics?.on(data.optString("effect").ifEmpty { null })
                     else haptics?.off(data.optLong("ms"))
@@ -134,6 +140,20 @@ object Remote {
         stopSound()
     }
 
+    /** The bridge's text-to-speech settings changed: the next word uses them. */
+    fun voiceChanged() {
+        main.post {
+            voice?.release()
+            voice = null
+        }
+    }
+
+    /** The bridge's text-to-speech, made when the device first speaks through it. */
+    private fun phoneVoice(): PhoneVoice? {
+        val context = app ?: return null
+        return voice ?: PhoneVoice(context) { id -> connection?.speechDone(id) }.also { voice = it }
+    }
+
     /** Sends the phone's microphone to the attached device, or stops. Needs RECORD_AUDIO. */
     fun setMicrophone(on: Boolean) {
         if (!on) return stopMicrophone()
@@ -150,6 +170,8 @@ object Remote {
 
     private fun stopSound() {
         stopMicrophone()
+        voice?.release()
+        voice = null
         connection?.sound = null
         sound?.release()
         sound = null

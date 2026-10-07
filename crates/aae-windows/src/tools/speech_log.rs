@@ -49,7 +49,6 @@ pub fn show() {
     }
     let mut panel = Panel::new(KIND, "Speech Log", 580, 480);
     let record = panel.check("Record speech", RECORD, false);
-    panel.text("While recording, speech goes through AAE's speech log on its way to the device's speech engine. It adds about 10 milliseconds.");
     let list = panel.list("Speech", LIST, 14, true);
     panel.buttons(
         &[("Copy All", COPY), ("Save…", SAVE), ("Clear", CLEAR)],
@@ -188,7 +187,7 @@ fn text() -> String {
     })
 }
 
-/// Turns the speech log on or off, which restarts the screen reader.
+/// Turns the speech log on or off.
 fn set_recording(on: bool) {
     if !super::running() {
         // Puts the checkbox back.
@@ -211,7 +210,7 @@ fn set_recording(on: bool) {
     set_busy(true);
     announce(
         if on {
-            "Turning on the speech log. The screen reader restarts."
+            "Turning on the speech log."
         } else {
             "Turning off the speech log."
         },

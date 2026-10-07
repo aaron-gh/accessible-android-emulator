@@ -24,6 +24,8 @@ mod settings;
 #[cfg(windows)]
 mod speech;
 #[cfg(windows)]
+mod speech_bridge;
+#[cfg(windows)]
 mod tools;
 #[cfg(windows)]
 mod ui;

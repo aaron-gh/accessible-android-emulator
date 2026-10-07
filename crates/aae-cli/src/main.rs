@@ -34,6 +34,13 @@ struct Cli {
     command: Command,
 }
 
+#[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
+enum BridgeAction {
+    On,
+    Off,
+    Listen,
+}
+
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum MicAction {
     On,
@@ -503,9 +510,13 @@ enum Command {
     },
     /// Shake the device, as for apps that act on a shake.
     Shake { device: String },
-    /// Export a stopped device, with its apps, data and named snapshots, to
-    /// one file, to import on another computer running AAE with the same
-    /// kind of processor.
+    /// Speech bridge: on, off, or listen (prints utterances, no audio).
+    SpeechBridge {
+        device: String,
+        #[arg(value_enum, default_value = "listen")]
+        action: BridgeAction,
+    },
+    /// Export a stopped device, with its named snapshots, to one file.
     Export { device: String, file: PathBuf },
     /// Import a device exported from AAE. Its Android version must be
     /// installed here.
@@ -1454,34 +1465,28 @@ async fn run(cli: Cli) -> Result<()> {
         Command::SpeechLog { device, action } => {
             use aae_core::tts;
             let (mut device, _, adb) = ctx.connect(&device).await?;
-            let reader = device.meta.screen_reader.clone();
             match action {
-                SpeechLogAction::On => {
-                    if device.meta.speech_log_engine.is_some() {
-                        println!("The speech log is already on for {}.", device.meta.name);
+                SpeechLogAction::On | SpeechLogAction::Off => {
+                    let on = matches!(action, SpeechLogAction::On);
+                    if device.meta.speech_log_on() == on {
+                        println!(
+                            "The speech log is already {} for {}.",
+                            if on { "on" } else { "off" },
+                            device.meta.name
+                        );
                         return Ok(());
                     }
                     provision::update_helper(&ctx.sdk, &adb).await?;
-                    let engine = tts::start_speech_log(&adb, reader.as_deref()).await?;
-                    device.meta.speech_log_engine = Some(engine.clone());
-                    device.save_meta()?;
-                    println!("The speech log is on. Speech goes through it to {engine}.");
-                }
-                SpeechLogAction::Off => {
-                    let Some(engine) = device.meta.speech_log_engine.take() else {
-                        println!("The speech log is already off for {}.", device.meta.name);
-                        return Ok(());
-                    };
-                    tts::stop_speech_log(&adb, &engine, reader.as_deref()).await?;
-                    device.save_meta()?;
-                    println!("The speech log is off. Speech goes straight to {engine} again.");
+                    let bridge = device.meta.speech_bridge;
+                    tts::set_relay(&adb, &mut device, on, bridge).await?;
+                    println!("The speech log is {}.", if on { "on" } else { "off" });
                 }
                 SpeechLogAction::Show => {
                     let log = tts::speech_log(&adb, 0, false).await?;
                     if log.is_empty() {
                         println!(
                             "Nothing has been said{}.",
-                            if device.meta.speech_log_engine.is_none() {
+                            if !device.meta.speech_log_on() {
                                 ", and the speech log is off. Turn it on with: aae speech-log <device> on"
                             } else {
                                 " since the log was cleared"
@@ -2447,6 +2452,58 @@ async fn run(cli: Cli) -> Result<()> {
                 },
             )?;
             println!("Imported {}.", device.describe());
+            Ok(())
+        }
+        Command::SpeechBridge { device, action } => {
+            use aae_core::speech_bridge::{Bridge, Request};
+            let (mut device, _, adb) = ctx.connect(&device).await?;
+            provision::update_helper(&ctx.sdk, &adb).await?;
+            if action != BridgeAction::Listen {
+                let on = action == BridgeAction::On;
+                let log = device.meta.speech_log_on();
+                aae_core::tts::set_relay(&adb, &mut device, log, on).await?;
+                println!(
+                    "The speech bridge is {} for {}. The speech log is {}.",
+                    if on { "on" } else { "off" },
+                    device.meta.name,
+                    if log { "on" } else { "off" }
+                );
+                return Ok(());
+            }
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Request>();
+            let bridge = Bridge::start(adb, false, move |r| {
+                let _ = tx.send(r);
+            });
+            println!("Listening. Press Control-C to stop.");
+            let start = std::time::Instant::now();
+            let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<u64>();
+            let mut speaking: Option<tokio::task::JoinHandle<()>> = None;
+            loop {
+                tokio::select! {
+                    request = rx.recv() => match request {
+                        Some(Request::Speak { id, text, language, rate, pitch }) => {
+                            println!("{:7.2}s speak {id} [{language} rate {rate} pitch {pitch}] {text}", start.elapsed().as_secs_f64());
+                            // About 15 characters a second.
+                            let wait = std::time::Duration::from_millis(200 + text.len() as u64 * 65);
+                            let done = done_tx.clone();
+                            speaking = Some(tokio::spawn(async move {
+                                tokio::time::sleep(wait).await;
+                                let _ = done.send(id);
+                            }));
+                        }
+                        Some(Request::Stop) => {
+                            println!("{:7.2}s stop", start.elapsed().as_secs_f64());
+                            if let Some(task) = speaking.take() { task.abort(); }
+                        }
+                        None => break,
+                    },
+                    id = done_rx.recv() => if let Some(id) = id {
+                        println!("{:7.2}s done {id}", start.elapsed().as_secs_f64());
+                        bridge.finished(id);
+                    },
+                    _ = tokio::signal::ctrl_c() => break,
+                }
+            }
             Ok(())
         }
         Command::Shake { device } => {

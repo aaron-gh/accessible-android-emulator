@@ -5,8 +5,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * What the screen reader has said, as the speech relay saw it: the last few
- * hundred utterances, with the time each was spoken. Kept in memory only.
+ * The last 500 utterances the speech relay received, with times. In memory
+ * only, and only while the speech log is on.
  */
 object SpeechLog {
     private const val MAX = 500
@@ -36,6 +36,21 @@ object SpeechLog {
 
     private const val PREFS = "aae"
     private const val KEY_TARGET = "speech_relay_target"
+    private const val KEY_RECORDING = "speech_log_recording"
+
+    @Volatile private var recording: Boolean? = null
+
+    /** Whether the relay records what's said. On unless AAE said otherwise. */
+    fun recording(context: Context): Boolean =
+        recording ?: context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_RECORDING, true)
+            .also { recording = it }
+
+    fun setRecording(context: Context, on: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_RECORDING, on).commit()
+        recording = on
+        if (!on) clear()
+    }
 
     fun target(context: Context): String? =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_TARGET, null)

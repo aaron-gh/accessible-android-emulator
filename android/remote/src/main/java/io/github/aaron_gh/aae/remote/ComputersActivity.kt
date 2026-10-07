@@ -27,6 +27,7 @@ class ComputersActivity : Activity() {
         rows = ui.list("Computers") { open(computers[it]) }.second
         ui.button("Pair with a Computer") { pair() }
         ui.button("Forget a Computer") { forget() }
+        ui.button("Bridge Text-to-Speech Settings") { startActivity(Intent(this, BridgeTtsActivity::class.java)) }
         ui.button("Check for Updates") { checkForUpdates(quietly = false) }
         android.widget.CheckBox(this).apply {
             text = "Offer development builds"

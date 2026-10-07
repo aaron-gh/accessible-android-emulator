@@ -13,6 +13,34 @@ use crate::server::{AUDIO_FRAME, AUDIO_RATE, Out};
 /// The phone's microphone sound: 48 kHz mono.
 const MICROPHONE_RATE: u32 = 48_000;
 
+/// Speaks for the device's screen reader on the phone, for the speech
+/// bridge: `{"type":"event","event":"speak","id":…,"text":…,"language":…}`
+/// and `{"type":"event","event":"speech_stop"}`. The phone answers each
+/// utterance with `{"type":"speech_done","id":…}` when it has finished or
+/// stopped.
+struct PhoneSpeaker {
+    out: Out,
+}
+
+impl aae_ffi::SpeechBridgeListener for PhoneSpeaker {
+    fn speak(&self, id: u64, text: String, language: String, rate: u32, pitch: u32) {
+        self.out.json(json!({
+            "type": "event",
+            "event": "speak",
+            "id": id,
+            "text": text,
+            "language": language,
+            "rate": rate,
+            "pitch": pitch,
+        }));
+    }
+
+    fn stop(&self) {
+        self.out
+            .json(json!({"type": "event", "event": "speech_stop"}));
+    }
+}
+
 /// A device attached to a phone.
 pub struct Attachment {
     pub session: Arc<Session>,
@@ -68,12 +96,29 @@ impl Attachment {
             crate::vibration::watch(adb, vibrations).await;
         }));
 
-        Attachment {
+        let attachment = Attachment {
             session,
             touches,
             tasks,
             out,
             microphone: None,
+        };
+        if attachment.session.speech_bridge() {
+            attachment.speak_on_phone(true);
+        }
+        attachment
+    }
+
+    /// Has the device's screen reader speak on the phone, for the speech
+    /// bridge, taking it over from a desktop app; or stops.
+    pub fn speak_on_phone(&self, on: bool) {
+        if on {
+            self.session
+                .start_speech_bridge_taking_over(Arc::new(PhoneSpeaker {
+                    out: self.out.clone(),
+                }));
+        } else {
+            self.session.stop_speech_bridge();
         }
     }
 
@@ -143,6 +188,8 @@ impl Attachment {
     }
 
     pub fn stop(self) {
+        // The device's own engine, or a desktop app's bridge, takes over.
+        self.session.stop_speech_bridge();
         if let Some((_, task)) = self.microphone {
             task.abort();
         }

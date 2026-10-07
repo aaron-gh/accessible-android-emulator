@@ -198,6 +198,10 @@ struct MicrophoneMenuItems: View {
         Button(on ? "Turn Off Microphone" : "Turn On Microphone") { model.toggleMicrophone() }
             .keyboardShortcut("u", modifiers: [.command, .shift])
         Button("Check Microphone") { model.checkMicrophone() }
+        let bridged = model.selected?.speechBridge ?? false
+        Button(bridged ? "Turn Off Speech Bridge" : "Turn On Speech Bridge") {
+            model.toggleSpeechBridge()
+        }
         let playing = model.selection.map { model.playingFiles.contains($0) } ?? false
         Button(playing ? "Stop Playing Audio File" : "Play Audio File into Microphone…") {
             model.playFileIntoMicrophone()

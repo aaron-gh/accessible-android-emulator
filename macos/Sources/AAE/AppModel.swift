@@ -783,7 +783,7 @@ final class AppModel: ObservableObject {
     func setSpeechLog(_ on: Bool) {
         guard let device = selected else { return }
         speechLogBusy = true
-        announce(on ? "Turning on the speech log. The screen reader restarts." : "Turning off the speech log.")
+        announce(on ? "Turning on the speech log." : "Turning off the speech log.")
         withSession { [weak self] session in
             defer { self?.speechLogBusy = false }
             let message = try await session.setSpeechLog(on: on)
@@ -985,6 +985,9 @@ final class AppModel: ObservableObject {
         try await session.startAudio(correctPitch: correctPitch)
         sessions[id] = session
         applyAudioFocus()
+        if session.speechBridge() {
+            startSpeechBridge(id, session)
+        }
         return session
     }
 
@@ -993,6 +996,8 @@ final class AppModel: ObservableObject {
     private func endSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
         session.stopAudio()
+        session.stopSpeechBridge()
+        speakers[id] = nil
         if recordings.remove(id) != nil {
             Task { _ = try? await session.stopRecording() }
         }
@@ -1305,6 +1310,35 @@ final class AppModel: ObservableObject {
         guard let device = selected else { return }
         let now = (device.volume * 10).rounded() / 10
         setVolume(now + (up ? 0.1 : -0.1), announce: true)
+    }
+
+    /// Speech bridge speakers, by device.
+    private var speakers: [String: SpeechBridgeSpeaker] = [:]
+
+    private func startSpeechBridge(_ id: String, _ session: Session) {
+        let speaker = SpeechBridgeSpeaker(session: session)
+        speakers[id] = speaker
+        session.startSpeechBridge(listener: speaker)
+    }
+
+    /// Toggles the selected device's speech bridge.
+    func toggleSpeechBridge() {
+        guard let device = selected else { return }
+        let on = !device.speechBridge
+        busy[device.id] = on ? "Turning the speech bridge on" : "Turning the speech bridge off"
+        let id = device.id
+        withSession { [weak self] session in
+            guard let self else { return }
+            defer { self.busy[id] = nil }
+            let said = try await session.setSpeechBridge(on: on)
+            if on {
+                self.startSpeechBridge(id, session)
+            } else {
+                self.speakers[id] = nil
+            }
+            self.refresh()
+            self.announce(said, tone: .success)
+        }
     }
 
     /// Sends the Mac's microphone into the selected device, or stops.

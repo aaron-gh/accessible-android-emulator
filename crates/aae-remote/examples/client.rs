@@ -181,7 +181,15 @@ async fn main() -> Result<()> {
                         audio_bytes += bytes.len() - 1;
                         frames += 1;
                     }
-                    Message::Text(text) => println!("{text}"),
+                    Message::Text(text) => {
+                        println!("{text}");
+                        // Answers speech as the phone does, at once.
+                        let event: Value = serde_json::from_str(&text).unwrap_or_default();
+                        if event["event"] == "speak" {
+                            let done = json!({"type": "speech_done", "id": event["id"]});
+                            ws.send(Message::text(done.to_string())).await?;
+                        }
+                    }
                     _ => {}
                 }
             }

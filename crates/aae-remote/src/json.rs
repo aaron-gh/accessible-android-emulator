@@ -18,6 +18,7 @@ pub fn device(d: &DeviceInfo) -> Value {
         "speech_log": d.speech_log,
         "backtalk_supported": d.backtalk_supported,
         "volume": d.volume,
+        "speech_bridge": d.speech_bridge,
     })
 }
 

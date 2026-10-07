@@ -25,7 +25,7 @@ import android.content.Intent
  *
  * SPEECH_RELAY (extra: target) sets the real engine the speech relay passes
  * requests to. SPEECH_LOG (extras: since, in milliseconds since 1970; clear)
- * returns what the relay has heard since then, as JSON.
+ * returns the utterances recorded since then, as JSON.
  *
  * DUMP_TREE returns the screen's accessibility tree as JSON in the result
  * data, with result code 1, or 0 if the helper's service isn't running.
@@ -67,13 +67,18 @@ class CommandReceiver : BroadcastReceiver() {
                 }.start(timeoutMs = 8000)
             }
             ACTION_SPEECH_RELAY -> {
-                // The real engine the relay passes requests to.
+                // Whether the relay records the speech log, and the real
+                // engine it passes requests to: either or both.
+                val hasLog = intent.hasExtra("log")
+                if (hasLog) SpeechLog.setRecording(context, intent.getBooleanExtra("log", true))
                 val target = intent.getStringExtra("target")
-                if (target.isNullOrEmpty() || target == context.packageName) {
-                    setResult(0, "no engine given", null)
-                } else {
-                    SpeechLog.setTarget(context, target)
-                    setResult(1, target, null)
+                when {
+                    !target.isNullOrEmpty() && target != context.packageName -> {
+                        SpeechLog.setTarget(context, target)
+                        setResult(1, target, null)
+                    }
+                    hasLog -> setResult(1, "log", null)
+                    else -> setResult(0, "no engine given", null)
                 }
             }
             ACTION_SPEECH_LOG -> {

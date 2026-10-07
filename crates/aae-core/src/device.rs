@@ -96,14 +96,28 @@ pub struct DeviceMeta {
     /// None until measured. See [`crate::audio::measure_speed`].
     #[serde(default)]
     pub audio_speed: Option<f64>,
-    /// While the speech log is on: the real speech engine AAE's relay passes
-    /// requests to, to restore when it's turned off.
+    /// While AAE's speech relay is the device's speech engine, for the speech
+    /// log, the speech bridge or both: the real engine it passes requests
+    /// to, to restore when neither needs it.
     #[serde(default)]
     pub speech_log_engine: Option<String>,
+    /// Whether the relay records the speech log. None on devices from before
+    /// the speech bridge, when the relay always meant the speech log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speech_log: Option<bool>,
+    /// The helper version and real engine speech last worked through the
+    /// relay with, as "<version> <engine>", so switching to it again
+    /// needn't check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_verified: Option<String>,
     /// How loud AAE plays this device's audio on the computer, from 0 to 1.
     /// None is full volume.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playback_volume: Option<f32>,
+    /// Speech bridge on: TTS requests go to the host while an AAE app is
+    /// connected.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub speech_bridge: bool,
     /// Processor cores chosen for this device. None lets AAE choose for the
     /// computer, fewer on a small one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +164,13 @@ impl RuntimeInfo {
     /// The adb serial number, such as `emulator-5554`.
     pub fn serial(&self) -> String {
         format!("emulator-{}", self.console_port)
+    }
+}
+
+impl DeviceMeta {
+    /// Whether the speech log is on.
+    pub fn speech_log_on(&self) -> bool {
+        self.speech_log.unwrap_or(self.speech_log_engine.is_some())
     }
 }
 
@@ -284,6 +305,9 @@ impl DeviceStore {
             software_graphics: false,
             audio_output: None,
             cores: None,
+            speech_bridge: false,
+            speech_log: None,
+            relay_verified: None,
             keep_enabled: Vec::new(),
             app_choices: Default::default(),
         };

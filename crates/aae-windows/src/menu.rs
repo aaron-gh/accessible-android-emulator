@@ -38,6 +38,7 @@ pub const MICROPHONE: u16 = 226;
 pub const CHECK_MICROPHONE: u16 = 227;
 pub const PLAY_FILE: u16 = 228;
 pub const AUDIO_OUTPUT: u16 = 229;
+pub const SPEECH_BRIDGE: u16 = 233;
 pub const COPY_CLIPBOARD: u16 = 230;
 pub const SEND_CLIPBOARD: u16 = 231;
 pub const TYPE_CLIPBOARD: u16 = 232;
@@ -147,6 +148,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 Item(MICROPHONE, MICROPHONE_ON, Some((cs, b'U' as u16))),
                 Item(CHECK_MICROPHONE, "Check Microp&hone", None),
                 Item(PLAY_FILE, PLAY_FILE_START, None),
+                Item(SPEECH_BRIDGE, BRIDGE_ON, None),
                 SEPARATOR,
                 Item(
                     COPY_CLIPBOARD,
@@ -214,6 +216,23 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
 
 const MICROPHONE_ON: &str = "Turn On Micr&ophone";
 const MICROPHONE_OFF: &str = "Turn Off Micr&ophone";
+
+const BRIDGE_ON: &str = "Turn On Speech &Bridge";
+const BRIDGE_OFF: &str = "Turn Off Speech &Bridge";
+
+/// Names the speech bridge item for what it will do, as its menu opens.
+pub fn name_speech_bridge(menu: HMENU, on: bool) {
+    let text = ui::wide(if on { BRIDGE_OFF } else { BRIDGE_ON });
+    unsafe {
+        let _ = ModifyMenuW(
+            menu,
+            SPEECH_BRIDGE as u32,
+            MF_BYCOMMAND | MF_STRING,
+            SPEECH_BRIDGE as usize,
+            PCWSTR(text.as_ptr()),
+        );
+    }
+}
 
 const RECORD_START: &str = "Record Scree&n…";
 const RECORD_STOP: &str = "Stop Recordi&ng";

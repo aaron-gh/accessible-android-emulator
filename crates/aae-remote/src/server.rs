@@ -10,6 +10,8 @@
 //!   with `{"type":"result","id":1,"result":…}` or
 //!   `{"type":"error","id":1,"message":…}`. Long calls send
 //!   `{"type":"progress","id":1,"message":…,"percent":…}` on the way.
+//! - `{"type":"speech_done","id":…}` when the phone has finished or stopped
+//!   an utterance it was sent for the speech bridge.
 //! - `{"type":"key","code":30,"down":true}`, with Linux key codes, and
 //!   `{"type":"touch","points":[{"id":0,"x":…,"y":…,"down":true}]}`, in the
 //!   device's screen pixels, for the attached device. These aren't answered,
@@ -318,6 +320,11 @@ impl Phone {
                     attached.touch(&message["points"]);
                 }
             }
+            "speech_done" => {
+                if let (Some(attached), Some(id)) = (&self.attached, message["id"].as_u64()) {
+                    attached.session.speech_finished(id);
+                }
+            }
             "microphone" => {
                 if let Some(attached) = &mut self.attached {
                     if !message["on"].as_bool().unwrap_or(false) {
@@ -334,6 +341,29 @@ impl Phone {
                     "device.attach" => {
                         let result = self.attach(params["id"].as_str().unwrap_or("")).await;
                         self.out.result(&id, result);
+                    }
+                    "device.speech_bridge" => {
+                        // On or off for the device, and so for this phone
+                        // while it's attached.
+                        let on = params["on"].as_bool().unwrap_or(false);
+                        let device = params["id"].as_str().unwrap_or("").to_string();
+                        let result = async {
+                            let session = self.server.session(&device).await?;
+                            session.set_speech_bridge(on).await?;
+                            let said = if on {
+                                "Speech bridge on."
+                            } else {
+                                "Speech bridge off."
+                            };
+                            if let Some(attached) = &self.attached
+                                && attached.session.device_id() == device
+                            {
+                                attached.speak_on_phone(on);
+                            }
+                            Ok::<Value, AaeError>(json!(said))
+                        }
+                        .await;
+                        self.out.result(&id, result.map_err(|e| e.to_string()));
                     }
                     "device.detach" => {
                         self.detach();

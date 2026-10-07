@@ -102,6 +102,9 @@ pub async fn wipe_device(
     meta.screen_reader_declined = declined;
     meta.keep_enabled.clear();
     meta.speech_log_engine = None;
+    meta.speech_log = None;
+    meta.relay_verified = None;
+    meta.speech_bridge = false;
     meta.pending_screen_reader = None;
     device.save_meta()?;
     let start = StartOptions {

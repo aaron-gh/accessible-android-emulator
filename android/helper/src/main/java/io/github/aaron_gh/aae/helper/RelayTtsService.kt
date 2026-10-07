@@ -16,15 +16,19 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /**
- * AAE's speech relay: a speech engine that passes every request to the real
- * engine, recording the text for AAE's speech log on the way.
+ * AAE's speech relay: a TTS engine that forwards every request to the real
+ * engine, recording the text for the speech log. While a speech bridge
+ * client is connected, requests go to it instead (see SpeechBridge).
  *
- * The real engine synthesizes to a scratch file, and from Android 7 its
- * progress callbacks hand over the audio as it's produced, which is passed
- * straight on, so speech starts with little added delay. On Android 5 and 6
- * there are no such callbacks, and each utterance waits until it is complete.
+ * The real engine synthesizes to a scratch file. From Android 7, progress
+ * callbacks deliver audio as it's produced and it's forwarded immediately.
+ * On Android 5 and 6 each utterance is forwarded when complete.
  */
 class RelayTtsService : TextToSpeechService() {
+    private companion object {
+        /** The head start, as a fraction of a second: a tenth. */
+        const val HEAD_START_DIVISOR = 10
+    }
 
     private sealed interface Event {
         data class Begin(val rate: Int, val format: Int, val channels: Int) : Event
@@ -42,6 +46,7 @@ class RelayTtsService : TextToSpeechService() {
 
     override fun onCreate() {
         connect()
+        SpeechBridge.start()
         super.onCreate()
     }
 
@@ -149,6 +154,7 @@ class RelayTtsService : TextToSpeechService() {
 
     override fun onStop() {
         stopped = true
+        SpeechBridge.stop()
         engine?.stop()
         for (queue in queues.values) queue.put(Event.Error)
     }
@@ -159,7 +165,24 @@ class RelayTtsService : TextToSpeechService() {
         val wanted = SpeechLog.target(this)
         if (wanted != null && wanted != packageName && wanted != enginePackage) connect()
         val text = request.charSequenceText?.toString() ?: request.text.orEmpty()
-        if (text != SpeechCheck.PHRASE) SpeechLog.record(text)
+        if (text != SpeechCheck.PHRASE && SpeechLog.recording(this)) SpeechLog.record(text)
+        // To the speech bridge client, if connected. The speech check phrase
+        // always goes to the real engine.
+        if (text != SpeechCheck.PHRASE) {
+            val pending = SpeechBridge.send(
+                text,
+                SpeechBridge.languageTag(request.language, request.country),
+                request.speechRate,
+                request.pitch,
+            )
+            if (pending != null) {
+                // No sound comes from here, but the framework needs a format.
+                callback.start(16000, android.media.AudioFormat.ENCODING_PCM_16BIT, 1)
+                pending.await()
+                if (!stopped) callback.done()
+                return
+            }
+        }
         val engine = engine() ?: run { callback.error(); return }
         if (request.voiceName != null) {
             engine.voices?.firstOrNull { it.name == request.voiceName }?.let { engine.voice = it }
@@ -185,17 +208,38 @@ class RelayTtsService : TextToSpeechService() {
         }
     }
 
-    /** Passes audio on as the real engine produces it (Android 7 and later). */
+    /**
+     * Passes audio on as the real engine produces it (Android 7 and later),
+     * after a head start: the first tenth of a second is held back, so a
+     * pause in the engine's output, most often just after it starts, doesn't
+     * leave Android with nothing to play, which crackles.
+     */
     private fun relayStream(queue: LinkedBlockingQueue<Event>, callback: SynthesisCallback) {
         var started = false
+        var headStart = 0
+        val held = java.io.ByteArrayOutputStream()
+        fun release() {
+            if (held.size() > 0 && !stopped) write(callback, held.toByteArray())
+            held.reset()
+            headStart = 0
+        }
         while (true) {
             when (val event = queue.poll(15, TimeUnit.SECONDS) ?: Event.Error) {
                 is Event.Begin -> {
                     callback.start(event.rate, event.format, event.channels)
                     started = true
+                    headStart = event.rate * event.channels * bytesPerSample(event.format) / HEAD_START_DIVISOR
                 }
-                is Event.Audio -> if (started && !stopped) write(callback, event.bytes)
+                is Event.Audio -> if (started && !stopped) {
+                    if (headStart > 0) {
+                        held.write(event.bytes)
+                        if (held.size() >= headStart) release()
+                    } else {
+                        write(callback, event.bytes)
+                    }
+                }
                 Event.Done -> {
+                    release()
                     if (started) callback.done() else callback.error()
                     return
                 }
@@ -205,6 +249,12 @@ class RelayTtsService : TextToSpeechService() {
                 }
             }
         }
+    }
+
+    private fun bytesPerSample(format: Int) = when (format) {
+        android.media.AudioFormat.ENCODING_PCM_8BIT -> 1
+        android.media.AudioFormat.ENCODING_PCM_FLOAT -> 4
+        else -> 2
     }
 
     /** Waits for the whole utterance, then passes it on (Android 5 and 6). */

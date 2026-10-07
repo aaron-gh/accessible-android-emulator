@@ -70,10 +70,32 @@ pub(crate) fn session_if_open(id: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().unwrap().as_ref()?.get(id).cloned()
 }
 
+/// Speech bridge speakers, by device.
+static SPEAKERS: Mutex<Option<HashMap<String, Arc<crate::speech_bridge::Speaker>>>> =
+    Mutex::new(None);
+
+fn start_speech_bridge(id: &str, session: &Arc<Session>) {
+    let speaker = crate::speech_bridge::Speaker::start(session);
+    session.start_speech_bridge(speaker.clone());
+    SPEAKERS
+        .lock()
+        .unwrap()
+        .get_or_insert_with(HashMap::new)
+        .insert(id.to_string(), speaker);
+}
+
+fn stop_speech_bridge(id: &str, session: &Session) {
+    session.stop_speech_bridge();
+    if let Some(speakers) = SPEAKERS.lock().unwrap().as_mut() {
+        speakers.remove(id);
+    }
+}
+
 fn close_session(id: &str) {
     let session = SESSIONS.lock().unwrap().as_mut().and_then(|s| s.remove(id));
     if let Some(session) = session {
         session.stop_audio();
+        stop_speech_bridge(id, &session);
         session.stop_playing_into_microphone();
         if session.recording_screen() {
             let session = session.clone();
@@ -111,7 +133,10 @@ pub(crate) async fn session_for(id: String) -> Result<Arc<Session>, AaeError> {
         .lock()
         .unwrap()
         .get_or_insert_with(HashMap::new)
-        .insert(id, session.clone());
+        .insert(id.clone(), session.clone());
+    if session.speech_bridge() {
+        start_speech_bridge(&id, &session);
+    }
     run_on_ui(|| with(|app| app.apply_audio_focus()));
     Ok(session)
 }
@@ -797,6 +822,7 @@ pub fn command(id: u16, notification: u32) {
         VOLUME_DOWN => step_volume(false),
         CHECK_AUDIO => check_audio(),
         AUDIO_OUTPUT => choose_audio_output(),
+        SPEECH_BRIDGE => toggle_speech_bridge(),
         MICROPHONE => toggle_microphone(),
         CHECK_MICROPHONE => check_microphone(),
         PLAY_FILE => play_file_into_microphone(),
@@ -2241,6 +2267,35 @@ fn edit_hardware() {
     }
 }
 
+/// Toggles the selected device's speech bridge.
+fn toggle_speech_bridge() {
+    let (device, _) = selected();
+    let Some(device) = device else { return };
+    let on = !device.speech_bridge;
+    let id = device.id.clone();
+    with_session(move |s| async move {
+        let mut said = s.set_speech_bridge(on).await?;
+        if on {
+            start_speech_bridge(&id, &s);
+            said.push_str(if crate::screen_readers::nvda::speaks_ssml() {
+                " Using NVDA."
+            } else {
+                " Using SAPI."
+            });
+        } else {
+            stop_speech_bridge(&id, &s);
+        }
+        run_on_ui(|| {
+            with(|app| {
+                app.refresh();
+                app.render();
+            })
+        });
+        say(said, Tone::Success);
+        Ok(())
+    });
+}
+
 /// Chooses which of this computer's outputs the selected device plays
 /// through, remembered for it.
 fn choose_audio_output() {
@@ -2367,6 +2422,8 @@ pub fn menu_opening(menu: windows::Win32::UI::WindowsAndMessaging::HMENU) {
     crate::menu::name_microphone(menu, on, playing);
     let recording = session.as_ref().is_some_and(|s| s.recording_screen());
     crate::menu::name_recording(menu, recording);
+    let bridged = selected().0.is_some_and(|d| d.speech_bridge);
+    crate::menu::name_speech_bridge(menu, bridged);
 }
 
 fn speak_status() {

@@ -74,6 +74,18 @@ pub trait ProgressListener: Send + Sync {
     fn progress(&self, message: String);
 }
 
+/// Speaks for a device's screen reader, for the speech bridge. Called on
+/// AAE's runtime: hand the work to the main thread.
+#[uniffi::export(with_foreign)]
+pub trait SpeechBridgeListener: Send + Sync {
+    /// Speak this, then call `Session::speech_finished` with its id, also
+    /// when it's stopped. `language` is such as "en-US"; `rate` and `pitch`
+    /// are Android's, 100 being normal.
+    fn speak(&self, id: u64, text: String, language: String, rate: u32, pitch: u32);
+    /// Stop speaking at once.
+    fn stop(&self);
+}
+
 /// A device, as the host app lists it.
 #[derive(uniffi::Record, Clone)]
 pub struct DeviceInfo {
@@ -100,6 +112,8 @@ pub struct DeviceInfo {
     pub volume: f32,
     /// The computer's output it plays through, by name; None is the default.
     pub audio_output: Option<String>,
+    /// Speech bridge on.
+    pub speech_bridge: bool,
     /// Which run of the emulator it is, while running: it changes when the
     /// device is stopped and started again, by any of AAE's programs, so an
     /// app can tell its connection is to one that's gone.
@@ -123,10 +137,11 @@ impl DeviceInfo {
                 .and_then(|c| c.split('/').next())
                 .map(String::from),
             screen_reader_declined: device.meta.screen_reader_declined,
-            speech_log: device.meta.speech_log_engine.is_some(),
+            speech_log: device.meta.speech_log_on(),
             backtalk_supported: device.meta.api >= aae_core::screenreader::BACKTALK_MIN_API,
             volume: device.meta.playback_volume.unwrap_or(1.0),
             audio_output: device.meta.audio_output.clone(),
+            speech_bridge: device.meta.speech_bridge,
         }
     }
 }
@@ -1387,20 +1402,21 @@ impl Engine {
     ) -> Result<String, AaeError> {
         let device = self.store.get(&id)?;
         let name = device.meta.name.clone();
-        let file = runtime().spawn_blocking(move || {
-            let mut said = 0;
-            aae_core::transfer::export(&device, std::path::Path::new(&path), |done, total| {
-                let percent = (done * 100 / total.max(1)) as u32;
-                if percent >= said + 10 && percent < 100 {
-                    said = percent / 10 * 10;
-                    listener.progress(format!("Exporting: {said} percent."));
-                }
+        let file = runtime()
+            .spawn_blocking(move || {
+                let mut said = 0;
+                aae_core::transfer::export(&device, std::path::Path::new(&path), |done, total| {
+                    let percent = (done * 100 / total.max(1)) as u32;
+                    if percent >= said + 10 && percent < 100 {
+                        said = percent / 10 * 10;
+                        listener.progress(format!("Exporting: {said} percent."));
+                    }
+                })
             })
-        })
-        .await
-        .map_err(|e| AaeError::Failed {
-            message: e.to_string(),
-        })??;
+            .await
+            .map_err(|e| AaeError::Failed {
+                message: e.to_string(),
+            })??;
         let size = std::fs::metadata(&file).map_or(0, |m| m.len());
         Ok(format!(
             "Exported {name} to {}, {:.1} gigabytes.",
@@ -1419,26 +1435,27 @@ impl Engine {
         listener: Arc<dyn ProgressListener>,
     ) -> Result<DeviceInfo, AaeError> {
         let (sdk, store) = (self.sdk.clone(), self.store.clone());
-        let device = runtime().spawn_blocking(move || {
-            let mut said = 0;
-            aae_core::transfer::import(
-                &sdk,
-                &store,
-                std::path::Path::new(&path),
-                None,
-                |done, total| {
-                    let percent = (done * 100 / total.max(1)) as u32;
-                    if percent >= said + 10 && percent < 100 {
-                        said = percent / 10 * 10;
-                        listener.progress(format!("Importing: {said} percent."));
-                    }
-                },
-            )
-        })
-        .await
-        .map_err(|e| AaeError::Failed {
-            message: e.to_string(),
-        })??;
+        let device = runtime()
+            .spawn_blocking(move || {
+                let mut said = 0;
+                aae_core::transfer::import(
+                    &sdk,
+                    &store,
+                    std::path::Path::new(&path),
+                    None,
+                    |done, total| {
+                        let percent = (done * 100 / total.max(1)) as u32;
+                        if percent >= said + 10 && percent < 100 {
+                            said = percent / 10 * 10;
+                            listener.progress(format!("Importing: {said} percent."));
+                        }
+                    },
+                )
+            })
+            .await
+            .map_err(|e| AaeError::Failed {
+                message: e.to_string(),
+            })??;
         Ok(DeviceInfo::from_device(&device))
     }
 
@@ -1640,6 +1657,8 @@ pub struct Session {
     playing: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
     /// A route being played.
     route: Mutex<Option<tokio::task::AbortHandle>>,
+    /// The speech bridge client, while connected.
+    bridge: Mutex<Option<aae_core::speech_bridge::Bridge>>,
     /// The screen recording going on: its file, and when it started.
     recording: Mutex<Option<(std::path::PathBuf, std::time::Instant)>>,
     /// The screen's size and density, read on the first gesture.
@@ -1661,6 +1680,29 @@ impl Session {
 
     pub fn device_id(&self) -> String {
         self.device.lock().unwrap().id.clone()
+    }
+
+    /// Starts speaking for the device's screen reader, taking its speech
+    /// over from any desktop app, as AAE Remote's server does for the phone
+    /// using the device.
+    pub fn start_speech_bridge_taking_over(&self, listener: Arc<dyn SpeechBridgeListener>) {
+        self.bridge_to(listener, false);
+    }
+
+    fn bridge_to(&self, listener: Arc<dyn SpeechBridgeListener>, polite: bool) {
+        use aae_core::speech_bridge::{Bridge, Request};
+        let _inside = runtime().enter();
+        let bridge = Bridge::start(self.adb.clone(), polite, move |request| match request {
+            Request::Speak {
+                id,
+                text,
+                language,
+                rate,
+                pitch,
+            } => listener.speak(id, text, language, rate, pitch),
+            Request::Stop => listener.stop(),
+        });
+        *self.bridge.lock().unwrap() = Some(bridge);
     }
 
     /// Brings AAE's helper on the device up to date, as for its vibration
@@ -1719,6 +1761,7 @@ impl Session {
             playing: Arc::new(Mutex::new(None)),
             recording: Mutex::new(None),
             route: Mutex::new(None),
+            bridge: Mutex::new(None),
             screen: tokio::sync::Mutex::new(None),
             held: tokio::sync::Mutex::new(None),
         })
@@ -2034,39 +2077,89 @@ impl Session {
         .await
     }
 
-    /// Turns the speech log on or off. Returns what happened, in words.
-    pub async fn set_speech_log(&self, on: bool) -> Result<String, AaeError> {
+    /// Whether the speech bridge is on.
+    pub fn speech_bridge(&self) -> bool {
+        self.device.lock().unwrap().meta.speech_bridge
+    }
+
+    /// Turns the speech bridge on or off. The speech relay becomes the
+    /// default engine while it's on; the app then calls
+    /// `start_speech_bridge`. Returns a message.
+    pub async fn set_speech_bridge(&self, on: bool) -> Result<String, AaeError> {
+        if self.device.lock().unwrap().meta.speech_bridge == on {
+            return Ok(if on {
+                "The speech bridge is already on.".into()
+            } else {
+                "The speech bridge is already off.".into()
+            });
+        }
+        self.set_relay(None, Some(on)).await?;
+        if !on {
+            self.stop_speech_bridge();
+        }
+        Ok(if on {
+            "Speech bridge on.".into()
+        } else {
+            "Speech bridge off.".into()
+        })
+    }
+
+    /// Sets the speech relay's roles; None leaves a role unchanged.
+    async fn set_relay(&self, log: Option<bool>, bridge: Option<bool>) -> Result<(), AaeError> {
         let mut device = self.device.lock().unwrap().clone();
         let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
-        let (message, device) = on_runtime(async move {
-            let reader = device.meta.screen_reader.clone();
-            let message = match (on, device.meta.speech_log_engine.clone()) {
-                (true, Some(_)) => "The speech log is already on.".to_string(),
-                (false, None) => "The speech log is already off.".to_string(),
-                (true, None) => {
-                    provision::update_helper(&sdk, &adb).await?;
-                    let engine = tts::start_speech_log(&adb, reader.as_deref()).await?;
-                    device.meta.speech_log_engine = Some(engine);
-                    device.save_meta()?;
-                    "The speech log is on.".to_string()
-                }
-                (false, Some(engine)) => {
-                    tts::stop_speech_log(&adb, &engine, reader.as_deref()).await?;
-                    device.meta.speech_log_engine = None;
-                    device.save_meta()?;
-                    "The speech log is off.".to_string()
-                }
-            };
-            Ok((message, device))
+        let device = on_runtime(async move {
+            provision::update_helper(&sdk, &adb).await?;
+            let log = log.unwrap_or(device.meta.speech_log_on());
+            let bridge = bridge.unwrap_or(device.meta.speech_bridge);
+            tts::set_relay(&adb, &mut device, log, bridge).await?;
+            Ok(device)
         })
         .await?;
         *self.device.lock().unwrap() = device;
-        Ok(message)
+        Ok(())
+    }
+
+    /// Connects the speech bridge: each utterance goes to `listener`, which
+    /// reports completion with `speech_finished`. Polite: refused while
+    /// AAE Remote is connected. Until connected, the device uses its own
+    /// engine.
+    pub fn start_speech_bridge(&self, listener: Arc<dyn SpeechBridgeListener>) {
+        self.bridge_to(listener, true);
+    }
+
+    /// Says an utterance from the speech bridge has finished or was stopped.
+    pub fn speech_finished(&self, id: u64) {
+        if let Some(bridge) = self.bridge.lock().unwrap().as_ref() {
+            bridge.finished(id);
+        }
+    }
+
+    /// Disconnects the speech bridge; the device uses its own engine.
+    pub fn stop_speech_bridge(&self) {
+        self.bridge.lock().unwrap().take();
+    }
+
+    /// Turns the speech log on or off. Returns a message.
+    pub async fn set_speech_log(&self, on: bool) -> Result<String, AaeError> {
+        if self.device.lock().unwrap().meta.speech_log_on() == on {
+            return Ok(if on {
+                "The speech log is already on.".into()
+            } else {
+                "The speech log is already off.".into()
+            });
+        }
+        self.set_relay(Some(on), None).await?;
+        Ok(if on {
+            "The speech log is on.".into()
+        } else {
+            "The speech log is off.".into()
+        })
     }
 
     /// Whether the speech log is on for this device.
     pub fn speech_log_on(&self) -> bool {
-        self.device.lock().unwrap().meta.speech_log_engine.is_some()
+        self.device.lock().unwrap().meta.speech_log_on()
     }
 
     /// What the screen reader said after `since` (milliseconds since 1970).

@@ -20,9 +20,6 @@ struct SpeechLogView: View {
                 ))
                 .disabled(model.speechLogBusy || model.speechLogDevice == nil)
             }
-            Text("While recording, speech goes through AAE's speech log on its way to the device's speech engine. It adds about 10 milliseconds.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
 
             List(Array(model.speechLog.enumerated()), id: \.offset) { _, utterance in
                 Text("\(utterance.clock)  \(utterance.text)")

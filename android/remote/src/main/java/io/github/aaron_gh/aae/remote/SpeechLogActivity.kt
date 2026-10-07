@@ -33,7 +33,6 @@ class SpeechLogActivity : ToolActivity() {
             setOnClickListener { setRecording(isChecked) }
             ui.column.addView(this)
         }
-        ui.text("While recording, speech goes through AAE's speech log on its way to the device's speech engine. Turning it on or off restarts the screen reader.")
         ui.addStatus()
         rows = ui.list("Speech") {}.second
         ui.button("Clear") {
@@ -70,7 +69,7 @@ class SpeechLogActivity : ToolActivity() {
     private fun setRecording(on: Boolean) {
         busy = true
         record.isEnabled = false
-        ui.say(if (on) "Turning on the speech log. The screen reader restarts." else "Turning off the speech log.")
+        ui.say(if (on) "Turning on the speech log." else "Turning off the speech log.")
         call("tools.speech_log.set", params().put("on", on)) { message ->
             busy = false
             record.isEnabled = true
