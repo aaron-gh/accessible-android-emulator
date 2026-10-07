@@ -3339,7 +3339,7 @@ fn edit_settings() {
         s.play_sounds = answer.values[0].checked();
         s.play_only_in_use = answer.values[1].checked();
         s.correct_pitch = answer.values[2].checked();
-        s.return_shortcut = answer.values[4].choice().unwrap_or(0).min(2) as u8;
+        s.return_shortcut = answer.values[3].choice().unwrap_or(0).min(2) as u8;
     });
     with(|app| app.apply_audio_focus());
     if pitch_changed {

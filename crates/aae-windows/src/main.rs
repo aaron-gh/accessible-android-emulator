@@ -43,8 +43,17 @@ fn main() {
     if std::env::args().any(|a| a == "--serve") {
         serve_hidden();
     }
+    // Where a panic happened, for log_panic: the payload doesn't say.
+    std::panic::set_hook(Box::new(|info| {
+        if let Some(at) = info.location() {
+            *PANIC_AT.lock().unwrap() = Some(format!("{}:{}", at.file(), at.line()));
+        }
+    }));
     window::run();
 }
+
+#[cfg(windows)]
+static PANIC_AT: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// Serving at login (`aae daemon install` sets it up): runs `aae serve`, the
 /// aae.exe next to this app, with no console window, which aae.exe started
@@ -90,7 +99,8 @@ pub fn log_panic(panic: &Box<dyn std::any::Any + Send>) {
         .cloned()
         .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
         .unwrap_or_else(|| "unknown".into());
-    tracing::error!("the Windows app hit a bug: {message}");
+    let at = PANIC_AT.lock().unwrap().take().unwrap_or_else(|| "unknown".into());
+    tracing::error!("the Windows app hit a bug at {at}: {message}");
 }
 
 #[cfg(windows)]
