@@ -1,5 +1,6 @@
 //! Device mode: the keyboard belongs to Android until the user presses
-//! Control-Windows-Escape, as Control-Command-Escape does on the Mac.
+//! Control-Windows-Escape (or the return shortcut chosen in Settings), as
+//! Control-Command-Escape does on the Mac.
 //!
 //! A low-level keyboard hook sees every key before Windows acts on it, so
 //! Windows' own shortcuts, such as Alt-Tab, the Windows key and Alt-F4, reach
@@ -34,6 +35,27 @@ const EXTENDED: u16 = 0x100;
 const ESCAPE: u16 = 0x01;
 const CONTROL: [u16; 2] = [0x1D, EXTENDED | 0x1D];
 const WINDOWS: [u16; 2] = [EXTENDED | 0x5B, EXTENDED | 0x5C];
+const SHIFT: [u16; 2] = [0x2A, 0x36];
+const ALT: [u16; 2] = [0x38, EXTENDED | 0x38];
+
+/// The shortcuts that can bring the keyboard back to Windows: Escape with
+/// Control and Windows, and Shift or Alt too if chosen in Settings, for when
+/// an app under test needs Control-Windows-Escape. Never fewer modifiers, so
+/// no key Android needs on its own is taken.
+pub const RETURN_SHORTCUTS: [&str; 3] = [
+    "Control Windows Escape",
+    "Control Shift Windows Escape",
+    "Control Alt Windows Escape",
+];
+
+/// The chosen one, as the hook reads it.
+static RETURN_SHORTCUT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// The return shortcut chosen, as it's said.
+pub fn return_shortcut() -> &'static str {
+    RETURN_SHORTCUTS
+        [(crate::settings::get().return_shortcut as usize).min(RETURN_SHORTCUTS.len() - 1)]
+}
 /// Insert, on its own and on the keypad, and Caps Lock: screen reader keys.
 const SCREEN_READER_KEYS: [u16; 3] = [EXTENDED | 0x52, 0x52, 0x3A];
 
@@ -78,6 +100,10 @@ pub fn set_events(events: Events) {
 /// Gives the keyboard to Android, to type, or with `gestures`, to perform
 /// gestures. Returns false if Windows wouldn't install the hook.
 pub fn enter(session: Arc<Session>, gestures: bool) -> bool {
+    RETURN_SHORTCUT.store(
+        crate::settings::get().return_shortcut,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     HOOK.with(|cell| {
         let mut hook = cell.borrow_mut();
         if hook.is_none() {
@@ -230,10 +256,13 @@ fn handle(info: &KBDLLHOOKSTRUCT, down: bool) -> bool {
             return false;
         }
         hook.swallowed.insert(key);
-        if key == ESCAPE
-            && CONTROL.iter().any(|k| mode.held.contains(k))
-            && WINDOWS.iter().any(|k| mode.held.contains(k))
-        {
+        let held = |keys: &[u16; 2]| keys.iter().any(|k| mode.held.contains(k));
+        let extra = match RETURN_SHORTCUT.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => held(&SHIFT),
+            2 => held(&ALT),
+            _ => true,
+        };
+        if key == ESCAPE && held(&CONTROL) && held(&WINDOWS) && extra {
             escape = true;
             return true;
         }

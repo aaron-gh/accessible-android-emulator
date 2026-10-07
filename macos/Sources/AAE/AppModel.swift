@@ -1008,9 +1008,9 @@ final class AppModel: ObservableObject {
                     return
                 }
                 if gestures {
-                    announce("Gesture mode on. Arrows swipe, Space double taps, question mark lists the keys. Control Command Escape returns to the Mac.")
+                    announce("Gesture mode on. Arrows swipe, Space double taps, question mark lists the keys. \(ReturnShortcut.current.spoken) returns to the Mac.")
                 } else {
-                    announce("Android keyboard on. Control Command Escape returns to the Mac.")
+                    announce("Android keyboard on. \(ReturnShortcut.current.spoken) returns to the Mac.")
                 }
             } catch {
                 announce(error.localizedDescription, tone: .failure)

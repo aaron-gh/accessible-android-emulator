@@ -39,7 +39,12 @@ pub enum GestureAction {
     Unknown,
 }
 
-pub const HELP: &str = "Gesture keys. Arrows swipe. Hold one arrow and press another for a two-part swipe, such as up then left. Space double taps. T taps, R triple taps. H double taps and holds, and L touches and holds, until you let go. Hold 2, 3 or 4 while pressing a key to use that many fingers. Gestures happen at the touch point: Tab and Shift Tab move it from item to item, Shift arrows move it a step, C puts it in the middle, and W says where it is. Control Windows Escape returns to Windows.";
+pub fn help() -> String {
+    format!(
+        "Gesture keys. Arrows swipe. Hold one arrow and press another for a two-part swipe, such as up then left. Space double taps. T taps, R triple taps. H double taps and holds, and L touches and holds, until you let go. Hold 2, 3 or 4 while pressing a key to use that many fingers. Gestures happen at the touch point: Tab and Shift Tab move it from item to item, Shift arrows move it a step, C puts it in the middle, and W says where it is. {} returns to Windows.",
+        crate::keyboard::return_shortcut()
+    )
+}
 
 const EXTENDED: u16 = 0x100;
 const TAB: u16 = 0x0F;

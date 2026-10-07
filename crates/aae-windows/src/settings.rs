@@ -17,6 +17,8 @@ pub struct Settings {
     pub last_update_mention: u64,
     /// New Device offers previews of upcoming Android releases.
     pub include_previews: bool,
+    /// Which of keyboard::RETURN_SHORTCUTS brings the keyboard back.
+    pub return_shortcut: u8,
 }
 
 impl Default for Settings {
@@ -27,6 +29,7 @@ impl Default for Settings {
             correct_pitch: true,
             last_update_mention: 0,
             include_previews: false,
+            return_shortcut: 0,
         }
     }
 }

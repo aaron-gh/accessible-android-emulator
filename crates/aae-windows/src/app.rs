@@ -493,11 +493,14 @@ impl App {
                     .map(|d| d.name.clone())
                     .unwrap_or_else(|| "Android".into());
                 let mut text = if self.gesture_mode {
-                    format!("Keys perform gestures on {name}.\n\n{}", gestures::HELP)
+                    format!("Keys perform gestures on {name}.\n\n{}", gestures::help())
                 } else {
                     format!("The keyboard is in {name}.")
                 };
-                text.push_str("\n\nPress Control Windows Escape to return to Windows.");
+                text.push_str(&format!(
+                    "\n\nPress {} to return to Windows.",
+                    keyboard::return_shortcut()
+                ));
                 ui::set_text(c.mode_text, &text);
             }
             Screen::Devices => {
@@ -1767,12 +1770,18 @@ fn enter_device_mode(gestures: bool) {
             ui::focus(return_button);
             if gestures {
                 announce(
-                    "Gesture mode on. Arrows swipe, Space double taps, question mark lists the keys. Control Windows Escape returns to Windows.",
+                    &format!(
+                        "Gesture mode on. Arrows swipe, Space double taps, question mark lists the keys. {} returns to Windows.",
+                        keyboard::return_shortcut()
+                    ),
                     Tone::Info,
                 );
             } else {
                 announce(
-                    "Android keyboard on. Control Windows Escape returns to Windows.",
+                    &format!(
+                        "Android keyboard on. {} returns to Windows.",
+                        keyboard::return_shortcut()
+                    ),
                     Tone::Info,
                 );
             }
@@ -1877,7 +1886,7 @@ fn gesture_actions(actions: Vec<GestureAction>) {
             GestureAction::WhereIsIt => queue_gesture(session.clone(), |s| {
                 Box::pin(async move { say_touch_point(s, None).await })
             }),
-            GestureAction::Help => announce(gestures::HELP, Tone::Info),
+            GestureAction::Help => announce(&gestures::help(), Tone::Info),
             GestureAction::Unknown => Tone::Failure.play(),
         }
     }
@@ -3002,7 +3011,14 @@ fn edit_settings() {
                 label: "&Correct the pitch of older Android versions".into(),
                 checked: current.correct_pitch,
             })
-            .text("In the emulator, Android 10 and earlier play about 8% slow, so they sound low. AAE raises the pitch back, which can add a slight processing sound.")
+            .field(Field::Choice {
+                label: "&Return to Windows with".into(),
+                items: keyboard::RETURN_SHORTCUTS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                selected: current.return_shortcut as usize,
+            })
             .button("OK", 1, Role::Default)
             .button("Cancel", 0, Role::Cancel),
     );
@@ -3014,6 +3030,7 @@ fn edit_settings() {
         s.play_sounds = answer.values[0].checked();
         s.play_only_in_use = answer.values[1].checked();
         s.correct_pitch = answer.values[2].checked();
+        s.return_shortcut = answer.values[4].choice().unwrap_or(0).min(2) as u8;
     });
     with(|app| app.apply_audio_focus());
     if pitch_changed {

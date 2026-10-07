@@ -38,7 +38,7 @@ enum GestureAction: Equatable {
 final class GestureKeys {
     var act: (GestureAction) -> Void = { _ in }
 
-    static let helpText = "Gesture keys. Arrows swipe. Hold one arrow and press another for a two-part swipe, such as up then left. Space double taps. T taps, R triple taps. H double taps and holds, and L touches and holds, until you let go. Hold 2, 3 or 4 while pressing a key to use that many fingers. Gestures happen at the touch point: Tab and Shift Tab move it from item to item, Shift arrows move it a step, C puts it in the middle, and W says where it is. Control Command Escape returns to the Mac."
+    static var helpText: String { "Gesture keys. Arrows swipe. Hold one arrow and press another for a two-part swipe, such as up then left. Space double taps. T taps, R triple taps. H double taps and holds, and L touches and holds, until you let go. Hold 2, 3 or 4 while pressing a key to use that many fingers. Gestures happen at the touch point: Tab and Shift Tab move it from item to item, Shift arrows move it a step, C puts it in the middle, and W says where it is. \(ReturnShortcut.current.spoken) returns to the Mac." }
 
     /// Keys down, as far as gesture mode knows. A key going down again while
     /// in here is the keyboard repeating it.

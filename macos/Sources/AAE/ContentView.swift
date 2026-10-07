@@ -190,7 +190,7 @@ struct DeviceModeView: View {
                         .frame(maxWidth: 520)
                         .accessibilityHidden(true)
                 }
-                Text("Press Control Command Escape to return to the Mac.")
+                Text("Press \(ReturnShortcut.current.spoken) to return to the Mac.")
                     .accessibilityHidden(true)
                 // A way out that doesn't depend on the keyboard: with VoiceOver
                 // on (Command-F5 still works), move to it and press VO-Space.

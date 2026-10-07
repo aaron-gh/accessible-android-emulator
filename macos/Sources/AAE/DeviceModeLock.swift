@@ -122,10 +122,11 @@ final class DeviceModeLock {
         return CGSGetGlobalHotKeyOperatingMode(CGSMainConnectionID(), &mode) == 0
     }
 
-    /// Control-Command-Escape, the way back to the Mac.
+    /// The way back to the Mac: Control-Command-Escape, or the one chosen
+    /// in Settings. Extra modifiers held too don't stop it.
     nonisolated static func isEscapeHatch(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return event.keyCode == 0x35 && flags.contains(.control) && flags.contains(.command)
+        return event.keyCode == 0x35 && flags.contains(ReturnShortcut.current.modifiers)
     }
 
     /// Returns the keyboard to the Mac, from the escape keys or the button.
@@ -229,5 +230,40 @@ private final class Watchdog: @unchecked Sendable {
         lock.withLock { running = false }
         timer?.invalidate()
         timer = nil
+    }
+}
+
+/// The shortcuts that can return the keyboard to the Mac: Escape with Control
+/// and Command, and Shift or Option too if chosen, for when an app under test
+/// needs Control-Command-Escape. Never fewer modifiers, so no key Android
+/// needs on its own is ever taken.
+enum ReturnShortcut: String, CaseIterable, Identifiable {
+    case controlCommand
+    case controlShiftCommand
+    case controlOptionCommand
+
+    static let key = "returnShortcut"
+
+    nonisolated static var current: ReturnShortcut {
+        ReturnShortcut(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .controlCommand
+    }
+
+    var id: String { rawValue }
+
+    var modifiers: NSEvent.ModifierFlags {
+        switch self {
+        case .controlCommand: [.control, .command]
+        case .controlShiftCommand: [.control, .shift, .command]
+        case .controlOptionCommand: [.control, .option, .command]
+        }
+    }
+
+    /// As it's said, such as "Control Command Escape".
+    var spoken: String {
+        switch self {
+        case .controlCommand: "Control Command Escape"
+        case .controlShiftCommand: "Control Shift Command Escape"
+        case .controlOptionCommand: "Control Option Command Escape"
+        }
     }
 }

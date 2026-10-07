@@ -111,16 +111,18 @@ The inspector, checks and speech log were checked on Android 8, 11, 14 and 16.
 
 The Mac app is in `macos/`. Announcements go through VoiceOver when it's running, and otherwise through the Mac's system voice, each after a short sound, which Settings can turn off. AAE menu, Check for Updates, checks for a new version straight away; it also checks by itself.
 
-- File menu: New Device (Command-N) and Android Versions (Option-Command-A).
-- Device menu, for the selected device: Start (Command-Shift-S), Stop (Command-Shift-.), Restart (Command-Shift-R), Use Android Keyboard (Command-Shift-E), Use Gestures (Command-Shift-G), Open in Own Window (Option-Command-O) and Speak Status (Command-Shift-I). Then Android's buttons and screens, including Power, Assistant and the device's own volume buttons, rotation, the device's sound, the clipboard, apps and services, conditions, installing, and renaming, copying, wiping and deleting.
-- Testing tools: Accessibility Inspector (Option-Command-I), Speech Log (Option-Command-L), Device Log (Option-Command-J) and Shell (Option-Command-T).
-- Apps (Option-Command-P), Accessibility Services (Option-Command-U), Snapshots (Option-Command-S), Battery, Location, Phone and Network (Option-Command-B), and Display and Language (Option-Command-Comma).
-- Sound: Mute (Command-Shift-M), Turn Device Audio Up and Down (Option-Command-Up and Down), Check Audio (Option-Command-K), Turn On Microphone (Command-Shift-U), and a volume slider in the main window, with a choice of which of the Mac's outputs the device plays through. The first time, macOS asks whether AAE may use the microphone.
-- Clipboard: Command-Shift-C copies the device's clipboard to the Mac, Command-Shift-V sends the Mac's clipboard to the device, and Option-Command-V types it on the device as key presses, for fields that block pasting.
-- Recording: Record Screen (Option-Command-R) records the screen and its sound into a WebM file, for up to three minutes, the emulator's limit; choose it again, Stop Recording, to stop. On Windows it's Control-Alt-R, and in the terminal `aae record <device> <file>`. AI agents have `start_recording` and `stop_recording`.
-- Installing: Install App (Command-I), or drop APKs on the window, or copy them in Finder and paste them into it. Install Screen Reader Build is Option-Shift-Command-I, and Open Link is Command-Shift-L.
-- Device mode sends every key to Android, with Command as Meta, including system shortcuts such as Spotlight's Command-Space and Mission Control. VoiceOver's own shortcuts, such as Command-F5, still work. Control-Command-Escape, or the "Return to the Mac" button, brings the keyboard back.
-- Several devices at once: Open in Own Window gives a device a window of its own. The device whose window is in front is the selected one, so the Device menu acts on it, and device or gesture mode started there stays in that window.
+- File: New Device (Command-N), Import Device, Android Versions (Option-Command-A), Serve Devices to Phones.
+- Device:
+  - Start (Command-Shift-S), Stop (Command-Shift-.), Restart (Command-Shift-R), Use Android Keyboard (Command-Shift-E), Use Gestures (Command-Shift-G), Open in Own Window (Option-Command-O), Speak Status (Command-Shift-I).
+  - Android buttons including Power and Assistant, rotation, Hardware, Export, rename, copy, wipe, delete.
+  - Accessibility Inspector (Option-Command-I), Speech Log (Option-Command-L), Device Log (Option-Command-J), Shell (Option-Command-T), Apps (Option-Command-P), Accessibility Services (Option-Command-U), Snapshots (Option-Command-S), Battery, Location, Phone and Network (Option-Command-B), Display and Language (Option-Command-Comma).
+  - Mute (Command-Shift-M), volume (Option-Command-Up and Down), Check Audio (Option-Command-K), Turn On Microphone (Command-Shift-U), Turn On Speech Bridge.
+  - Clipboard: device to Mac (Command-Shift-C), Mac to device (Command-Shift-V), type the Mac clipboard (Option-Command-V).
+  - Record Screen (Option-Command-R), Save Screenshot.
+  - Install App (Command-I), or drop or paste APKs. Install Screen Reader Build (Option-Shift-Command-I). Open Link (Command-Shift-L).
+- Main window: volume and Audio output.
+- Device mode: Command is Meta. Spotlight, Mission Control and other system shortcuts go to Android; VoiceOver shortcuts still work. Control-Command-Escape or the Return to the Mac button exits. Settings offers Control-Shift-Command-Escape or Control-Option-Command-Escape instead.
+- Open in Own Window: the device whose window is in front is the selected device.
 
 ## The Windows app
 
@@ -128,14 +130,11 @@ The Windows app is in `crates/aae-windows`. It's written in Rust with Windows' o
 
 Announcements go straight to NVDA, through NV Access's controller client, which also shows them in braille, or to JAWS, through its own speech interface. Narrator and other screen readers get them as UI Automation notifications, and with no screen reader, Windows' own voice speaks them. A short sound plays before each one.
 
-- Shortcuts are the Mac app's, with Control for Command and Alt for Option: New Device is Control-N, Start is Control-Shift-S, and so on. Rename is F2, and Delete is the Delete key.
-- Device mode sends every key to Android, with the Windows key as Meta, including Windows' own shortcuts such as Alt-Tab, the Windows key and Alt-F4; only Control-Alt-Delete and Windows-L can't be taken. Your screen reader keeps its keys: while Insert or Caps Lock is held, keys go to Windows. Control-Windows-Escape, or the "Return to Windows" button, brings the keyboard back.
-- Turn On Microphone is Control-Shift-U.
-- Device, Audio Output chooses which of the computer's outputs the selected device plays through, remembered for it; `aae audio-output <device> <name>` does the same, and lists them. If that output isn't there, such as headphones unplugged, the device plays through the default.
-- Installing apps: Install App (Control-I), or drop APKs on the window, or copy them in File Explorer and paste them into it with Control-V.
-- It has the Mac app's windows, with the same shortcuts: Accessibility Inspector (Control-Alt-I), Speech Log (Control-Alt-L), Device Log (Control-Alt-J), Shell (Control-Alt-T), Apps (Control-Alt-P), Accessibility Services (Control-Alt-U), Snapshots (Control-Alt-S), Battery, Location, Phone and Network (Control-Alt-B), Display and Language (Control-Alt-Comma), Android Versions (Control-Alt-A), Open Link (Control-Shift-L), Send Intent, Watch for New Builds, and Open in Own Window (Control-Alt-O). Each window stays open beside the main one: Tab moves through it, F5 refreshes it if it has a Refresh button, and Escape closes it.
-- In a device's own window, the menu's shortcuts act on that device. Device and gesture mode started there take the keyboard in the main window, which has the way back.
-- Battery, Location, Phone and Network looks up places and addresses on OpenStreetMap, which gets only the text you typed; latitude and longitude are used as they are.
+- Mac shortcuts with Control for Command and Alt for Option. Rename is F2, Delete is Delete.
+- Device mode: the Windows key is Meta. Alt-Tab, the Windows key and Alt-F4 go to Android; Control-Alt-Delete and Windows-L can't. Keys held with Insert or Caps Lock go to the host screen reader. Control-Windows-Escape or the Return to Windows button exits; Settings offers Control-Shift-Windows-Escape or Control-Alt-Windows-Escape.
+- Device, Audio Output; `aae audio-output <device> <name>`. Falls back to the system default when the output is missing.
+- Tool windows as on the Mac: Tab moves, F5 refreshes, Escape closes.
+- In a device's own window, menu shortcuts act on that device; device and gesture mode run in the main window.
 
 ## AAE Remote, for Android phones
 
