@@ -5,6 +5,21 @@
         <description>Updates for AAE, the Accessible Android Emulator.</description>
         <language>en</language>
         <item>
+            <title>Version 0.4.0</title>
+            <pubDate>Wed, 07 Oct 2026 12:24:50 -0000</pubDate>
+            <sparkle:version>86</sparkle:version>
+            <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<ul>
+<li>AAE Remote, a new Android app, uses this computer's devices from your phone: their sound and vibrations play on the phone, and you manage and use them with keyboard and gesture modes and the testing tools. Turn on File, Serve Devices to Phones, then pair your phone with the code AAE shows.</li>
+<li>AAE can serve devices whenever you log in, without being open.</li>
+<li>Quitting while a device is stopping now waits for it, so its emulator isn't left running.</li>
+<li>Speak Status names the screen reader, and an app made only for ARM processors gets a clear message when it can't install.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.4.0/AAE-0.4.0.dmg" sparkle:edSignature="vrSkZxKkAd6mSLvVYfOtGu3uqwGYRiDcO3ZvdysN6MW0OMoIM3S8EoX3C1y1zATgrd/CtQCwX5l0xcyqQtwhAA==" length="32980131" type="application/octet-stream" />
+        </item>
+        <item>
             <title>Version 0.3.1</title>
             <pubDate>Wed, 07 Oct 2026 10:09:54 -0000</pubDate>
             <sparkle:version>70</sparkle:version>
