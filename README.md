@@ -2,105 +2,141 @@
 
 AAE lets blind people create, run and test Android virtual devices without sighted help. Each device has a screen reader on from its first boot, takes your keyboard, and plays its audio reliably.
 
-This is an early development build. It has a cross-platform core, the `aae` command line, a Mac app, and a first Windows app, which is being tested.
+There's a Mac app, a Windows app and the `aae` command line, all over the same core. AAE is in early development: the Mac app is the most complete, and the Windows app is new and being tested.
 
-## What works now
+## Getting AAE
+
+- **Mac:** download the disk image from the [latest release](https://github.com/aaron-gh/accessible-android-emulator/releases/latest), open it and drag AAE to Applications. It needs a Mac with Apple silicon and macOS 13 or later. AAE isn't notarised by Apple, so the first time you open it, go to System Settings, Privacy & Security, and choose Open Anyway.
+- **Windows:** there's no stable Windows release yet; the development build below is the one to try. It needs Windows 10 or 11 on an Intel or AMD processor, with Windows Hypervisor Platform turned on. Google doesn't make its emulator for Windows on ARM, so AAE doesn't install there. AAE isn't signed for Windows yet, so SmartScreen may say it protected your PC: choose More info, then Run anyway.
+- **Development builds:** every change to `master` is built for both and published as the [dev prerelease](https://github.com/aaron-gh/accessible-android-emulator/releases/tag/dev), replacing the one before, so it can be tried before a stable release. The latest are always at [AAE-dev.dmg](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev.dmg) and [AAE-dev-windows-x64-setup.exe](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64-setup.exe). Help, About AAE, says which build you have.
+
+Both apps update themselves. Check for Updates never offers a development build; from one, it offers the next stable release.
+
+## What AAE does
 
 ### Setting up
 
-- No Android Studio needed. On first run, the Mac app shows what it needs: Google's Android emulator, platform tools (adb) and build tools, about 500 MB. It shows Google's licence for you to accept, then downloads each one, checks it against Google's checksum, and installs it as Android Studio's SDK manager would. `aae setup` does the same on the command line.
-- Before downloading, AAE checks the computer can run the emulator at full speed (Hypervisor.framework on a Mac, KVM on Linux), and says what to do if it can't.
+- No Android Studio needed. On first run, AAE shows what it needs: Google's Android emulator, platform tools (adb) and build tools, about 500 MB. It shows Google's licence for you to accept, then downloads each one, checks it against Google's checksum, and installs it as Android Studio's SDK manager would. `aae setup` does the same on the command line.
+- Before downloading, AAE checks the computer can run the emulator at full speed (Hypervisor.framework on a Mac, Windows Hypervisor Platform on Windows, KVM on Linux), and says what to do if it can't.
 - AAE uses the Android SDK you already have, if there is one, such as Android Studio's. Otherwise it sets up its own, in its data folder. Set `ANDROID_HOME` to choose another place.
-- Updating the emulator and platform tools AAE installed to Google's newest stable versions, from the Android Versions window or with `aae setup --update`. Every device has to be stopped first. AAE mentions available updates when it starts, at most once a day. Tools something else installed, such as Android Studio, are left for it to update; AAE marks the ones it installs with a `.installed-by-aae` file to tell them apart.
+- AAE updates the emulator and platform tools it installed to Google's newest stable versions, with every device stopped, and mentions available updates when it starts, at most once a day. `aae setup --update` does it on the command line. Tools something else installed, such as Android Studio, are left for it to update; AAE marks the ones it installs with a `.installed-by-aae` file to tell them apart.
 
 ### Android versions
 
-- Finding your Android SDK and the Android versions installed in it. `aae images` lists them with their size and the devices that use each one.
-- Downloading Android versions. `aae available` lists every version Google offers for this computer, Android 5 and later, and `aae download --api 35` installs one into the SDK, the way Android Studio does. `aae create` downloads the version you ask for if it isn't installed. Google's licence is never accepted for you: the command line saves it for you to read, then you accept it with `--accept-licence`. The Mac app shows it in a sheet with Accept and Decline, and Decline is the default.
-- Deleting Android versions to free disk space, with `aae remove-image --api 35` or the Mac app's Android Versions window. A version can't be deleted while any of AAE's devices use it. Android Studio shares the SDK, so AAE also names any Android Studio devices that use the version, and warns that they won't start without it.
+- `aae available` lists every Android version Google offers for this computer, Android 5 and later. New Device in the apps, `aae create` and `aae download` install the one you choose into the SDK, the way Android Studio does.
+- Google's licence is never accepted for you. The apps show it with Accept and Decline: Escape declines, and Enter does nothing, so nothing is accepted by accident; the command line saves it for you to read, then you accept it with `--accept-licence`.
+- The installed versions are listed with their size and the devices that use each one, and can be deleted to free disk space. A version can't be deleted while any of AAE's devices use it. Android Studio shares the SDK, so AAE also names any Android Studio devices that use the version, and warns that they won't start without it.
 
 ### Devices
 
-- Named devices, including several of the same Android version, each with its own apps and data: create, clone, rename and delete.
-- Wiping a device back to how it was first set up (Device, Wipe, or `aae wipe`): its apps, data and snapshots go, and its screen reader is set up again. It keeps its name, hardware and volume. AAE keeps a copy of each screen reader it installs for this.
-- Starting a device with no emulator window. Stopping it saves its state for a quick start next time, after first writing everything to its disk. `aae restart` restarts Android on a running device without losing anything on it.
+- Named devices, including several of the same Android version, each with its own apps and data: create, copy, rename, wipe and delete. Wiping takes a device back to how it was first set up: its apps, data and snapshots go, and its screen reader is set up again, but it keeps its name, hardware and volume.
+- Devices run with no emulator window. Stopping one saves its state for a quick start next time, after first writing everything to its disk. Restarting restarts Android without losing anything on it.
 - First-boot setup: hardware keyboard on, setup wizard skipped, screen kept awake, animations off, and a screen reader installed and turned on.
-- Installing a new screen reader build on several devices, for screen reader developers. Installing a new build of the same screen reader keeps its settings. Stopped devices get it when they next start. In the Mac app, Install Screen Reader Build (Option-Shift-Command-I) chooses the devices, starting with the ones that use that screen reader; on the command line, `aae screen-reader all build.apk` does every device that uses it. A build signed differently can only replace the old one, which loses its settings, so AAE asks first (`--replace` on the command line).
-- Choosing a screen reader. If the Android image has no screen reader and you didn't choose one, AAE asks whether to download Backtalk (its latest development build, checked against Backtalk's signing key), install your own APK, or go without. `aae screen-reader <device> backtalk` adds Backtalk later.
-- Keeping accessibility services on. Every start, and every app install, turns back on any service Android turned off.
-- Switching accessibility services on and off: the Accessibility Services window (Option-Command-U) lists every service on a device by its name and description. Screen readers are one choice, as only one runs at a time, so switching between TalkBack, Backtalk or any other installed screen reader is one step; every other service has a switch. What you turn on stays on, and what you turn off stays off. `aae services <device> on|off <name>` and `aae screen-reader <device> talkback` do the same.
-- Installing apps. The first time an app has an accessibility service, a keyboard, a notification listener or a device administrator, AAE asks whether to turn each one on, and remembers the answer for that device, so a reinstall or update applies it again without asking. `aae install` asks in the terminal; `--yes` turns them all on and `--no-services` leaves them off.
-- Managing apps: the Apps window (Option-Command-P) lists a device's apps by the names people see, and opens, force-stops, clears or uninstalls them. Permissions shows each permission an app asks for as a switch, with Grant All, and its special access: unrestricted battery use, display over other apps, usage access and modifying system settings. `aae apps` and `aae app <device> <app> open|screen|stop|clear|uninstall|permissions|grant|revoke|allow|disallow` do the same in the terminal, where the app can be given by name.
-- Links and intents: Open Link (Command-Shift-L) opens a web address or an app's own link, in an app you choose or whichever Android picks, and Send Intent sends any intent, to open a screen or as a broadcast, with text extras. `aae link` and `aae intent` do the same.
-- Watching an app's builds: Watch for New Builds in the Device menu, or `aae watch`, takes an APK or a build folder, such as build/outputs/apk, and installs each new build on the devices you choose as soon as it's written, keeping its services on as you chose before.
-- Installing on several devices at once. In the Mac app, Install App (Command-I), dropping APKs on the window, or copying them in Finder and pasting them into the window asks which running devices to install on; `aae install` takes devices separated by commas. An app's parts are asked about once, and the answers used on every device.
-- Sending keys and text, rotating, battery, location, text messages, calls, clipboard, screenshots, and named snapshots with notes (`aae snapshot <device> save "Before sign-in" --notes "…"`, then list, load, rename or delete).
+- Choosing a screen reader. If the Android image has no screen reader and you didn't choose one, AAE asks whether to download Backtalk (its latest development build, checked against Backtalk's signing key), install your own APK, or go without.
+- Screen reader builds, for screen reader developers: a new build can go on several devices at once, starting with the ones that use that screen reader. A new build of the same screen reader keeps its settings, and stopped devices get it when they next start. A build signed differently can only replace the old one, which loses its settings, so AAE asks first.
+- Accessibility services stay as you set them. Every start, and every app install, turns back on any service Android turned off. The Accessibility Services window lists every service on a device by its name and description: screen readers are one choice, as only one runs at a time, so switching between TalkBack, Backtalk or any other is one step, and every other service has a switch.
+- Installing apps, on one device or several at once. The first time an app has an accessibility service, a keyboard, a notification listener or a device administrator, AAE asks whether to turn each one on, and remembers the answer for that device, so a reinstall or update applies it again without asking. Watching an app's builds installs each new build as soon as it's written, from an APK or a build folder such as build/outputs/apk.
+- Managing apps: a device's apps are listed by the names people see, and can be opened, force-stopped, cleared or uninstalled. Each permission an app asks for is a switch, with Grant All, as is its special access: unrestricted battery use, display over other apps, usage access and modifying system settings.
+- Opening links, in an app you choose or whichever Android picks, and sending any intent, to open a screen or as a broadcast, with text extras.
+- Sending keys and text, rotating, the clipboard both ways, screenshots, and named snapshots with notes. Battery level and charging, location from an address, a place name or coordinates, text messages to the device, and the other end of a phone call: call the device, hang up, hold, or answer or be busy for a call the device makes.
 
 ### Speech and sound
 
-- Playing the device's audio through AAE's own audio code, not the emulator's. The emulator's own audio output is off, which removes its crackle.
-- Turning the screen reader's volume up to full on each new device, through AAE's helper app. Pass `--no-volume-boost` to leave it alone, or use `aae volume` to change it.
+- The device's audio plays through AAE's own audio code, not the emulator's, whose output is off, which removes its crackle. Each device has its own volume, remembered, and can be muted. With several devices running, AAE plays only the one you're using, unless you turn that off in Settings.
+- Each new device's screen reader volume is turned up to full, through AAE's helper app. Pass `--no-volume-boost` to leave it alone, or use `aae volume` to change it.
 - Dependable speech. During setup and on every start, AAE's helper checks that the device's speech engine can actually speak. If Google's engine has downloaded voices that don't work, AAE resets it. If speech still fails, or the image has no engine, AAE installs its own build of eSpeak NG and makes it the default. That build speaks as soon as it's installed. `aae speech` runs the check by hand.
-- Checking the sound. The Mac app watches that each device's sound is reaching it: when Android plays something and nothing arrives, it says so, once. Check Audio (Option-Command-K) also has AAE's helper play a test tone, which AAE listens for with its own playback muted so you don't hear it, and if the sound isn't getting through, offers to restart AAE's audio without restarting the device. `aae sound-check` does the same test in the terminal.
-- Correct pitch on older Android. In the emulator, Android 10 and earlier play audio about 8% slow, so they sound low. AAE measures each device's audio speed silently during setup, and raises the pitch back when playing. Turn this off in the Mac app's Settings, or with `--no-pitch-correction`. `aae audio-check` measures again.
+- Checking the sound. The apps watch that each device's sound is reaching them: when Android plays something and nothing arrives, they say so, once. Check Audio also has AAE's helper play a test tone, which AAE listens for with its own playback muted so you don't hear it, and if the sound isn't getting through, offers to restart AAE's audio without restarting the device. `aae sound-check` does the same test in the terminal.
+- Correct pitch on older Android. In the emulator, Android 10 and earlier play audio about 8% slow, so they sound low. AAE measures each device's audio speed silently during setup, and raises the pitch back when playing. Turn this off in Settings, or with `--no-pitch-correction`. `aae audio-check` measures again.
 
 ### Keyboard
 
+- Device mode gives your whole keyboard to Android, including the system's own shortcuts, until you press the way back. Your computer's screen reader keeps its own keys.
 - A full PC keyboard in Android. The emulator's own keyboard layout is a phone layout with no Meta key, so TalkBack's keyboard shortcuts can't work, and Escape, Home and End act as phone buttons. AAE's helper supplies a full keyboard layout and selects it every time a device starts. Tested on Android 8, 11, 14 and 16.
-- `aae keytest`: checks that 15 kinds of key, Meta included, reach Android as the keys pressed.
-- `aae latency`: measures the time from a key press to the device's speech.
-- `aae attach`: the device's audio plays and your terminal's keyboard goes to the device. Control-] brings it back. Plain Escape goes to the device. A terminal can't see the Command key, so Option is sent as Android's Meta key, the modifier TalkBack's current keymap uses. Pass `--keep-alt` to send it as Alt. macOS Terminal turns Option-Left and Option-Right into word movement before AAE sees them. To fix that, open Terminal's Settings, then Profiles, then Keyboard. Turn on "Use Option as Meta key". Set Option-Left to send `\033[1;3D` and Option-Right to send `\033[1;3C`. iTerm2, Ghostty, kitty and WezTerm report every key and need none of this. The Mac app captures keys directly, with none of these limits.
+- `aae keytest` checks that 15 kinds of key, Meta included, reach Android as the keys pressed. `aae latency` measures the time from a key press to the device's speech.
+- `aae attach` plays the device's audio and sends your terminal's keyboard to the device, until Control-]. Plain Escape goes to the device. A terminal can't see the Command key, so Option is sent as Android's Meta key, the modifier TalkBack's current keymap uses; pass `--keep-alt` to send it as Alt. macOS Terminal turns Option-Left and Option-Right into word movement before AAE sees them. To fix that, open Terminal's Settings, then Profiles, then Keyboard. Turn on "Use Option as Meta key". Set Option-Left to send `\033[1;3D` and Option-Right to send `\033[1;3C`. iTerm2, Ghostty, kitty and WezTerm report every key and need none of this. The apps capture keys directly, with none of these limits.
 
 ### Gestures
 
 - Screen reader gestures, performed with simulated fingers through the emulator's touchscreen, so the screen reader sees them as real touches: swipes in four directions, two-part swipes such as up then left, swipes with two, three or four fingers, single, double and triple taps, and double tap and hold. They follow the way the screen is turned. Tested with Backtalk on Android 8, 14 and 16.
-- Gesture mode in the Mac app (Command-Shift-G): the whole keyboard performs gestures until Control-Command-Escape.
+- Gesture mode turns the whole keyboard into gestures:
   - Arrows swipe; hold one arrow and press another for a two-part swipe.
   - Space double taps, T taps, and R triple taps. H double taps and holds, and L touches and holds, for as long as the key is held.
   - Hold 2, 3 or 4 while pressing a key to use that many fingers.
-  - Gestures happen at the touch point, which starts in the middle of the screen. Tab and Shift-Tab move it to the next or previous thing on the screen, read out through VoiceOver. Shift-arrows move it a step at a time, saying what's under it. C puts it back in the middle, and W says where it is. This is how to tap a particular control in an app with no screen reader running, or in a part of an app a screen reader can't see. AAE's helper reads the screen for this, so it works whether or not the device has a screen reader on.
+  - Gestures happen at the touch point, which starts in the middle of the screen. Tab and Shift-Tab move it to the next or previous thing on the screen, and say what it is. Shift-arrows move it a step at a time, saying what's under it. C puts it back in the middle, and W says where it is. This is how to tap a particular control in an app with no screen reader running, or in a part of an app a screen reader can't see. AAE's helper reads the screen for this, so it works whether or not the device has a screen reader on.
   - Question mark reads the keys out.
 - `aae gesture <device> swipe-right double-tap` performs gestures in order; with no gestures it lists them all. `--at X,Y` performs them at a point, in the pixel positions the accessibility inspector reports. `aae inspect <device> --targets` lists the things gesture mode's Tab visits, with their positions.
 
 ### Testing tools
 
-These are in the Mac app's Device menu and on the command line. The inspector, checks and speech log were checked on Android 8, 11, 14 and 16.
+The inspector, checks and speech log were checked on Android 8, 11, 14 and 16.
 
-- Accessibility Inspector (Option-Command-I, `aae inspect`): the screen's accessibility tree, each element described the way a screen reader says it, with every property in its details. View it as a tree or a flat list, copy it as text, or save it as text or JSON.
+- Accessibility Inspector (`aae inspect`): the screen's accessibility tree, each element described the way a screen reader says it, with every property in its details. View it as a tree or a flat list, copy it as text, or save it as text or JSON.
 - Accessibility checks (in the inspector, `aae check`): unlabelled controls, images without descriptions, small touch targets and duplicate labels on the current screen.
-- Speech Log (Option-Command-L, `aae speech-log`): what the screen reader said, with times. While recording, speech goes through AAE's helper on its way to the real speech engine, which adds about 10 milliseconds. Turning recording on or off restarts the screen reader.
-- Device Log (Option-Command-J, `aae logs`): the device's log, one line per row, filtered by app, tag, level and text. It can read out new errors as they happen, and it can be paused, copied and saved. `aae logs --follow` keeps showing new lines.
-- Shell (Option-Command-T, `aae shell`): runs a command on the device and shows everything it printed, with its exit status. Commands are stopped after two minutes.
+- Speech Log (`aae speech-log`): what the screen reader said, with times. While recording, speech goes through AAE's helper on its way to the real speech engine, which adds about 10 milliseconds. Turning recording on or off restarts the screen reader.
+- Device Log (`aae logs`): the device's log, one line per row, filtered by app, tag, level and text. It can read out new errors as they happen, and it can be paused, copied and saved. `aae logs --follow` keeps showing new lines.
+- Shell (`aae shell`): runs a command on the device and shows everything it printed, with its exit status. Commands are stopped after two minutes.
 
-### The Mac app
+## The Mac app
 
-The Mac app is in `macos/`. It updates itself: it checks for new versions, and AAE menu, Check for Updates, checks straight away. Announcements go through VoiceOver when it's running, and otherwise through the Mac's system voice. A short sound plays before each one; turn that off in Settings.
+The Mac app is in `macos/`. Announcements go through VoiceOver when it's running, and otherwise through the Mac's system voice, each after a short sound, which Settings can turn off. AAE menu, Check for Updates, checks for a new version straight away; it also checks by itself.
 
-- The main window lists your devices. New Device (Command-N) creates one, downloading its Android version if needed.
-- The File menu also has Android Versions (Option-Command-A), which lists installed versions with their size and the devices that use each one, and deletes the ones you no longer need.
-- The Device menu starts (Command-Shift-S), stops (Command-Shift-.) and restarts (Command-Shift-R) the selected device. Speak Status (Command-Shift-I) says what it's doing. The menu also has Android's buttons, notifications and quick settings, rotation, muting, installing apps, screenshots, renaming, copying and deleting, and the testing tools.
-- Each device has its own volume, remembered: a slider in the main window, and Turn Device Audio Up and Down (Option-Command-Up and Down) in the Device menu, alongside Mute (Command-Shift-M). `aae playback-volume` sets it in the terminal.
+- File menu: New Device (Command-N) and Android Versions (Option-Command-A).
+- Device menu, for the selected device: Start (Command-Shift-S), Stop (Command-Shift-.), Restart (Command-Shift-R), Use Android Keyboard (Command-Shift-E), Use Gestures (Command-Shift-G), Open in Own Window (Option-Command-O) and Speak Status (Command-Shift-I). Then Android's buttons and screens, rotation, the device's sound, the clipboard, apps and services, conditions, installing, and renaming, copying, wiping and deleting.
+- Testing tools: Accessibility Inspector (Option-Command-I), Speech Log (Option-Command-L), Device Log (Option-Command-J) and Shell (Option-Command-T).
+- Apps (Option-Command-P), Accessibility Services (Option-Command-U), Snapshots (Option-Command-S), and Battery, Location and Phone (Option-Command-B).
+- Sound: Mute (Command-Shift-M), Turn Device Audio Up and Down (Option-Command-Up and Down), Check Audio (Option-Command-K), and a volume slider in the main window.
 - Clipboard: Command-Shift-C copies the device's clipboard to the Mac, Command-Shift-V sends the Mac's clipboard to the device, and Option-Command-V types it on the device as key presses, for fields that block pasting.
-- Snapshots (Option-Command-S): save the device as it is, with a name and notes, and restore, rename or delete snapshots later. Each one lists when it was taken.
-- Battery, Location and Phone (Option-Command-B): set the battery level and charging, set the location from an address, a place name or coordinates, send the device a text message, and play the other end of a phone call: call the device, hang up, hold, or answer or be busy for a call the device makes.
-- Several devices at once: Open in Own Window (Option-Command-O) gives the selected device a window of its own. The device whose window is in front is the selected one, so the Device menu acts on it, and device or gesture mode started there stays in that window. With several devices running, AAE plays only the one you're using, unless you turn that off in Settings.
-- Gesture mode (Command-Shift-G) turns the keyboard into screen reader gestures, described under Gestures above.
-- Device mode (Command-Shift-E) gives the keyboard to Android, from any AAE window. Every key goes to Android, with Command as Meta. That includes system shortcuts such as Spotlight's Command-Space and Mission Control. VoiceOver's own shortcuts, such as Command-F5, still work. Control-Command-Escape, or the "Return to the Mac" button, brings the keyboard back.
+- Installing: Install App (Command-I), or drop APKs on the window, or copy them in Finder and paste them into it. Install Screen Reader Build is Option-Shift-Command-I, and Open Link is Command-Shift-L.
+- Device mode sends every key to Android, with Command as Meta, including system shortcuts such as Spotlight's Command-Space and Mission Control. VoiceOver's own shortcuts, such as Command-F5, still work. Control-Command-Escape, or the "Return to the Mac" button, brings the keyboard back.
+- Several devices at once: Open in Own Window gives a device a window of its own. The device whose window is in front is the selected one, so the Device menu acts on it, and device or gesture mode started there stays in that window.
 
-### The Windows app
+## The Windows app
 
-The Windows app is in `crates/aae-windows`. It's written in Rust with Windows' own standard controls, which screen readers know best, over the same core as the Mac app, and it's built on the Mac. It's a first version, being tested. Announcements go straight to NVDA, through NV Access's controller client, which also shows them in braille, or to JAWS, through its own speech interface. Narrator and other screen readers get them as UI Automation notifications, and with no screen reader, Windows' own voice speaks them. A short sound plays before each one. Shortcuts are the Mac app's, with Control for Command and Alt for Option.
+The Windows app is in `crates/aae-windows`. It's written in Rust with Windows' own standard controls, which screen readers know best, and it's built on the Mac. It installs for you alone, with no administrator prompt, and updates itself: Help, Check for Updates.
 
-- The main window lists your devices, with buttons for the selected one and its volume. Setting up, New Device (Control-N), starting, stopping and restarting, Speak Status (Control-Shift-I), Android's buttons, notifications and quick settings, rotation, the device's volume and mute, Check Audio, the clipboard both ways, installing apps (Control-I, or copy them in File Explorer and paste with Control-V, or drop them on the window), screen reader builds, screenshots, renaming, copying, wiping and deleting all work as in the Mac app, as do the self-test, the diagnostic report and Settings.
-- Device mode (Control-Shift-E) gives the keyboard to Android, with the Windows key as Meta. Windows' own shortcuts, such as Alt-Tab, the Windows key and Alt-F4, go to Android too; only Control-Alt-Delete and Windows-L can't. The screen reader keeps its keys: while Insert or Caps Lock is held, keys go to Windows. Control-Windows-Escape, or the "Return to Windows" button, brings the keyboard back.
-- Gesture mode (Control-Shift-G) has the same keys as on the Mac.
-- It installs for you alone, with no administrator prompt, and updates itself through WinSparkle, as the Mac app does through Sparkle: Help, Check for Updates.
-- Still to come: the testing tools' windows, Apps, Accessibility Services, Snapshots, Battery, Location and Phone, Android Versions, watching for builds, and own windows for devices. The `aae` command does all of these meanwhile; it comes with the Windows app.
-- Windows needs Windows Hypervisor Platform turned on for the emulator; the self-test says whether the emulator can use it. It also needs an Intel or AMD processor: Google doesn't make its emulator for Windows on ARM, so AAE's installer refuses to install there, and AAE says so if it's run there anyway.
+Announcements go straight to NVDA, through NV Access's controller client, which also shows them in braille, or to JAWS, through its own speech interface. Narrator and other screen readers get them as UI Automation notifications, and with no screen reader, Windows' own voice speaks them. A short sound plays before each one.
 
-## Development builds
+- Shortcuts are the Mac app's, with Control for Command and Alt for Option: New Device is Control-N, Start is Control-Shift-S, and so on. Rename is F2, and Delete is the Delete key.
+- Device mode sends every key to Android, with the Windows key as Meta, including Windows' own shortcuts such as Alt-Tab, the Windows key and Alt-F4; only Control-Alt-Delete and Windows-L can't be taken. Your screen reader keeps its keys: while Insert or Caps Lock is held, keys go to Windows. Control-Windows-Escape, or the "Return to Windows" button, brings the keyboard back.
+- Installing apps: Install App (Control-I), or drop APKs on the window, or copy them in File Explorer and paste them into it with Control-V.
+- The Windows app doesn't have the testing tools' windows, Apps, Accessibility Services, Snapshots, Battery, Location and Phone, Android Versions, watching for builds, links and intents, or own windows for devices yet. The `aae` command, installed alongside it, does all of these.
 
-Every change to `master` is built for Windows and the Mac and published as the [dev prerelease](https://github.com/aaron-gh/accessible-android-emulator/releases/tag/dev), replacing the one before, so it can be tried before a stable release. The latest are always at [AAE-dev-windows-x64-setup.exe](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64-setup.exe) and [AAE-dev.dmg](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev.dmg). Help, About AAE, says which build you have. Check for Updates never offers development builds; from one, it offers the next stable release, on both systems.
+## The command line
+
+`aae help` lists every command, and `aae help <command>` explains one. Commands that act on a device take its name. For example:
+
+```sh
+aae setup
+aae available
+aae create "Android 16 test" --api 36 --backtalk
+aae attach "Android 16 test"
+aae stop "Android 16 test"
+```
+
+- Setting up: `setup`, `doctor`, `self-test`, `report`.
+- Android versions: `available`, `download`, `images`, `remove-image`.
+- Devices: `list`, `create`, `clone`, `rename`, `wipe`, `delete`, `start`, `restart`, `stop`, `status`, `snapshot`.
+- Keyboard, sound and speech: `attach`, `listen`, `playback-volume`, `volume` (the screen reader's own volume), `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `speech`.
+- Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
+- Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`.
+- Device conditions: `rotate`, `battery`, `location`, `sms`, `call`, `clipboard`.
+
+## Where things are kept
+
+Devices live in AAE's data folder, under `devices`. On macOS that's `~/Library/Application Support/io.github.aaron-gh.AAE`, and on Windows `%LOCALAPPDATA%\aaron-gh\AAE\data`. Set `AAE_HOME` to keep them somewhere else, such as an external drive. Each device is an ordinary emulator AVD folder plus an `aae.toml` file. To use AAE's devices from Android Studio, point `ANDROID_AVD_HOME` at the folder.
+
+Android versions are installed into the Android SDK, where Android Studio sees them too.
+
+To set a default screen reader, so you don't have to choose one each time, put its APK in the data folder as `screen-readers/default.apk`, or set `AAE_SCREEN_READER_APK` to its path.
+
+## Diagnosing problems
+
+- Help, Run Self-Test in either app, or `aae self-test`, checks everything AAE needs and reads out what it found: the computer's virtualisation and sound output, the SDK, AAE's own parts, free disk space, and for each running device, its screen reader, AAE's helper and its speech. The apps also check they can capture the keyboard, and that each open device's sound is getting through. It makes no sound.
+- To report a bug, attach a diagnostic report: Help, Save Diagnostic Report in either app, or `aae report`. It's plain text: AAE's version, this computer, the SDK, your devices and the end of their emulator logs, and AAE's own log. Your home folder and computer name, and on the Mac your full name, are taken out, and it never includes what you typed on a device, your clipboard, or the device's own log.
+- AAE keeps its log in its data folder, under `logs`, at most about 4 megabytes. It records AAE's steps and problems, never keys, typed text or clipboards.
+- `AAE_LOG=info aae start "My device"` shows each step of starting a device. Use `debug` for more.
+- `AAE_KEYLOG=1` records every key the Mac app captures. Key codes reveal what you type, so leave it off otherwise.
+- `crates/aae-core/examples/audio_probe.rs` prints how loud the device's audio stream is, in quarter seconds, while pressing keys.
 
 ## Building
 
@@ -142,61 +178,15 @@ The helper and eSpeak NG are signed with AAE's own Android key, at `~/.android/a
 
 AAE finds the built helper and eSpeak NG on its own when you run it from this folder. Alternatively, put them next to the `aae` program as `aae-helper.apk` and `aae-espeak.apk`, or set `AAE_HELPER_APK` and `AAE_ESPEAK_APK` to their paths.
 
-## Getting started
-
-AAE sets up everything it needs itself. Open the Mac app and follow the setup screen, or on the command line:
-
-```sh
-aae setup
-aae available
-aae create "Android 16 test" --api 36 --backtalk
-aae attach "Android 16 test"
-aae stop "Android 16 test"
-```
-
-`aae help` lists every command, and `aae help <command>` explains one.
-
-To set a default screen reader, so you don't have to choose one each time, put the APK at:
-
-- macOS: `~/Library/Application Support/io.github.aaron-gh.AAE/screen-readers/default.apk`
-- Windows: `%LOCALAPPDATA%\aaron-gh\AAE\data\screen-readers\default.apk`
-
-Alternatively, set `AAE_SCREEN_READER_APK` to its path.
-
-## Commands
-
-`aae help` lists them all, and `aae help <command>` explains one. Commands that act on a device take its name.
-
-- Setting up: `setup`, `doctor`, `self-test`, `report`.
-- Android versions: `available`, `download`, `images`, `remove-image`.
-- Devices: `list`, `create`, `clone`, `rename`, `wipe`, `delete`, `start`, `restart`, `stop`, `status`, `snapshot`.
-- Keyboard, sound and speech: `attach`, `listen`, `playback-volume`, `volume` (the screen reader's own volume), `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `speech`.
-- Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
-- Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`.
-- Device conditions: `rotate`, `battery`, `location`, `sms`, `call`, `clipboard`.
-
-## Where things are kept
-
-Devices live in AAE's data folder, under `devices`. On macOS that's `~/Library/Application Support/io.github.aaron-gh.AAE`, and on Windows `%LOCALAPPDATA%\aaron-gh\AAE\data`. Set `AAE_HOME` to keep them somewhere else, such as an external drive. Each device is an ordinary emulator AVD folder plus an `aae.toml` file. To use AAE's devices from Android Studio, point `ANDROID_AVD_HOME` at the folder.
-
-Android versions are installed into the Android SDK, where Android Studio sees them too.
-
-## Diagnosing problems
-
-- Help, Run Self-Test in the Mac or Windows app, or `aae self-test`, checks everything AAE needs and reads out what it found: the computer's virtualisation and sound output, the SDK, AAE's own parts, free disk space, and for each running device, its screen reader, AAE's helper and its speech. The app also checks it can capture the keyboard, and that each open device's sound is getting through. It makes no sound.
-- To report a bug, attach a diagnostic report: Help, Save Diagnostic Report in the Mac or Windows app, or `aae report`. It's plain text: AAE's version, this computer, the SDK, your devices and the end of their emulator logs, and AAE's own log. Your home folder and computer name, and on the Mac your full name, are taken out, and it never includes what you typed on a device, your clipboard, or the device's own log.
-- AAE keeps its log in its data folder, under `logs`, at most about 4 megabytes. It records AAE's steps and problems, never keys, typed text or clipboards.
-- `AAE_LOG=info aae start "My device"` shows each step of starting a device. Use `debug` for more.
-- `AAE_KEYLOG=1` records every key the Mac app captures. Key codes reveal what you type, so leave it off otherwise.
-- `crates/aae-core/examples/audio_probe.rs` prints how loud the device's audio stream is, in quarter seconds, while pressing keys.
+Development builds are made by `.github/workflows/dev-build.yml`, with the same scripts.
 
 ## Layout
 
-- `crates/aae-core`: the cross-platform core. It covers the SDK, downloading Android versions, the device store, the emulator, gRPC control, adb, audio, keys, speech, provisioning, the accessibility inspector and the device log.
+- `crates/aae-core`: the cross-platform core. It covers the SDK, downloading Android versions, the device store, the emulator, gRPC control, adb, audio, keys, provisioning, the accessibility inspector and the device log.
 - `crates/aae-cli`: the `aae` command.
-- `crates/aae-ffi`: the bridge from the core to the host apps, generated with UniFFI.
-- `macos`: the Mac app, in Swift.
-- `crates/aae-windows`: the Windows app, in Rust with Windows' standard controls. `windows` has its build and release scripts, the installer script, and the read-me that goes with it. `appcast-windows.xml` is its update feed.
+- `crates/aae-ffi`: the bridge from the core to the apps, generated with UniFFI for the Mac app and used directly by the Windows app.
+- `macos`: the Mac app, in Swift. `appcast.xml` is its update feed.
+- `crates/aae-windows`: the Windows app. `windows` has its build and release scripts, the installer script, and the read-me that goes with it. `appcast-windows.xml` is its update feed.
 - `crates/aae-core/proto`: the Android Emulator's gRPC definitions, under Apache 2.0.
 - `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume and read the screen for the inspector. It also carries the full keyboard layout, a small tool AAE runs as the shell user to select it, the speech check, the speech log's relay engine, and the silent test tone used to measure audio speed.
 - `android/espeak`: how AAE builds eSpeak NG: its own app ID, signed like the helper, with eSpeak NG's code unchanged.
