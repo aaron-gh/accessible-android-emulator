@@ -3,12 +3,20 @@
 fn main() {
     // Development builds say so; see windows/build.sh.
     println!("cargo:rerun-if-env-changed=AAE_BUILD_LABEL");
+    println!("cargo:rerun-if-env-changed=AAE_BUILD_NUMBER");
+    println!("cargo:rerun-if-env-changed=AAE_WINDOWS_FEED_URL");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
     println!("cargo:rerun-if-changed=res/aae.manifest");
     let version = std::env::var("CARGO_PKG_VERSION").unwrap();
-    let numbers: Vec<&str> = version.split(['.', '-']).take(3).chain(["0"]).collect();
+    // The fourth number is the build number, which updates are compared by.
+    let build = std::env::var("AAE_BUILD_NUMBER").unwrap_or_else(|_| "0".into());
+    let numbers: Vec<&str> = version
+        .split(['.', '-'])
+        .take(3)
+        .chain([build.as_str()])
+        .collect();
     let numeric = numbers.join(",");
     let manifest = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
         .join("res/aae.manifest");

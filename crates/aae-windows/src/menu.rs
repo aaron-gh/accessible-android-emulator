@@ -41,6 +41,7 @@ pub const COPY_DEVICE: u16 = 251;
 pub const WIPE: u16 = 252;
 pub const DELETE: u16 = 253;
 
+pub const CHECK_UPDATES: u16 = 303;
 pub const SELF_TEST: u16 = 300;
 pub const DIAGNOSTIC_REPORT: u16 = 301;
 pub const ABOUT: u16 = 302;
@@ -129,6 +130,8 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
         (
             "&Help",
             vec![
+                Item(CHECK_UPDATES, "Check for &Updates…", None),
+                SEPARATOR,
                 Item(SELF_TEST, "Run &Self-Test", None),
                 Item(DIAGNOSTIC_REPORT, "Save &Diagnostic Report…", None),
                 SEPARATOR,

@@ -766,6 +766,10 @@ pub fn command(id: u16, notification: u32) {
         SELF_TEST => self_test(),
         DIAGNOSTIC_REPORT => diagnostic_report(),
         ABOUT => about(),
+        CHECK_UPDATES if !crate::updates::check() => announce(
+            "This copy of AAE can't update itself: WinSparkle.dll isn't next to it. Download AAE again from its GitHub page.",
+            Tone::Failure,
+        ),
         _ => {}
     }
 }
@@ -785,6 +789,7 @@ pub fn files_dropped(files: Vec<String>) {
 /// Before the window closes: the keyboard back, and the sound off. Devices
 /// keep running, as on the Mac.
 pub fn closing() {
+    crate::updates::stop();
     if keyboard::is_on() {
         leave_device_mode(true);
     }
@@ -2621,11 +2626,21 @@ fn self_test() {
     });
 }
 
-fn version() -> String {
+/// The version people see, such as "0.3.0", or for a development build,
+/// "0.3.0 (development build 12, from 1a2b3c4)".
+pub fn display_version() -> String {
     match option_env!("AAE_BUILD_LABEL").filter(|l| !l.is_empty()) {
-        Some(label) => format!("{} ({label}, Windows app)", env!("CARGO_PKG_VERSION")),
-        None => format!("{} (Windows app)", env!("CARGO_PKG_VERSION")),
+        Some(label) => format!("{} ({label})", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_string(),
     }
+}
+
+fn version() -> String {
+    format!(
+        "{}, build {}, Windows app",
+        display_version(),
+        crate::updates::BUILD_NUMBER
+    )
 }
 
 /// Saves a diagnostic report for a bug report, where the user chooses.

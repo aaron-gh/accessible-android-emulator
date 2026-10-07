@@ -1,7 +1,7 @@
 # Builds AAE for Windows and the Mac from every push to master and publishes
 # them as the "dev" prerelease, replacing the last one, so they can be tried
 # before a stable release. The download links stay the same:
-# https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64.zip
+# https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64-setup.exe
 # https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev.dmg
 name: Development build
 
@@ -28,6 +28,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
+          # The build number is the number of commits, which WinSparkle
+          # compares, so it needs the whole history.
+          fetch-depth: 0
 
       - uses: actions/setup-java@v6
         with:
@@ -35,9 +38,9 @@ jobs:
           java-version: 17
           cache: gradle
 
-      - name: Install MinGW-w64 and Rust's Windows target
+      - name: Install MinGW-w64, NSIS and Rust's Windows target
         run: |
-          brew install mingw-w64
+          brew install mingw-w64 makensis
           rustup target add x86_64-pc-windows-gnu
 
       - uses: Swatinem/rust-cache@v2
@@ -68,7 +71,7 @@ jobs:
       - name: Build
         env:
           AAE_ANDROID_KEY_PASSWORD: ${{ secrets.AAE_ANDROID_KEY_PASSWORD }}
-          AAE_ZIP_NAME: AAE-dev-windows-x64
+          AAE_DIST_NAME: AAE-dev-windows-x64
         run: |
           export AAE_BUILD_LABEL="development build ${GITHUB_RUN_NUMBER}, from ${GITHUB_SHA::7}"
           windows/build.sh
@@ -78,7 +81,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: windows
-          path: windows/dist/AAE-dev-windows-x64.zip
+          path: windows/dist/AAE-dev-windows-x64-setup.exe
           if-no-files-found: error
 
   mac:
@@ -187,11 +190,13 @@ jobs:
 
           ### Windows
 
-          Download AAE-dev-windows-x64.zip below, unzip it and run AccessibleAndroidEmulator.exe. README.txt in the zip explains what's needed and how it works. In PowerShell, this fetches and unzips the latest one into your Downloads folder:
+          Download AAE-dev-windows-x64-setup.exe below and run it. It installs AAE for you alone, with no administrator prompt, replacing the AAE you have, and adds it to the Start menu. README.txt, in the folder AAE is installed in, explains what's needed and how it works. Check for Updates doesn't offer development builds; it offers the next stable release when there is one. In PowerShell, this fetches and runs the latest one:
 
           \`\`\`
-          irm https://github.com/${GITHUB_REPOSITORY}/releases/download/dev/AAE-dev-windows-x64.zip -OutFile ~/Downloads/AAE-dev.zip; Expand-Archive ~/Downloads/AAE-dev.zip ~/Downloads -Force
+          irm https://github.com/${GITHUB_REPOSITORY}/releases/download/dev/AAE-dev-windows-x64-setup.exe -OutFile ~/Downloads/AAE-dev-setup.exe; & ~/Downloads/AAE-dev-setup.exe
           \`\`\`
+
+          AAE isn't signed for Windows yet, so SmartScreen may say it protected your PC. Choose More info, then Run anyway.
 
           ### Mac
 
@@ -204,4 +209,6 @@ jobs:
           else
             gh release create dev --prerelease --latest=false --title "Development build ($SHORT)" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
           fi
-          gh release upload dev dist/AAE-dev-windows-x64.zip dist/AAE-dev.dmg --clobber
+          gh release upload dev dist/AAE-dev-windows-x64-setup.exe dist/AAE-dev.dmg --clobber
+          # The zip of earlier development builds, which couldn't update itself.
+          gh release delete-asset dev AAE-dev-windows-x64.zip --yes 2>/dev/null || true

@@ -10,9 +10,13 @@ WHAT YOU NEED
 
 STARTING
 
-Unzip the folder anywhere and run AccessibleAndroidEmulator.exe. Keep the other files next to it: aae-helper.apk and aae-espeak.apk go onto your devices, and nvdaControllerClient.dll is how AAE speaks through NVDA.
+Run the installer, AAE-...-setup.exe. It installs AAE for you alone, in your own Programs folder, with no administrator prompt, and adds Accessible Android Emulator to the Start menu. Uninstalling it, from Installed apps in Settings, leaves your devices and Android versions in place.
 
 AAE isn't signed yet, so Windows SmartScreen may say it protected your PC. Choose "More info", then "Run anyway".
+
+AAE updates itself. It asks once whether to check automatically, and Check for Updates, in the Help menu, checks straight away. When there's a new version, it downloads and installs it, and starts AAE again. Development builds are never offered as updates; if you have one, you're offered the next stable release.
+
+The files next to AAE are part of it: aae-helper.apk and aae-espeak.apk go onto your devices, nvdaControllerClient.dll is how AAE speaks through NVDA, and WinSparkle.dll is how it updates.
 
 The first time, AAE downloads Google's Android emulator and tools, after saying how big they are and showing you Google's licence to accept. Then choose New Device in the File menu (Control N). AAE downloads the Android version you choose, again after its licence, creates the device and starts it with a screen reader.
 
@@ -30,7 +34,7 @@ The Device menu has everything else, with its shortcuts: Back (Control Shift B),
 
 NOT IN THE WINDOWS APP YET
 
-The accessibility inspector, speech log, device log, shell, apps, accessibility services, snapshots, battery and location, the Android versions window, and updates. Until they are, the aae command in this folder does all of them: open a command prompt here and run "aae help". For example, "aae inspect Pixel", "aae speech-log Pixel" or "aae services Pixel".
+The accessibility inspector, speech log, device log, shell, apps, accessibility services, snapshots, battery and location, and the Android versions window. Until they are, the aae command in AAE's folder does all of them: open a command prompt there and run "aae help". For example, "aae inspect Pixel", "aae speech-log Pixel" or "aae services Pixel".
 
 REPORTING PROBLEMS
 
@@ -38,6 +42,6 @@ Choose Save Diagnostic Report in the Help menu. It saves a text file with AAE's 
 
 LICENCES
 
-AAE is under the Apache License 2.0, in LICENSE.txt. nvdaControllerClient.dll is NV Access's NVDA controller client, unchanged, under the GNU Lesser General Public License 2.1, in nvdaControllerClient-LICENSE.txt; its source is part of NVDA, at https://github.com/nvaccess/nvda.
+AAE is under the Apache License 2.0, in LICENSE.txt. nvdaControllerClient.dll is NV Access's NVDA controller client, unchanged, under the GNU Lesser General Public License 2.1, in nvdaControllerClient-LICENSE.txt; its source is part of NVDA, at https://github.com/nvaccess/nvda. WinSparkle.dll is WinSparkle, by Vaclav Slavik, unchanged, under the MIT licence, in WinSparkle-LICENSE.txt.
 
 https://github.com/aaron-gh/accessible-android-emulator

@@ -23,6 +23,8 @@ mod settings;
 mod speech;
 #[cfg(windows)]
 mod ui;
+#[cfg(windows)]
+mod updates;
 
 #[cfg(not(windows))]
 fn main() {
@@ -63,7 +65,7 @@ mod window {
 
     use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 
-    use crate::{app, menu, speech, ui};
+    use crate::{app, menu, speech, ui, updates};
 
     /// The control that had the focus when AAE's window was last active.
     static LAST_FOCUS: AtomicIsize = AtomicIsize::new(0);
@@ -110,6 +112,7 @@ mod window {
             let _ = ShowWindow(hwnd, SW_SHOW);
             app::resized();
             app::focus_start();
+            updates::start(&app::display_version());
 
             let mut msg = MSG::default();
             while GetMessageW(&mut msg, None, 0, 0).0 > 0 {

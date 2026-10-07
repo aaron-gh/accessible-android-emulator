@@ -94,12 +94,13 @@ The Windows app is in `crates/aae-windows`. It's written in Rust with Windows' o
 - The main window lists your devices, with buttons for the selected one and its volume. Setting up, New Device (Control-N), starting, stopping and restarting, Speak Status (Control-Shift-I), Android's buttons, notifications and quick settings, rotation, the device's volume and mute, Check Audio, the clipboard both ways, installing apps (Control-I, or copy them in File Explorer and paste with Control-V, or drop them on the window), screen reader builds, screenshots, renaming, copying, wiping and deleting all work as in the Mac app, as do the self-test, the diagnostic report and Settings.
 - Device mode (Control-Shift-E) gives the keyboard to Android, with the Windows key as Meta. Windows' own shortcuts, such as Alt-Tab, the Windows key and Alt-F4, go to Android too; only Control-Alt-Delete and Windows-L can't. The screen reader keeps its keys: while Insert or Caps Lock is held, keys go to Windows. Control-Windows-Escape, or the "Return to Windows" button, brings the keyboard back.
 - Gesture mode (Control-Shift-G) has the same keys as on the Mac.
-- Still to come: the testing tools' windows, Apps, Accessibility Services, Snapshots, Battery, Location and Phone, Android Versions, watching for builds, own windows for devices, and updates. The `aae` command does all of these meanwhile; it comes with the Windows app.
+- It installs for you alone, with no administrator prompt, and updates itself through WinSparkle, as the Mac app does through Sparkle: Help, Check for Updates.
+- Still to come: the testing tools' windows, Apps, Accessibility Services, Snapshots, Battery, Location and Phone, Android Versions, watching for builds, and own windows for devices. The `aae` command does all of these meanwhile; it comes with the Windows app.
 - Windows needs Windows Hypervisor Platform turned on for the emulator; the self-test says whether the emulator can use it.
 
 ## Development builds
 
-Every change to `master` is built for Windows and the Mac and published as the [dev prerelease](https://github.com/aaron-gh/accessible-android-emulator/releases/tag/dev), replacing the one before, so it can be tried before a stable release. The latest are always at [AAE-dev-windows-x64.zip](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64.zip) and [AAE-dev.dmg](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev.dmg). Help, About AAE, says which build you have. The Mac app's Check for Updates doesn't offer development builds; from one, it offers the next stable release.
+Every change to `master` is built for Windows and the Mac and published as the [dev prerelease](https://github.com/aaron-gh/accessible-android-emulator/releases/tag/dev), replacing the one before, so it can be tried before a stable release. The latest are always at [AAE-dev-windows-x64-setup.exe](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64-setup.exe) and [AAE-dev.dmg](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev.dmg). Help, About AAE, says which build you have. Check for Updates never offers development builds; from one, it offers the next stable release, on both systems.
 
 ## Building
 
@@ -129,11 +130,11 @@ That builds the Rust core, generates the Swift bindings, builds the helper app a
 The Windows app and the Windows `aae` command are built on the Mac too, cross-compiled with MinGW-w64:
 
 ```sh
-brew install mingw-w64
+brew install mingw-w64 makensis
 windows/build.sh
 ```
 
-That adds Rust's Windows target if it's missing, builds `AccessibleAndroidEmulator.exe` and `aae.exe`, and zips them with the helper app, eSpeak NG, NVDA's controller client and a read-me for testers into `windows/dist`. Both programs carry everything they need, so Windows needs no other files to run them.
+That adds Rust's Windows target if it's missing, builds `AccessibleAndroidEmulator.exe` and `aae.exe`, and puts them with the helper app, eSpeak NG, NVDA's controller client, WinSparkle and a read-me into an installer and a zip in `windows/dist`. Both programs carry everything they need, so Windows needs no other files to run them.
 
 eSpeak NG is built from its source, a git submodule in `android/third_party/espeak-ng`, by `android/build-espeak.sh`. The first build takes a few minutes and downloads the Android NDK version it needs. Clone AAE with `--recurse-submodules`, or the script fetches the submodule itself. eSpeak NG is under GPL v3.
 
@@ -195,7 +196,7 @@ Android versions are installed into the Android SDK, where Android Studio sees t
 - `crates/aae-cli`: the `aae` command.
 - `crates/aae-ffi`: the bridge from the core to the host apps, generated with UniFFI.
 - `macos`: the Mac app, in Swift.
-- `crates/aae-windows`: the Windows app, in Rust with Windows' standard controls. `windows` has its build script and the read-me that goes in the zip.
+- `crates/aae-windows`: the Windows app, in Rust with Windows' standard controls. `windows` has its build and release scripts, the installer script, and the read-me that goes with it. `appcast-windows.xml` is its update feed.
 - `crates/aae-core/proto`: the Android Emulator's gRPC definitions, under Apache 2.0.
 - `android/helper`: AAE's helper app. It is an accessibility service, because Android lets only accessibility services set the accessibility volume and read the screen for the inspector. It also carries the full keyboard layout, a small tool AAE runs as the shell user to select it, the speech check, the speech log's relay engine, and the silent test tone used to measure audio speed.
 - `android/espeak`: how AAE builds eSpeak NG: its own app ID, signed like the helper, with eSpeak NG's code unchanged.
@@ -209,3 +210,4 @@ AAE is under the [Apache License 2.0](LICENSE). Parts it includes keep their own
 - eSpeak NG, in `android/third_party/espeak-ng`, is under the GNU General Public License version 3. AAE builds it unchanged as a separate app that runs on the Android device.
 - Sparkle, which updates the Mac app, is under the MIT licence.
 - NV Access's NVDA controller client, `nvdaControllerClient.dll`, which the Windows app speaks through, is under the GNU Lesser General Public License version 2.1. `windows/build.sh` downloads it from NV Access, checks it, and ships it unchanged with its licence.
+- WinSparkle, which updates the Windows app, is under the MIT licence. `windows/build.sh` downloads it, checks it, and ships it unchanged with its licence.
