@@ -7,7 +7,7 @@ use crate::adb::Adb;
 use crate::control::Controller;
 use crate::device::{Device, DeviceStore};
 use crate::emulator::{self, BootStage, StartOptions};
-use crate::error::{IoContext, Result};
+use crate::error::{Error, IoContext, Result};
 use crate::provision::{self, ProvisionOptions, Step};
 use crate::sdk::Sdk;
 
@@ -31,6 +31,9 @@ pub enum Progress {
     /// A screen reader build queued while the device was stopped was
     /// installed (its package), or couldn't be (why).
     QueuedScreenReader(std::result::Result<String, String>),
+    /// The emulator couldn't start with the computer's graphics adapter, so
+    /// AAE started it again drawing in software.
+    SoftwareGraphics,
     /// The device is ready. Holds the screen reader's package, if there is one.
     Ready(Option<String>),
 }
@@ -53,6 +56,9 @@ impl Progress {
                 format!("Android had turned off {component}. It is back on.")
             }
             Progress::SpeechRepaired(what) => what.clone(),
+            Progress::SoftwareGraphics => format!(
+                "The emulator couldn't use this computer's graphics adapter, so {device} draws its screen in software, which is slower. Starting it again."
+            ),
             Progress::QueuedScreenReader(Ok(package)) => {
                 format!("Installed the new build of {package} queued for {device}.")
             }
@@ -128,23 +134,57 @@ pub async fn start_device(
         report(p)
     };
     let first_boot = !device.meta.provisioned;
-    let info = match emulator::running(device) {
+    let (info, starting) = match emulator::running(device) {
         Ok(info) => {
             progress(Progress::AlreadyRunning);
-            info
+            (info, false)
         }
         Err(_) => {
             progress(Progress::Starting);
-            emulator::start(sdk, store, device, start)?
+            (emulator::start(sdk, store, device, start)?, true)
         }
     };
-    let (controller, adb) =
-        emulator::wait_until_ready(sdk, &info, BOOT_TIMEOUT, |stage| match stage {
-            BootStage::WaitingForEmulator => {}
-            BootStage::WaitingForAndroid => progress(Progress::WaitingForAndroid { first_boot }),
-            BootStage::Ready => progress(Progress::AndroidStarted),
-        })
-        .await?;
+    let mut stages = |stage| match stage {
+        BootStage::WaitingForEmulator => {}
+        BootStage::WaitingForAndroid => progress(Progress::WaitingForAndroid { first_boot }),
+        BootStage::Ready => progress(Progress::AndroidStarted),
+    };
+    let ready = emulator::wait_until_ready(sdk, &info, BOOT_TIMEOUT, &mut stages).await;
+    let (controller, adb) = match ready {
+        // The graphics adapter, or its driver, may not work with the
+        // emulator. Then it's started again drawing in software, and kept
+        // that way if that works.
+        Err(Error::EmulatorExited(why))
+            if starting
+                && !device.meta.software_graphics
+                && std::env::var_os("AAE_GPU").is_none() =>
+        {
+            tracing::warn!("the emulator stopped while starting with the graphics adapter: {why}");
+            drop(stages);
+            progress(Progress::SoftwareGraphics);
+            device.meta.software_graphics = true;
+            let info = emulator::start(sdk, store, device, start)?;
+            let mut stages = |stage| match stage {
+                BootStage::WaitingForEmulator => {}
+                BootStage::WaitingForAndroid => {
+                    progress(Progress::WaitingForAndroid { first_boot })
+                }
+                BootStage::Ready => progress(Progress::AndroidStarted),
+            };
+            match emulator::wait_until_ready(sdk, &info, BOOT_TIMEOUT, &mut stages).await {
+                Ok(ready) => {
+                    device.save_meta()?;
+                    ready
+                }
+                // Not the graphics, then: say why it first stopped.
+                Err(_) => {
+                    device.meta.software_graphics = false;
+                    return Err(Error::EmulatorExited(why));
+                }
+            }
+        }
+        other => other?,
+    };
 
     if first_boot {
         provision::provision(sdk, device, &adb, setup, |step| {

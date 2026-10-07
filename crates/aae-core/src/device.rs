@@ -104,6 +104,10 @@ pub struct DeviceMeta {
     /// None is full volume.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playback_volume: Option<f32>,
+    /// The emulator couldn't use the computer's graphics adapter for this
+    /// device, so it draws the screen in software, which is slower.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub software_graphics: bool,
     /// Accessibility services AAE turns back on after every boot and install,
     /// as `package/class`. Includes the screen reader.
     #[serde(default)]
@@ -269,6 +273,7 @@ impl DeviceStore {
             audio_speed: None,
             speech_log_engine: None,
             playback_volume: None,
+            software_graphics: false,
             keep_enabled: Vec::new(),
             app_choices: Default::default(),
         };

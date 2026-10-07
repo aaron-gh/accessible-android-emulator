@@ -16,6 +16,7 @@ Android runs inside the emulator as a whole computer of its own, so AAE needs a 
 
 - **Processor:** at least 6 threads, such as an Intel Core i5 or AMD Ryzen 5 from the last several years, or any Mac with Apple silicon. Low-power chips such as Intel's N100, N150 and N200, Celeron, Pentium Silver and Atom are too slow. Each device gets half the threads, up to 4.
 - **Memory:** at least 8 GB; 16 GB to run more than one device at once.
+- **Graphics:** devices draw their screens with the computer's graphics adapter. If the emulator can't use it, AAE starts the device again drawing in software, which is slower, and keeps it that way; the diagnostic report says which each device uses. Setting `AAE_GPU` to one of the emulator's `-gpu` modes, such as `swiftshader_indirect`, overrides this.
 - **Disk:** an SSD, with about 10 GB free for the emulator, one Android version and a device, and around 2 GB more for each further Android version.
 - **Mac:** Apple silicon and macOS 13 or later.
 - **Windows:** Windows 10 or 11, 64-bit, on an Intel or AMD processor, with Windows Hypervisor Platform turned on.
