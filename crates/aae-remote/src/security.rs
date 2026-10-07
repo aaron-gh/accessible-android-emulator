@@ -84,20 +84,26 @@ pub struct Client {
     pub paired: u64,
 }
 
-/// The paired phones, kept in `clients.json`.
+/// The paired phones, kept in `clients.json`. Read afresh each time, so a
+/// phone unpaired by another of AAE's programs, such as `aae phones
+/// --unpair`, is out at once, and isn't written back.
 pub struct Clients {
-    list: Mutex<Vec<Client>>,
+    /// Changes are made one at a time.
+    lock: Mutex<()>,
 }
 
 impl Clients {
     pub fn load() -> Clients {
-        let list = std::fs::read(folder().join("clients.json"))
+        Clients {
+            lock: Mutex::new(()),
+        }
+    }
+
+    fn read(&self) -> Vec<Client> {
+        std::fs::read(folder().join("clients.json"))
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
-        Clients {
-            list: Mutex::new(list),
-        }
+            .unwrap_or_default()
     }
 
     fn save(&self, list: &[Client]) {
@@ -118,7 +124,8 @@ impl Clients {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
         };
-        let mut list = self.list.lock().unwrap();
+        let _held = self.lock.lock().unwrap();
+        let mut list = self.read();
         list.push(client.clone());
         self.save(&list);
         (client, token)
@@ -127,21 +134,19 @@ impl Clients {
     /// The phone a token belongs to.
     pub fn find(&self, id: &str, token: &str) -> Option<Client> {
         let hash = hex(&Sha256::digest(token.as_bytes()));
-        self.list
-            .lock()
-            .unwrap()
-            .iter()
+        self.read()
+            .into_iter()
             .find(|c| c.id == id && equal(c.token_hash.as_bytes(), hash.as_bytes()))
-            .cloned()
     }
 
     pub fn list(&self) -> Vec<Client> {
-        self.list.lock().unwrap().clone()
+        self.read()
     }
 
     /// Unpairs a phone. Returns whether it was paired.
     pub fn remove(&self, id: &str) -> bool {
-        let mut list = self.list.lock().unwrap();
+        let _held = self.lock.lock().unwrap();
+        let mut list = self.read();
         let before = list.len();
         list.retain(|c| c.id != id);
         let removed = list.len() != before;
