@@ -322,6 +322,27 @@ pub fn set_list_item(hwnd: HWND, index: usize, item: &str) {
     }
 }
 
+/// Adds an item to the end of a list box, keeping the selection.
+pub fn add_list_item(hwnd: HWND, item: &str) {
+    let item = wide(item);
+    send(hwnd, LB_ADDSTRING, 0, item.as_ptr() as isize);
+}
+
+/// Replaces a text area's text, showing its end, as a transcript does.
+/// Windows' text controls want their own line endings.
+pub fn set_transcript(hwnd: HWND, text: &str) {
+    let text = text.replace("\r\n", "\n").replace('\n', "\r\n");
+    set_text(hwnd, &text);
+    let end = text.encode_utf16().count();
+    send(
+        hwnd,
+        windows::Win32::UI::Controls::EM_SETSEL,
+        end,
+        end as isize,
+    );
+    send(hwnd, windows::Win32::UI::Controls::EM_SCROLLCARET, 0, 0);
+}
+
 pub fn list_selection(hwnd: HWND) -> Option<usize> {
     let index = send(hwnd, LB_GETCURSEL, 0, 0);
     (index >= 0).then_some(index as usize)

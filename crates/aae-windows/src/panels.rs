@@ -302,20 +302,6 @@ impl Panel {
     }
 }
 
-/// Runs code on a kind's open window, if it's open, such as to show new
-/// results that arrived in the background.
-pub fn with_open<R>(
-    kind: &'static str,
-    work: impl FnOnce(&Panel, &mut dyn Handler) -> R,
-) -> Option<R> {
-    let hwnd = KINDS.with(|k| k.borrow().get(kind).copied())?;
-    let state = PANELS.with(|p| p.borrow().get(&hwnd).cloned())?;
-    let mut state = state.try_borrow_mut().ok()?;
-    let State { panel, handler } = &mut *state;
-    let handler = handler.as_mut()?;
-    Some(work(panel, handler.as_mut()))
-}
-
 fn layout(panel: &Panel) {
     let mut rect = RECT::default();
     unsafe {

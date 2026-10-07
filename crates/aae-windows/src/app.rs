@@ -380,7 +380,7 @@ impl App {
             .unwrap_or_else(|| "the device".into())
     }
 
-    fn refresh(&mut self) {
+    pub(crate) fn refresh(&mut self) {
         let Some(engine) = engine() else { return };
         match engine.devices() {
             Ok(devices) => self.devices = devices,
@@ -420,7 +420,7 @@ impl App {
     }
 
     /// Brings the controls up to date with the state.
-    fn render(&mut self) {
+    pub(crate) fn render(&mut self) {
         let screen = self.screen();
         let c = &self.c;
         let device_controls = [
@@ -763,6 +763,8 @@ pub fn command(id: u16, notification: u32) {
         OPEN_LINK => crate::tools::links::open_link(),
         SEND_INTENT => crate::tools::links::send_intent(),
         CONDITIONS => crate::tools::conditions::show(),
+        SPEECH_LOG => crate::tools::speech_log::show(),
+        SHELL => crate::tools::shell::show(),
         RENAME => rename(),
         COPY_DEVICE => copy_device(),
         WIPE => wipe(),
