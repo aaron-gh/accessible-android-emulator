@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/aae-core", "crates/aae-cli", "crates/aae-ffi", "crates/aae-mcp", "crates/aae-windows"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.85"
 repository = "https://github.com/aaron-gh/accessible-android-emulator"
