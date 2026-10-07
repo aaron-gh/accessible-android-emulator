@@ -23,7 +23,8 @@ Both apps update themselves. Check for Updates never offers a development build;
 
 ### Android versions
 
-- `aae available` lists every Android version Google offers for this computer, Android 5 and later. New Device in the apps, `aae create` and `aae download` install the one you choose into the SDK, the way Android Studio does.
+- `aae available` lists every Android version Google offers for this computer, Android 5 and later, including later updates to a version, such as Android 16's API 36.1. New Device in the apps, `aae create` and `aae download` install the one you choose into the SDK, the way Android Studio does. `--api` takes the version as `37`, `36.1`, or a preview's name.
+- Previews of upcoming releases, such as betas and Google's Canary builds, are left out unless you ask for them: Include Previews in New Device, or `aae available --previews`. Google publishes previews, and some updates, only with 16 KB memory pages, for testing apps with them, and AAE says so beside them.
 - Google's licence is never accepted for you. The apps show it with Accept and Decline: Escape declines, and Enter does nothing, so nothing is accepted by accident; the command line saves it for you to read, then you accept it with `--accept-licence`.
 - The installed versions are listed with their size and the devices that use each one, and can be deleted to free disk space. A version can't be deleted while any of AAE's devices use it. Android Studio shares the SDK, so AAE also names any Android Studio devices that use the version, and warns that they won't start without it.
 

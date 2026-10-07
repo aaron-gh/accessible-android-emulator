@@ -8,6 +8,7 @@ struct NewDeviceView: View {
 
     @State private var name = ""
     @State private var versionIndex = 0
+    @State private var chosenID: String?
     @State private var profile = 1
     @State private var screenReader: String?
     @State private var volumeBoost = true
@@ -32,6 +33,19 @@ struct NewDeviceView: View {
                         Text(versionLabel(model.versions[index])).tag(index)
                     }
                 }
+                .onChange(of: versionIndex) { index in
+                    if model.versions.indices.contains(index) {
+                        chosenID = model.versions[index].id
+                    }
+                }
+                // When the list changes, such as with previews turned on, the
+                // version chosen stays chosen.
+                .onChange(of: model.versions.map(\.id)) { ids in
+                    versionIndex = chosenID.flatMap { ids.firstIndex(of: $0) }
+                        ?? model.versions.firstIndex(where: \.installed) ?? 0
+                }
+
+                Toggle("Include previews of upcoming Android releases", isOn: $model.includePreviews)
 
                 Picker("Size", selection: $profile) {
                     ForEach(profiles.indices, id: \.self) { index in

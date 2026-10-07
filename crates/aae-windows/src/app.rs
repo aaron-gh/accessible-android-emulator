@@ -969,7 +969,10 @@ fn new_device() {
         return;
     }
     spawn(async move {
-        let versions = match engine.versions(false).await {
+        let versions = match engine
+            .versions(false, settings::get().include_previews)
+            .await
+        {
             Ok(v) => v,
             Err(e) => return say_error(e),
         };
@@ -991,18 +994,23 @@ fn new_device_form(versions: Vec<VersionInfo>, default_reader: Option<String>) {
         );
         return;
     }
-    let labels: Vec<String> = versions
-        .iter()
-        .map(|v| {
-            if v.installed {
-                format!("{}, installed", v.description)
-            } else {
-                format!("{}, {} to download", v.description, v.size)
-            }
-        })
-        .collect();
+    let labels = |versions: &[VersionInfo]| -> Vec<String> {
+        versions
+            .iter()
+            .map(|v| {
+                if v.installed {
+                    format!("{}, installed", v.description)
+                } else {
+                    format!("{}, {} to download", v.description, v.size)
+                }
+            })
+            .collect()
+    };
     // Start on the newest installed version, so nothing downloads by surprise.
     let start = versions.iter().position(|v| v.installed).unwrap_or(0);
+    let initial_labels = labels(&versions);
+    // The list changes when previews are turned on or off.
+    let versions = Arc::new(Mutex::new(versions));
     let reader = Arc::new(Mutex::new(default_reader));
     let reader_text = |path: &Option<String>| match path {
         Some(path) => format!(
@@ -1016,19 +1024,49 @@ fn new_device_form(versions: Vec<VersionInfo>, default_reader: Option<String>) {
     };
     let initial_reader = reader_text(&reader.lock().unwrap());
     let chosen = reader.clone();
+    let shown = versions.clone();
+    // The fields, in order, for the action to find.
+    const VERSION: usize = 1;
+    const PREVIEWS: usize = 2;
+    const READER: usize = 4;
+    const CHOOSE_READER: i32 = 2;
+    const TOGGLE_PREVIEWS: i32 = 3;
     let form = Form {
         width: 500,
-        action: Some(Box::new(move |_, handle| {
-            let files = ui::open_files(
-                handle.dialog,
-                "Choose a screen reader APK, such as a Backtalk build",
-                &[("Android apps", "*.apk")],
-                false,
-            );
-            if let Some(path) = files.into_iter().next() {
-                handle.set_text(3, &reader_text(&Some(path.clone())));
-                *chosen.lock().unwrap() = Some(path);
+        action: Some(Box::new(move |id, handle| match id {
+            CHOOSE_READER => {
+                let files = ui::open_files(
+                    handle.dialog,
+                    "Choose a screen reader APK, such as a Backtalk build",
+                    &[("Android apps", "*.apk")],
+                    false,
+                );
+                if let Some(path) = files.into_iter().next() {
+                    handle.set_text(READER, &reader_text(&Some(path.clone())));
+                    *chosen.lock().unwrap() = Some(path);
+                }
             }
+            TOGGLE_PREVIEWS => {
+                let include = handle.checked(PREVIEWS);
+                settings::change(|s| s.include_previews = include);
+                let Some(engine) = engine() else { return };
+                // Google's list is kept for a day, so this is quick.
+                let Ok(updated) = runtime().block_on(engine.versions(false, include)) else {
+                    return;
+                };
+                let mut current = shown.lock().unwrap();
+                let was = handle
+                    .choice(VERSION)
+                    .and_then(|i| current.get(i))
+                    .map(|v| v.id.clone());
+                let selected = was
+                    .and_then(|id| updated.iter().position(|v| v.id == id))
+                    .or_else(|| updated.iter().position(|v| v.installed))
+                    .unwrap_or(0);
+                handle.set_choices(VERSION, &labels(&updated), selected);
+                *current = updated;
+            }
+            _ => {}
         })),
         ..Form::new("New Device")
     }
@@ -1038,8 +1076,13 @@ fn new_device_form(versions: Vec<VersionInfo>, default_reader: Option<String>) {
     })
     .field(Field::Choice {
         label: "&Android version".into(),
-        items: labels,
+        items: initial_labels,
         selected: start,
+    })
+    .field(Field::Toggle {
+        label: "Include &previews of upcoming Android releases".into(),
+        checked: settings::get().include_previews,
+        action: TOGGLE_PREVIEWS,
     })
     .field(Field::Choice {
         label: "&Size".into(),
@@ -1051,7 +1094,7 @@ fn new_device_form(versions: Vec<VersionInfo>, default_reader: Option<String>) {
         label: "&Turn the screen reader's volume up to full".into(),
         checked: true,
     })
-    .button("&Choose Screen Reader…", 2, Role::Action)
+    .button("&Choose Screen Reader…", CHOOSE_READER, Role::Action)
     .button("Create and Start", 1, Role::Default)
     .button("Cancel", 0, Role::Cancel);
     let answer = forms::run(hwnd, form);
@@ -1063,18 +1106,18 @@ fn new_device_form(versions: Vec<VersionInfo>, default_reader: Option<String>) {
         announce("The device needs a name.", Tone::Failure);
         return;
     }
-    let Some(version) = answer.values[1]
+    let Some(version) = answer.values[VERSION]
         .choice()
-        .and_then(|i| versions.get(i).cloned())
+        .and_then(|i| versions.lock().unwrap().get(i).cloned())
     else {
         return;
     };
-    let profile = match answer.values[2].choice() {
+    let profile = match answer.values[3].choice() {
         Some(0) => DeviceProfile::SmallPhone,
         Some(2) => DeviceProfile::Tablet,
         _ => DeviceProfile::Phone,
     };
-    let volume_boost = answer.values[4].checked();
+    let volume_boost = answer.values[5].checked();
     let screen_reader = reader.lock().unwrap().clone();
     create_device(name, version, profile, screen_reader, volume_boost);
 }
@@ -1117,10 +1160,7 @@ fn create_device(
 /// where it's installed, or none if the user declined or it failed.
 async fn install_version(engine: &Arc<Engine>, version: &VersionInfo) -> Option<String> {
     let result: Result<Option<String>, AaeError> = async {
-        if let Some(licence) = engine
-            .licence_to_accept(version.api, version.tag.clone())
-            .await?
-        {
+        if let Some(licence) = engine.licence_to_accept(version.id.clone()).await? {
             if !ask_licence(licence.clone(), version.description.clone()).await {
                 say(
                     format!(
@@ -1143,7 +1183,7 @@ async fn install_version(engine: &Arc<Engine>, version: &VersionInfo) -> Option<
             Tone::Info,
         );
         let image = engine
-            .install_version(version.api, version.tag.clone(), Arc::new(Download))
+            .install_version(version.id.clone(), Arc::new(Download))
             .await?;
         say(
             format!("{} is installed.", version.description),

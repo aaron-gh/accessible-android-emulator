@@ -130,7 +130,18 @@ impl Sdk {
                 }
             }
         }
-        images.sort_by(|a, b| b.api.cmp(&a.api).then(a.tag.cmp(&b.tag)));
+        images.sort_by(|a, b| {
+            b.api
+                .cmp(&a.api)
+                .then(
+                    a.release
+                        .preview
+                        .is_some()
+                        .cmp(&b.release.preview.is_some()),
+                )
+                .then(b.release.minor.cmp(&a.release.minor))
+                .then(a.tag.cmp(&b.tag))
+        });
         images
     }
 }
@@ -149,6 +160,8 @@ pub fn host_abi() -> &'static str {
 pub struct SystemImage {
     /// API level, such as 35.
     pub api: u32,
+    /// Which release of that version: an update such as API 36.1, or a preview.
+    pub release: Release,
     /// Image type, such as `google_apis_playstore`.
     pub tag: String,
     /// Processor architecture, such as `arm64-v8a`.
@@ -163,13 +176,39 @@ impl SystemImage {
     /// Reads the image installed in `dir`, inside the SDK at `sdk_root`.
     pub fn read_dir(sdk_root: &Path, dir: &Path) -> Option<Self> {
         let props = read_properties(&dir.join("source.properties")).ok()?;
-        let api = props.get("AndroidVersion.ApiLevel")?.parse().ok()?;
-        let tag = props.get("SystemImage.TagId")?.clone();
+        // The tag can list more than one, as "google_apis,page_size_16kb".
+        let tags = props.get("SystemImage.TagId")?.clone();
+        let tag = tags.split(',').next()?.trim().to_string();
         let abi = props.get("SystemImage.Abi")?.clone();
+        let tag_folder = dir.parent()?.file_name()?.to_string_lossy().to_string();
+        let folder = dir
+            .parent()?
+            .parent()?
+            .file_name()?
+            .to_string_lossy()
+            .to_string();
+        // A later update's number is in the API level ("36.1") or a key of
+        // its own, depending on the SDK; the folder name says it too.
+        let mut level = props.get("AndroidVersion.ApiLevel")?.clone();
+        if !level.contains('.')
+            && let Some(minor) = props
+                .iter()
+                .find(|(k, _)| k.starts_with("AndroidVersion.") && k.contains("Minor"))
+                .map(|(_, v)| v)
+        {
+            level = format!("{level}.{minor}");
+        }
+        let release = Release::read(
+            &level,
+            &folder,
+            props.contains_key("AndroidVersion.CodeName"),
+            tag_folder.ends_with("_ps16k") || tags.contains("page_size_16kb"),
+        )?;
         let relative = dir.strip_prefix(sdk_root).ok()?;
         let sysdir = format!("{}/", relative.to_string_lossy().replace('\\', "/"));
         Some(SystemImage {
-            api,
+            api: release.api,
+            release,
             tag,
             abi,
             sysdir,
@@ -193,7 +232,10 @@ impl SystemImage {
 
 impl fmt::Display for SystemImage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}, {}", android_name(self.api), self.kind())?;
+        write!(f, "{}, {}", self.release.describe(), self.kind())?;
+        if self.release.page_16k {
+            write!(f, ", 16 KB pages")?;
+        }
         if !self.runs_natively() {
             write!(f, " ({}, slow on this computer)", self.abi)?;
         }
@@ -207,14 +249,132 @@ pub fn image_kind(tag: &str) -> &'static str {
         "default" | "aosp_atd" => "Plain Android",
         "google_apis" | "google_atd" => "With Google services",
         t if t.contains("playstore") => "With Google Play",
+        // Such as google_apis_ps16k, with 16 KB memory pages.
+        t if t.starts_with("google_apis") => "With Google services",
+        t if t.starts_with("default") => "Plain Android",
         _ => "Other",
     }
+}
+
+/// Which Android release an image holds: a version, such as Android 17 (API
+/// 37), a later update to one, such as API 36.1, or a preview.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Release {
+    /// The API level, such as 37.
+    pub api: u32,
+    /// A later update's number, such as 1 for API 36.1; 0 for the version itself.
+    pub minor: u32,
+    /// A preview's name, such as "Beta 3" or "Canary, 9 September 2026".
+    pub preview: Option<String>,
+    /// Built with 16 KB memory pages, for testing apps with them. Google
+    /// publishes previews, and some updates, only this way.
+    pub page_16k: bool,
+    /// The name of its folder in the SDK without "android-", such as "37.0",
+    /// "36.1" or "37.2-beta3", which picks it on the command line.
+    pub id: String,
+}
+
+impl Release {
+    /// From the API level as the SDK writes it, such as "36" or "37.1", and
+    /// the image's folder name, such as "android-37.2-beta3".
+    pub fn read(api_level: &str, folder: &str, preview: bool, page_16k: bool) -> Option<Release> {
+        let (api, minor) = parse_api_level(api_level)?;
+        let id = folder
+            .strip_prefix("android-")
+            .unwrap_or(folder)
+            .to_string();
+        Some(Release {
+            api,
+            minor,
+            preview: preview.then(|| preview_name(&id)),
+            page_16k,
+            id,
+        })
+    }
+
+    /// Such as "Android 17 (API 37)", "Android 16 (API 36.1)" or "Android 17
+    /// Beta 3 preview".
+    pub fn describe(&self) -> String {
+        let version = android_version(self.api)
+            .map(String::from)
+            .unwrap_or_else(|| format!("API {}", self.api));
+        match (&self.preview, self.minor) {
+            (Some(preview), _) => match preview.split_once(", ") {
+                // "Canary, 9 September 2026": the date after "preview".
+                Some((name, detail)) => format!("Android {version} {name} preview, {detail}"),
+                None => format!("Android {version} {preview} preview"),
+            },
+            (None, 0) => android_name(self.api),
+            (None, minor) => format!("Android {version} (API {}.{minor})", self.api),
+        }
+    }
+
+    /// True if `text` names this release, as "37", "36.1" or its folder's
+    /// name, such as "37.2-beta3".
+    pub fn matches(&self, text: &str) -> bool {
+        let text = text.trim().trim_start_matches("android-");
+        text.eq_ignore_ascii_case(&self.id)
+            || (self.preview.is_none() && parse_api_level(text) == Some((self.api, self.minor)))
+    }
+}
+
+/// An API level as the SDK writes it, such as "36" or "36.1", as (36, 1).
+pub fn parse_api_level(text: &str) -> Option<(u32, u32)> {
+    let (major, minor) = text.trim().split_once('.').unwrap_or((text.trim(), "0"));
+    Some((major.parse().ok()?, minor.parse().ok()?))
+}
+
+/// A preview's name from its folder: "37.2-beta3" is "Beta 3", and
+/// "canary-20260909" is "Canary, 9 September 2026".
+fn preview_name(id: &str) -> String {
+    let lower = id.to_ascii_lowercase();
+    if let Some((_, beta)) = lower.split_once("-beta") {
+        return format!("Beta {beta}");
+    }
+    if let Some(date) = lower.strip_prefix("canary-") {
+        const MONTHS: [&str; 12] = [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ];
+        if date.len() == 8
+            && let (Ok(year), Ok(month), Ok(day)) = (
+                date[..4].parse::<u32>(),
+                date[4..6].parse::<usize>(),
+                date[6..].parse::<u32>(),
+            )
+            && (1..=12).contains(&month)
+        {
+            return format!("Canary, {day} {} {year}", MONTHS[month - 1]);
+        }
+    }
+    if lower.starts_with("canary") {
+        return "Canary".into();
+    }
+    id.to_string()
 }
 
 /// The marketing name and API level of an Android version, such as
 /// "Android 15 (API 35)".
 pub fn android_name(api: u32) -> String {
-    let version = match api {
+    match android_version(api) {
+        Some(version) => format!("Android {version} (API {api})"),
+        None => format!("Android API {api}"),
+    }
+}
+
+/// The marketing version of an API level, such as "15" for 35.
+fn android_version(api: u32) -> Option<&'static str> {
+    Some(match api {
         21 => "5.0",
         22 => "5.1",
         23 => "6",
@@ -232,9 +392,8 @@ pub fn android_name(api: u32) -> String {
         35 => "15",
         36 => "16",
         37 => "17",
-        _ => return format!("Android API {api}"),
-    };
-    format!("Android {version} (API {api})")
+        _ => return None,
+    })
 }
 
 /// Reads a Java-style `key=value` properties file, as the SDK uses.

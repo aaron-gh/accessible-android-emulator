@@ -207,7 +207,10 @@ final class AppModel: ObservableObject {
         images = engine.images()
         if versions.isEmpty {
             versions = images.map {
-                VersionInfo(api: $0.api, tag: "", description: $0.description, installed: true, size: "", sysdir: $0.sysdir)
+                VersionInfo(
+                    id: $0.sysdir.trimmingCharacters(in: CharacterSet(charactersIn: "/")).replacingOccurrences(of: "/", with: ";"),
+                    api: $0.api, preview: false, tag: "", description: $0.description, installed: true, size: "", sysdir: $0.sysdir
+                )
             }
         }
         if selected == nil {
@@ -361,11 +364,20 @@ final class AppModel: ObservableObject {
     }
 
     /// Loads the list of Android versions, from Google's list at most once a day.
+    /// Whether New Device offers previews of upcoming Android releases. Remembered.
+    static let includePreviewsKey = "includePreviews"
+    @Published var includePreviews = UserDefaults.standard.bool(forKey: AppModel.includePreviewsKey) {
+        didSet {
+            UserDefaults.standard.set(includePreviews, forKey: Self.includePreviewsKey)
+            if includePreviews != oldValue { loadVersions() }
+        }
+    }
+
     func loadVersions(refresh: Bool = false) {
         guard let engine else { return }
         Task {
             do {
-                versions = try await engine.versions(refresh: refresh)
+                versions = try await engine.versions(refresh: refresh, includePreviews: includePreviews)
             } catch {
                 announce(error.localizedDescription, tone: .failure)
             }
@@ -387,7 +399,7 @@ final class AppModel: ObservableObject {
     private func installVersion(_ version: VersionInfo) async -> String? {
         guard let engine else { return nil }
         do {
-            if let licence = try await engine.licenceToAccept(api: version.api, tag: version.tag) {
+            if let licence = try await engine.licenceToAccept(id: version.id) {
                 guard await askLicence(licence, for: version.description) else {
                     announce("Licence declined. \(version.description) was not downloaded.")
                     return nil
@@ -406,7 +418,7 @@ final class AppModel: ObservableObject {
                 },
                 stage: { [weak self] message in self?.status = message }
             )
-            let image = try await engine.installVersion(api: version.api, tag: version.tag, listener: relay)
+            let image = try await engine.installVersion(id: version.id, listener: relay)
             download = nil
             announce("\(version.description) is installed.", tone: .success)
             loadVersions()

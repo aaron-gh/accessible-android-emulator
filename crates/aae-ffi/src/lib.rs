@@ -21,7 +21,7 @@ use aae_core::emulator::{self, StartOptions};
 use aae_core::gestures::{self, Gesture};
 use aae_core::logcat::{self, LogStream};
 use aae_core::provision::{self, ProvisionOptions};
-use aae_core::sdk::{Sdk, android_name, image_kind};
+use aae_core::sdk::{Sdk, image_kind};
 use aae_core::setup;
 use aae_core::{inspector, tts};
 use aae_core::{keys, lifecycle};
@@ -105,7 +105,7 @@ impl DeviceInfo {
         DeviceInfo {
             id: device.id.clone(),
             name: device.meta.name.clone(),
-            android: android_name(device.meta.api),
+            android: device.android(),
             kind: image_kind(&device.meta.tag).to_string(),
             profile: device.meta.profile.describe().to_string(),
             running: emulator::running(device).is_ok(),
@@ -129,6 +129,8 @@ pub struct ImageInfo {
     /// Pass this to `create_device`.
     pub sysdir: String,
     pub api: u32,
+    /// Which release, as "37.0", "36.1" or a preview's "37.2-beta3".
+    pub release: String,
     /// Such as "Android 16 (API 36), With Google Play".
     pub description: String,
 }
@@ -151,7 +153,13 @@ pub struct InstalledImageInfo {
 /// An Android version AAE can create devices from: installed, or downloadable.
 #[derive(uniffi::Record, Clone)]
 pub struct VersionInfo {
+    /// The SDK's name for it, such as
+    /// `system-images;android-36.1;google_apis;arm64-v8a`. Pass it to
+    /// `licence_to_accept` and `install_version`.
+    pub id: String,
     pub api: u32,
+    /// A preview of an upcoming release, rather than a finished one.
+    pub preview: bool,
     /// The image type's tag, such as "google_apis".
     pub tag: String,
     /// Such as "Android 15 (API 35), With Google services".
@@ -863,6 +871,7 @@ impl Engine {
             .map(|i| ImageInfo {
                 sysdir: i.sysdir.clone(),
                 api: i.api,
+                release: i.release.id.clone(),
                 description: i.to_string(),
             })
             .collect()
@@ -871,7 +880,17 @@ impl Engine {
     /// Every Android version for this computer: installed ones, and ones Google
     /// offers to download. Newest first. Reads Google's list at most once a day
     /// unless `refresh` is true; works offline from the last list.
-    pub async fn versions(&self, refresh: bool) -> Result<Vec<VersionInfo>, AaeError> {
+    /// Every Android version for this computer: installed ones, and ones Google
+    /// offers to download, including later updates such as API 36.1. With
+    /// `include_previews`, previews of upcoming releases too; installed
+    /// previews are listed either way. Newest first. Reads Google's list at
+    /// most once a day unless `refresh` is true; works offline from the last
+    /// list.
+    pub async fn versions(
+        &self,
+        refresh: bool,
+        include_previews: bool,
+    ) -> Result<Vec<VersionInfo>, AaeError> {
         let sdk = self.sdk.clone();
         on_runtime(async move {
             let catalogue = tokio::task::spawn_blocking(move || Catalogue::load(refresh))
@@ -879,49 +898,70 @@ impl Engine {
                 .map_err(|e| AaeError::Failed {
                     message: e.to_string(),
                 })?;
-            let mut versions: Vec<VersionInfo> = sdk
+            // Sorted like Google's list: newest version first, finished
+            // releases before previews, later updates first.
+            let order = |r: &aae_core::sdk::Release, tag: &str| {
+                (
+                    std::cmp::Reverse(r.api),
+                    r.preview.is_some(),
+                    std::cmp::Reverse(r.minor),
+                    r.page_16k,
+                    tag.to_string(),
+                )
+            };
+            let mut versions: Vec<(_, VersionInfo)> = sdk
                 .system_images()
                 .into_iter()
                 .filter(|i| i.runs_natively())
-                .map(|i| VersionInfo {
-                    api: i.api,
-                    tag: i.tag.clone(),
-                    description: i.to_string(),
-                    installed: true,
-                    size: String::new(),
-                    sysdir: i.sysdir.clone(),
+                .map(|i| {
+                    (
+                        order(&i.release, &i.tag),
+                        VersionInfo {
+                            id: i.sysdir.trim_end_matches('/').replace('/', ";"),
+                            api: i.api,
+                            preview: i.release.preview.is_some(),
+                            tag: i.tag.clone(),
+                            description: i.to_string(),
+                            installed: true,
+                            size: String::new(),
+                            sysdir: i.sysdir.clone(),
+                        },
+                    )
                 })
                 .collect();
             // Without the internet, the installed versions are still offered.
             if let Ok(catalogue) = catalogue {
-                for image in catalogue.images.iter().filter(|i| !i.is_installed(&sdk)) {
-                    versions.push(VersionInfo {
-                        api: image.api,
-                        tag: image.tag.clone(),
-                        description: image.describe(),
-                        installed: false,
-                        size: human_size(image.size),
-                        sysdir: String::new(),
-                    });
+                for image in catalogue.images.iter().filter(|i| {
+                    !i.is_installed(&sdk) && (include_previews || i.release.preview.is_none())
+                }) {
+                    versions.push((
+                        order(&image.release, &image.tag),
+                        VersionInfo {
+                            id: image.path.clone(),
+                            api: image.api,
+                            preview: image.release.preview.is_some(),
+                            tag: image.tag.clone(),
+                            description: image.describe(),
+                            installed: false,
+                            size: human_size(image.size),
+                            sysdir: String::new(),
+                        },
+                    ));
                 }
             }
-            versions.sort_by(|a, b| b.api.cmp(&a.api).then(a.tag.cmp(&b.tag)));
-            Ok(versions)
+            versions.sort_by(|a, b| a.0.cmp(&b.0));
+            Ok(versions.into_iter().map(|(_, v)| v).collect())
         })
         .await
     }
 
     /// The licence that must be accepted before downloading this version, or
     /// nothing if it's accepted already or the version is installed.
-    pub async fn licence_to_accept(
-        &self,
-        api: u32,
-        tag: String,
-    ) -> Result<Option<LicenceInfo>, AaeError> {
+    pub async fn licence_to_accept(&self, id: String) -> Result<Option<LicenceInfo>, AaeError> {
         let sdk = self.sdk.clone();
         on_runtime(async move {
             let catalogue = load_catalogue().await?;
-            let Some(image) = catalogue.find(api, &tag) else {
+            let Some(image) = catalogue.find(&id) else {
                 return Ok(None);
             };
             if image.is_installed(&sdk) {
@@ -954,21 +994,18 @@ impl Engine {
     /// Downloads and installs an Android version. Its licence must be accepted first.
     pub async fn install_version(
         &self,
-        api: u32,
-        tag: String,
+        id: String,
         listener: Arc<dyn DownloadListener>,
     ) -> Result<ImageInfo, AaeError> {
         let sdk = self.sdk.clone();
         on_runtime(async move {
             let catalogue = load_catalogue().await?;
             let image = catalogue
-                .find(api, &tag)
+                .find(&id)
                 .cloned()
                 .ok_or_else(|| AaeError::Failed {
-                    message: format!(
-                        "Google doesn't offer {} of that kind for this computer.",
-                        android_name(api)
-                    ),
+                    message: "Google no longer offers that Android version for this computer."
+                        .into(),
                 })?;
             let installed = tokio::task::spawn_blocking(move || {
                 let mut last = u32::MAX;
@@ -991,6 +1028,7 @@ impl Engine {
             Ok(ImageInfo {
                 sysdir: installed.sysdir.clone(),
                 api: installed.api,
+                release: installed.release.id.clone(),
                 description: installed.to_string(),
             })
         })

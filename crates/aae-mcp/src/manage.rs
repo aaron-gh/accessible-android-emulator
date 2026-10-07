@@ -35,8 +35,9 @@ pub(crate) struct CreateParam {
     /// The new device's name.
     pub name: String,
     /// An installed Android version, as list_android_versions describes it,
-    /// or its API level, such as 36. Downloading a version needs its licence
-    /// accepted by the user, so it's done in AAE's app, not here.
+    /// or its API level, such as 37 or 36.1, or a preview's name, such as
+    /// 37.2-beta3. Downloading a version needs its licence accepted by the
+    /// user, so it's done in AAE's app, not here.
     pub version: String,
     /// "small-phone", "phone" (the default) or "tablet".
     pub size: Option<String>,
@@ -47,6 +48,8 @@ pub(crate) struct VersionsParam {
     /// Also list the versions Google offers to download, not just those
     /// installed.
     pub all: Option<bool>,
+    /// With `all`, include previews of upcoming Android releases too.
+    pub previews: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -258,7 +261,10 @@ impl AaeServer {
     ) -> Result<CallToolResult, ErrorData> {
         respond(
             async {
-                let versions = self.engine.versions(false).await?;
+                let versions = self
+                    .engine
+                    .versions(false, p.previews.unwrap_or(false))
+                    .await?;
                 let all = p.all.unwrap_or(false);
                 json(
                     &versions
@@ -291,7 +297,14 @@ impl AaeServer {
                 let image = images
                     .iter()
                     .find(|i| i.description.to_lowercase() == wanted)
-                    .or_else(|| images.iter().find(|i| i.api.to_string() == wanted))
+                    .or_else(|| {
+                        images.iter().find(|i| {
+                            i.release.eq_ignore_ascii_case(&wanted)
+                                || aae_core::sdk::parse_api_level(&wanted)
+                                    .zip(aae_core::sdk::parse_api_level(&i.release))
+                                    .is_some_and(|(a, b)| a == b)
+                        })
+                    })
                     .or_else(|| images.iter().find(|i| i.description.to_lowercase().contains(&wanted)))
                     .ok_or_else(|| {
                         let installed: Vec<&str> = images.iter().map(|i| i.description.as_str()).collect();

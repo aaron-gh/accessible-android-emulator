@@ -64,6 +64,11 @@ pub struct DeviceMeta {
     /// The name the user chose, such as "Pixel 15 clean".
     pub name: String,
     pub api: u32,
+    /// The exact release, such as "Android 16 (API 36.1)" or "Android 17
+    /// Beta 3 preview, 16 KB pages". Missing for devices made before AAE
+    /// recorded it, which then go by `api`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release: Option<String>,
     pub tag: String,
     pub abi: String,
     pub sysdir: String,
@@ -137,11 +142,19 @@ impl RuntimeInfo {
 }
 
 impl Device {
+    /// Which Android it runs, such as "Android 16 (API 36.1)".
+    pub fn android(&self) -> String {
+        self.meta
+            .release
+            .clone()
+            .unwrap_or_else(|| android_name(self.meta.api))
+    }
+
     pub fn describe(&self) -> String {
         format!(
             "{}: {}, {}, {}",
             self.meta.name,
-            android_name(self.meta.api),
+            self.android(),
             image_kind(&self.meta.tag),
             self.meta.profile.describe()
         )
@@ -238,6 +251,11 @@ impl DeviceStore {
         let meta = DeviceMeta {
             name: name.trim().to_string(),
             api: image.api,
+            release: Some(if image.release.page_16k {
+                format!("{}, 16 KB pages", image.release.describe())
+            } else {
+                image.release.describe()
+            }),
             tag: image.tag.clone(),
             abi: image.abi.clone(),
             sysdir: image.sysdir.clone(),
@@ -517,6 +535,7 @@ mod tests {
     fn image() -> SystemImage {
         SystemImage {
             api: 35,
+            release: crate::sdk::Release::read("35", "android-35", false, false).unwrap(),
             tag: "google_apis".into(),
             abi: "arm64-v8a".into(),
             sysdir: "system-images/android-35/google_apis/arm64-v8a/".into(),
@@ -528,6 +547,23 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("aae-test-{test}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         DeviceStore::open(dir).unwrap()
+    }
+
+    #[test]
+    fn remembers_the_exact_release() {
+        let store = temp_store("release");
+        let mut image = image();
+        image.api = 37;
+        image.release = crate::sdk::Release::read("37.1", "android-37.1", false, true).unwrap();
+        let device = store.create("Seventeen", &image, Profile::Phone).unwrap();
+        assert_eq!(device.android(), "Android 17 (API 37.1), 16 KB pages");
+        let reread = store.get("Seventeen").unwrap();
+        assert_eq!(reread.android(), "Android 17 (API 37.1), 16 KB pages");
+        // Devices made before AAE recorded it go by their API level.
+        let mut older = reread.clone();
+        older.meta.release = None;
+        assert_eq!(older.android(), "Android 17 (API 37)");
+        let _ = std::fs::remove_dir_all(&store.root);
     }
 
     #[test]

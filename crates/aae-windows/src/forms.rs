@@ -40,6 +40,13 @@ pub enum Field {
         label: String,
         checked: bool,
     },
+    /// A checkbox that runs the form's action, with `action` as its id,
+    /// whenever it's ticked or unticked.
+    Toggle {
+        label: String,
+        checked: bool,
+        action: i32,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -162,6 +169,24 @@ impl Handle {
             ui::set_checked(*hwnd, on);
         }
     }
+
+    pub fn checked(&self, field: usize) -> bool {
+        matches!(self.controls.get(field), Some(Some(hwnd)) if ui::checked(*hwnd))
+    }
+
+    pub fn choice(&self, field: usize) -> Option<usize> {
+        match self.controls.get(field) {
+            Some(Some(hwnd)) => ui::combo_selection(*hwnd),
+            _ => None,
+        }
+    }
+
+    /// Replaces a drop-down list's choices.
+    pub fn set_choices(&self, field: usize, items: &[String], selected: usize) {
+        if let Some(Some(hwnd)) = self.controls.get(field) {
+            ui::set_combo_items(*hwnd, items, selected);
+        }
+    }
 }
 
 struct State {
@@ -169,6 +194,8 @@ struct State {
     controls: Vec<Option<HWND>>,
     /// Control id to button index.
     button_ids: HashMap<u16, usize>,
+    /// Control id to the action id of a Toggle.
+    toggle_ids: HashMap<u16, i32>,
     closed_by: Option<i32>,
 }
 
@@ -188,6 +215,7 @@ pub fn run(owner: HWND, form: Form) -> Answer {
         form,
         controls: Vec::new(),
         button_ids: HashMap::new(),
+        toggle_ids: HashMap::new(),
         closed_by: None,
     }));
     CREATING.with(|c| *c.borrow_mut() = Some(state.clone()));
@@ -238,7 +266,9 @@ pub fn run(owner: HWND, form: Form) -> Answer {
                 .map(|(field, hwnd)| match (field, hwnd) {
                     (Field::Edit { .. } | Field::Area { .. }, Some(h)) => Value::Text(ui::text(*h)),
                     (Field::Choice { .. }, Some(h)) => Value::Choice(ui::combo_selection(*h)),
-                    (Field::Check { .. }, Some(h)) => Value::Check(ui::checked(*h)),
+                    (Field::Check { .. } | Field::Toggle { .. }, Some(h)) => {
+                        Value::Check(ui::checked(*h))
+                    }
                     _ => Value::None,
                 })
                 .collect(),
@@ -325,6 +355,24 @@ fn handle(dialog: HWND, msg: u32, wparam: WPARAM, _: LPARAM) -> isize {
             let Some(state) = FORMS.with(|f| f.borrow().get(&(dialog.0 as isize)).cloned()) else {
                 return 0;
             };
+            let run_action = |action_id: i32| {
+                // Taken out while it runs, as it may open a file dialog,
+                // which runs its own messages.
+                let action = state.borrow_mut().form.action.take();
+                if let Some(mut action) = action {
+                    let handle = Handle {
+                        dialog,
+                        controls: state.borrow().controls.clone(),
+                    };
+                    action(action_id, &handle);
+                    state.borrow_mut().form.action = Some(action);
+                }
+            };
+            let toggle = state.borrow().toggle_ids.get(&id).copied();
+            if let Some(action_id) = toggle {
+                run_action(action_id);
+                return 1;
+            }
             let index = if id == IDCANCEL.0 as u16 {
                 // Escape: the cancel button, or a form's only button.
                 let s = state.borrow();
@@ -342,17 +390,7 @@ fn handle(dialog: HWND, msg: u32, wparam: WPARAM, _: LPARAM) -> isize {
                 (s.form.buttons[index].id, s.form.buttons[index].role)
             };
             if role == Role::Action {
-                // Taken out while it runs, as it may open a file dialog,
-                // which runs its own messages.
-                let action = state.borrow_mut().form.action.take();
-                if let Some(mut action) = action {
-                    let handle = Handle {
-                        dialog,
-                        controls: state.borrow().controls.clone(),
-                    };
-                    action(button_id, &handle);
-                    state.borrow_mut().form.action = Some(action);
-                }
+                run_action(button_id);
             } else {
                 state.borrow_mut().closed_by = Some(button_id);
             }
@@ -431,6 +469,17 @@ fn build(dialog: HWND, state: &mut State) -> Option<HWND> {
                 let check = ui::checkbox(dialog, label, id, *checked);
                 ui::place(check, MARGIN, y, inner, 20);
                 y += 26;
+                Some(check)
+            }
+            Field::Toggle {
+                label,
+                checked,
+                action,
+            } => {
+                let check = ui::checkbox(dialog, label, id, *checked);
+                ui::place(check, MARGIN, y, inner, 20);
+                y += 26;
+                state.toggle_ids.insert(id, *action);
                 Some(check)
             }
         };

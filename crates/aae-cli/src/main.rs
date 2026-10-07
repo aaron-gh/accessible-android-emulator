@@ -17,7 +17,7 @@ use aae_core::emulator::{self, StartOptions};
 use aae_core::lifecycle;
 use aae_core::proto::android::emulation::control::phone_call::Operation;
 use aae_core::provision::{self, ProvisionOptions};
-use aae_core::sdk::{self, Sdk, android_name};
+use aae_core::sdk::{self, Sdk};
 use aae_core::{control::Controller, keys};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -81,9 +81,10 @@ enum Command {
     /// Delete an installed Android version, to free its disk space. Refused
     /// while any of AAE's devices use it.
     RemoveImage {
-        /// The API level, such as 35.
+        /// The version, as its API level, such as 35 or 36.1, or a preview's
+        /// name, such as 37.2-beta3.
         #[arg(long)]
-        api: u32,
+        api: String,
         /// The kind of Android image, when more than one is installed for this API level.
         #[arg(long, value_enum)]
         kind: Option<Kind>,
@@ -96,12 +97,16 @@ enum Command {
         /// Fetch Google's list again, instead of using the copy from today.
         #[arg(long)]
         refresh: bool,
+        /// Include previews of upcoming Android releases.
+        #[arg(long)]
+        previews: bool,
     },
     /// Download and install an Android version.
     Download {
-        /// The API level, such as 35.
+        /// The version, as its API level, such as 37, or 36.1 for a later
+        /// update, or a preview's name, as available --previews lists it.
         #[arg(long)]
-        api: u32,
+        api: String,
         /// The kind of Android image. Defaults to Android with Google services,
         /// which needs no account and includes Google's speech engine.
         #[arg(long, value_enum)]
@@ -117,9 +122,10 @@ enum Command {
     Create {
         /// A name for the device, such as "Android 15 clean".
         name: String,
-        /// The API level, such as 35. Defaults to the newest installed.
+        /// The version, as its API level, such as 35 or 36.1, or a preview's
+        /// name. Defaults to the newest installed.
         #[arg(long)]
-        api: Option<u32>,
+        api: Option<String>,
         /// The kind of Android image.
         #[arg(long, value_enum)]
         kind: Option<Kind>,
@@ -774,18 +780,29 @@ async fn run(cli: Cli) -> Result<()> {
             update,
             refresh,
         } => setup(&ctx, accept_licence, update, refresh).await,
-        Command::Available { refresh } => {
+        Command::Available { refresh, previews } => {
             let catalogue = tokio::task::spawn_blocking(move || Catalogue::load(refresh)).await??;
             if catalogue.images.is_empty() {
                 println!("Google offers no Android versions for this computer's processor.");
             }
-            for image in &catalogue.images {
+            for image in catalogue
+                .images
+                .iter()
+                .filter(|i| previews || i.release.preview.is_none())
+            {
                 let state = if image.is_installed(&ctx.sdk) {
                     "installed".to_string()
                 } else {
-                    format!("{} to download", human_size(image.size))
+                    format!(
+                        "{} to download with --api {}",
+                        human_size(image.size),
+                        image.release.id
+                    )
                 };
                 println!("{}, {state}.", image.describe());
+            }
+            if !previews {
+                println!("Add --previews to include previews of upcoming Android releases.");
             }
             Ok(())
         }
@@ -794,7 +811,7 @@ async fn run(cli: Cli) -> Result<()> {
             kind,
             accept_licence,
         } => {
-            let image = download_image(&ctx, api, kind, accept_licence).await?;
+            let image = download_image(&ctx, &api, kind, accept_licence).await?;
             println!("{image} is installed.");
             Ok(())
         }
@@ -815,17 +832,15 @@ async fn run(cli: Cli) -> Result<()> {
                 .sdk
                 .system_images()
                 .into_iter()
-                .filter(|i| i.api == api && kind.is_none_or(|k| k.matches(&i.tag)))
+                .filter(|i| i.release.matches(&api) && kind.is_none_or(|k| k.matches(&i.tag)))
                 .collect();
             let image = match matching.as_slice() {
                 [] => anyhow::bail!(
-                    "{} isn't installed. Use the images command to see what is.",
-                    aae_core::sdk::android_name(api)
+                    "No Android version {api} is installed. Use the images command to see what is."
                 ),
                 [image] => image.clone(),
                 several => anyhow::bail!(
-                    "More than one kind of {} is installed: {}. Choose one with --kind.",
-                    aae_core::sdk::android_name(api),
+                    "More than one kind of Android version {api} is installed: {}. Choose one with --kind.",
                     several
                         .iter()
                         .map(|i| i.kind())
@@ -885,7 +900,7 @@ async fn run(cli: Cli) -> Result<()> {
             accept_licence,
             attach,
         } => {
-            let image = match (pick_image(&ctx.sdk, api, kind), api) {
+            let image = match (pick_image(&ctx.sdk, api.as_deref(), kind), api.as_deref()) {
                 (Ok(image), _) => image,
                 // Not installed: download it.
                 (Err(_), Some(api)) => download_image(&ctx, api, kind, accept_licence).await?,
@@ -1876,25 +1891,26 @@ async fn run(cli: Cli) -> Result<()> {
 /// Downloads and installs an Android version from Google, with progress every 10%.
 async fn download_image(
     ctx: &Ctx,
-    api: u32,
+    api: &str,
     kind: Option<Kind>,
     accept_licence: bool,
 ) -> Result<sdk::SystemImage> {
     let kind = kind.unwrap_or(Kind::Google);
     let catalogue = tokio::task::spawn_blocking(|| Catalogue::load(false)).await??;
-    let Some(image) = catalogue.find(api, kind.tag()).cloned() else {
+    let Some(image) = catalogue.find_release(api, kind.tag()).cloned() else {
         let offered: Vec<String> = catalogue
             .images
             .iter()
-            .filter(|i| i.api == api)
+            .filter(|i| i.release.matches(api))
             .map(RemoteImage::describe)
             .collect();
         if offered.is_empty() {
-            bail!("Google offers no {} for this computer.", android_name(api));
+            bail!(
+                "Google offers no Android version {api} for this computer. aae available lists those it does."
+            );
         }
         bail!(
-            "Google doesn't offer that kind of {}. It offers: {}.",
-            android_name(api),
+            "Google doesn't offer that kind of Android version {api}. It offers: {}.",
             offered.join("; ")
         );
     };
@@ -1962,18 +1978,20 @@ fn version_less(a: &str, b: &str) -> bool {
     parts(a) < parts(b)
 }
 
-fn pick_image(sdk: &Sdk, api: Option<u32>, kind: Option<Kind>) -> Result<sdk::SystemImage> {
+fn pick_image(sdk: &Sdk, api: Option<&str>, kind: Option<Kind>) -> Result<sdk::SystemImage> {
     let images = sdk.system_images();
     let fits = |i: &&sdk::SystemImage| {
         i.runs_natively()
-            && api.is_none_or(|a| i.api == a)
+            && api.is_none_or(|a| i.release.matches(a))
+            // Previews only when asked for by name.
+            && (api.is_some() || i.release.preview.is_none())
             && kind.is_none_or(|k| k.matches(&i.tag))
     };
     if let Some(image) = images.iter().find(fits) {
         return Ok(image.clone());
     }
     let wanted = match api {
-        Some(api) => android_name(api),
+        Some(api) => format!("Android version {api}"),
         None => "a suitable Android version".into(),
     };
     if images.is_empty() {

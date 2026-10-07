@@ -1,8 +1,9 @@
 //! Downloading Android versions.
 //!
 //! Google publishes a catalogue of system images for each image type. AAE
-//! reads it, lists the stable versions that run at full speed on this
-//! computer, and installs one into the SDK just as Google's own sdkmanager
+//! reads it, lists the versions that run at full speed on this computer, and
+//! their updates (such as API 36.1) and previews, and installs one into the
+//! SDK just as Google's own sdkmanager
 //! would: the same folders, the same `package.xml`, and the same record of
 //! accepted licences, so Android Studio sees what AAE installs and the other
 //! way round.
@@ -18,7 +19,8 @@ use crate::device::{DeviceStore, dir_size};
 use crate::error::{Error, IoContext, Result};
 use crate::paths;
 use crate::sdk::{
-    Sdk, SystemImage, android_name, host_abi, image_kind, parse_properties, read_properties,
+    Release, Sdk, SystemImage, host_abi, image_kind, parse_api_level, parse_properties,
+    read_properties,
 };
 
 const REPOSITORY: &str = "https://dl.google.com/android/repository/sys-img";
@@ -37,6 +39,8 @@ const CATALOGUE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 #[derive(Debug, Clone)]
 pub struct RemoteImage {
     pub api: u32,
+    /// Which release of that version: an update such as API 36.1, or a preview.
+    pub release: Release,
     pub tag: String,
     pub abi: String,
     /// The SDK's name for it, such as `system-images;android-35;google_apis;arm64-v8a`.
@@ -58,16 +62,19 @@ pub struct RemoteImage {
 impl RemoteImage {
     /// Such as "Android 15 (API 35), With Google Play".
     pub fn describe(&self) -> String {
-        format!("{}, {}", android_name(self.api), image_kind(&self.tag))
+        let mut text = format!("{}, {}", self.release.describe(), image_kind(&self.tag));
+        if self.release.page_16k {
+            text.push_str(", 16 KB pages");
+        }
+        text
     }
 
-    /// Where it goes in the SDK.
+    /// Where it goes in the SDK: the folders its SDK name gives, such as
+    /// system-images/android-36.1/google_apis/arm64-v8a.
     pub fn install_dir(&self, sdk: &Sdk) -> PathBuf {
-        sdk.root
-            .join("system-images")
-            .join(format!("android-{}", self.api))
-            .join(&self.tag)
-            .join(&self.abi)
+        self.path
+            .split(';')
+            .fold(sdk.root.clone(), |dir, part| dir.join(part))
     }
 
     pub fn is_installed(&self, sdk: &Sdk) -> bool {
@@ -92,22 +99,90 @@ impl Catalogue {
             let xml = catalogue_xml(tag, refresh)?;
             catalogue.add(tag, &xml)?;
         }
-        catalogue.images.sort_by(|a, b| {
-            b.api
-                .cmp(&a.api)
-                .then(a.tag.cmp(&b.tag))
-                .then(version_key(&b.revision).cmp(&version_key(&a.revision)))
-        });
-        // Keep only the newest revision of each version and kind.
-        catalogue
-            .images
-            .dedup_by(|later, kept| later.api == kept.api && later.tag == kept.tag);
+        catalogue.tidy();
         Ok(catalogue)
     }
 
-    /// The image for an API level and image type, if Google offers one for this computer.
-    pub fn find(&self, api: u32, tag: &str) -> Option<&RemoteImage> {
-        self.images.iter().find(|i| i.api == api && i.tag == tag)
+    /// Keeps what's worth offering, newest first: the newest revision of each
+    /// image; a release's usual image rather than its 16 KB page one, where
+    /// it comes both ways; and of the previews, the latest beta and the
+    /// latest canary build of each kind.
+    fn tidy(&mut self) {
+        let images = &mut self.images;
+        images.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(version_key(&b.revision).cmp(&version_key(&a.revision)))
+        });
+        images.dedup_by(|later, kept| later.path == kept.path);
+
+        let usual: std::collections::HashSet<(String, String)> = images
+            .iter()
+            .filter(|i| !i.release.page_16k)
+            .map(|i| (i.release.id.clone(), i.tag.clone()))
+            .collect();
+        images.retain(|i| {
+            !i.release.page_16k || !usual.contains(&(i.release.id.clone(), i.tag.clone()))
+        });
+
+        let track = |i: &RemoteImage| {
+            let preview = i.release.preview.as_deref().unwrap_or_default();
+            let kind = if preview.starts_with("Beta") {
+                "beta"
+            } else {
+                "canary"
+            };
+            (i.tag.clone(), kind)
+        };
+        // Version, update, revision, and the release's name, for comparing.
+        type Rank = (u32, u32, Vec<u32>, String);
+        let mut newest: HashMap<(String, &str), Rank> = HashMap::new();
+        for image in images.iter().filter(|i| i.release.preview.is_some()) {
+            let rank = (
+                image.api,
+                image.release.minor,
+                version_key(&image.revision),
+                image.release.id.clone(),
+            );
+            let best = newest.entry(track(image)).or_insert_with(|| rank.clone());
+            if rank > *best {
+                *best = rank;
+            }
+        }
+        images.retain(|i| {
+            i.release.preview.is_none()
+                || newest
+                    .get(&track(i))
+                    .is_some_and(|best| best.3 == i.release.id)
+        });
+
+        images.sort_by(|a, b| {
+            b.api
+                .cmp(&a.api)
+                .then(
+                    a.release
+                        .preview
+                        .is_some()
+                        .cmp(&b.release.preview.is_some()),
+                )
+                .then(b.release.minor.cmp(&a.release.minor))
+                .then(a.release.page_16k.cmp(&b.release.page_16k))
+                .then(a.tag.cmp(&b.tag))
+        });
+    }
+
+    /// The image with this SDK name, such as
+    /// `system-images;android-36.1;google_apis;arm64-v8a`.
+    pub fn find(&self, path: &str) -> Option<&RemoteImage> {
+        self.images.iter().find(|i| i.path == path)
+    }
+
+    /// The image of this kind for a release named as "37", "36.1" or a
+    /// preview's folder name, such as "37.2-beta3".
+    pub fn find_release(&self, text: &str, tag: &str) -> Option<&RemoteImage> {
+        self.images
+            .iter()
+            .find(|i| i.tag == tag && i.release.matches(text))
     }
 
     fn add(&mut self, tag: &str, xml: &str) -> Result<()> {
@@ -192,12 +267,31 @@ fn read_package(
         return None;
     }
     let details = child(package, "type-details")?;
-    let api: u32 = child_text(details, "api-level")?.parse().ok()?;
+    // "36" for a version, "36.1" for a later update to it.
+    let level = child_text(details, "api-level")?;
+    let (api, _) = parse_api_level(level)?;
     let abi = child_text(details, "abi")?;
-    let image_tag = child(details, "tag").and_then(|t| child_text(t, "id"))?;
+    let tags: Vec<&str> = details
+        .children()
+        .filter(|n| n.has_tag_name("tag"))
+        .filter_map(|t| child_text(t, "id"))
+        .collect();
+    let image_tag = *tags.first()?;
     if api < MIN_API || abi != host_abi() || image_tag != tag {
         return None;
     }
+    let folder = path.split(';').nth(1)?;
+    let page_16k = tags.contains(&"page_size_16kb")
+        || path
+            .split(';')
+            .nth(2)
+            .is_some_and(|t| t.ends_with("_ps16k"));
+    let release = Release::read(
+        level,
+        folder,
+        child(details, "codename").is_some(),
+        page_16k,
+    )?;
     let archive = child(child(package, "archives")?, "archive")?;
     let complete = child(archive, "complete")?;
     let min_emulator = child(package, "dependencies")
@@ -208,6 +302,7 @@ fn read_package(
         .and_then(revision);
     Some(RemoteImage {
         api,
+        release,
         tag: tag.to_string(),
         abi: abi.to_string(),
         path: path.to_string(),
@@ -780,5 +875,177 @@ mod tests {
         assert!(licence_accepted(&sdk, "x", "Terms"));
         assert!(!licence_accepted(&sdk, "x", "New terms"));
         let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod release_tests {
+    use super::*;
+
+    fn package(
+        path: &str,
+        level: &str,
+        codename: Option<&str>,
+        page_16k: bool,
+        revision: u32,
+    ) -> String {
+        let codename = codename
+            .map(|c| format!("<codename>{c}</codename>"))
+            .unwrap_or_default();
+        let page = if page_16k {
+            "<tag><id>page_size_16kb</id></tag>"
+        } else {
+            ""
+        };
+        format!(
+            r#"<remotePackage path="{path}">
+    <type-details xsi:type="sys-img:sysImgDetailsType"><api-level>{level}</api-level>{codename}<tag><id>google_apis</id></tag>{page}<abi>{abi}</abi></type-details>
+    <revision><major>{revision}</major></revision><uses-license ref="l"/>
+    <archives><archive><complete><size>1</size><checksum type="sha1">aa</checksum><url>x.zip</url></complete></archive></archives>
+  </remotePackage>"#,
+            abi = host_abi()
+        )
+    }
+
+    fn catalogue() -> Catalogue {
+        let abi = host_abi();
+        let packages = [
+            package(
+                &format!("system-images;android-36;google_apis;{abi}"),
+                "36",
+                None,
+                false,
+                7,
+            ),
+            package(
+                &format!("system-images;android-36.1;google_apis;{abi}"),
+                "36.1",
+                None,
+                false,
+                3,
+            ),
+            package(
+                &format!("system-images;android-37.0;google_apis;{abi}"),
+                "37.0",
+                None,
+                false,
+                6,
+            ),
+            package(
+                &format!("system-images;android-37.0;google_apis_ps16k;{abi}"),
+                "37.0",
+                None,
+                true,
+                7,
+            ),
+            package(
+                &format!("system-images;android-37.1;google_apis_ps16k;{abi}"),
+                "37.1",
+                None,
+                true,
+                9,
+            ),
+            package(
+                &format!("system-images;android-37.2-beta2;google_apis_ps16k;{abi}"),
+                "37.1",
+                Some("DEV"),
+                true,
+                2,
+            ),
+            package(
+                &format!("system-images;android-37.2-beta3;google_apis_ps16k;{abi}"),
+                "37.1",
+                Some("DEV"),
+                true,
+                3,
+            ),
+            package(
+                &format!("system-images;android-CANARY;google_apis_ps16k;{abi}"),
+                "37.1",
+                Some("CANARY"),
+                true,
+                15,
+            ),
+            package(
+                &format!("system-images;android-canary-20260909;google_apis_ps16k;{abi}"),
+                "37.2",
+                Some("CANARY"),
+                true,
+                16,
+            ),
+        ];
+        let xml = format!(
+            r#"<?xml version='1.0' encoding='utf-8'?>
+<sys-img:sdk-sys-img xmlns:sys-img="http://schemas.android.com/sdk/android/repo/sys-img2/04" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <license id="l" type="text">Terms</license>
+  <channel id="channel-0">stable</channel>
+  {}
+</sys-img:sdk-sys-img>"#,
+            packages.join("\n  ")
+        );
+        let mut catalogue = Catalogue::default();
+        catalogue.add("google_apis", &xml).unwrap();
+        catalogue.tidy();
+        catalogue
+    }
+
+    #[test]
+    fn offers_updates_and_newer_versions_with_decimal_api_levels() {
+        let names: Vec<String> = catalogue()
+            .images
+            .iter()
+            .map(RemoteImage::describe)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Android 17 (API 37.1), With Google services, 16 KB pages",
+                "Android 17 (API 37), With Google services",
+                "Android 17 Canary preview, 9 September 2026, With Google services, 16 KB pages",
+                "Android 17 Beta 3 preview, With Google services, 16 KB pages",
+                "Android 16 (API 36.1), With Google services",
+                "Android 16 (API 36), With Google services",
+            ]
+        );
+    }
+
+    #[test]
+    fn finds_releases_by_name() {
+        let catalogue = catalogue();
+        let abi = host_abi();
+        assert_eq!(
+            catalogue.find_release("37", "google_apis").unwrap().path,
+            format!("system-images;android-37.0;google_apis;{abi}")
+        );
+        assert_eq!(
+            catalogue
+                .find_release("36.1", "google_apis")
+                .unwrap()
+                .release
+                .minor,
+            1
+        );
+        assert_eq!(
+            catalogue
+                .find_release("37.2-beta3", "google_apis")
+                .unwrap()
+                .release
+                .preview
+                .as_deref(),
+            Some("Beta 3")
+        );
+        assert!(
+            catalogue
+                .find_release("37.2-beta2", "google_apis")
+                .is_none()
+        );
+        let image = catalogue.find_release("36.1", "google_apis").unwrap();
+        assert!(
+            image
+                .install_dir(&Sdk {
+                    root: "/sdk".into()
+                })
+                .ends_with(format!("android-36.1/google_apis/{abi}"))
+        );
     }
 }

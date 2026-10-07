@@ -15,6 +15,8 @@ pub struct Settings {
     pub correct_pitch: bool,
     /// When AAE last said tool updates are available, in seconds since 1970.
     pub last_update_mention: u64,
+    /// New Device offers previews of upcoming Android releases.
+    pub include_previews: bool,
 }
 
 impl Default for Settings {
@@ -24,6 +26,7 @@ impl Default for Settings {
             play_only_in_use: true,
             correct_pitch: true,
             last_update_mention: 0,
+            include_previews: false,
         }
     }
 }
