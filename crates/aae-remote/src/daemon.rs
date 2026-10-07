@@ -144,6 +144,8 @@ pub fn install() -> Result<String, String> {
     </dict>
     <key>ProcessType</key>
     <string>Background</string>
+    <key>ExitTimeOut</key>
+    <integer>120</integer>
     <key>StandardOutPath</key>
     <string>{}</string>
     <key>StandardErrorPath</key>
@@ -212,7 +214,7 @@ pub fn install() -> Result<String, String> {
     {
         let unit = format!(
             "[Unit]\nDescription=AAE serving devices to AAE Remote\nAfter=network-online.target\n\n\
-             [Service]\nExecStart=\"{}\" serve\nRestart=on-failure\nStandardInput=null\n\
+             [Service]\nExecStart=\"{}\" serve\nRestart=on-failure\nTimeoutStopSec=120\nStandardInput=null\n\
              StandardOutput=append:{}\nStandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
             aae.display(),
             log.display(),
@@ -258,6 +260,15 @@ pub fn uninstall() -> Result<String, String> {
         );
         let _ = std::fs::remove_file(unit_path());
         let _ = run("systemctl", &["--user", "daemon-reload"]);
+    }
+    // A device a phone is stopping finishes first: stopping it midway
+    // would leave its emulator running. Up to two minutes.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    while crate::server::stopping_path().exists()
+        && running_pid().is_some()
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
     // One started some other way stops too.
     if let Some(pid) = running_pid() {

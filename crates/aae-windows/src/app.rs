@@ -859,7 +859,10 @@ pub fn closing() -> bool {
             );
         }
         announce(
-            &format!("Waiting for {} to stop before quitting.", stopping.join(" and ")),
+            &format!(
+                "Waiting for {} to stop before quitting.",
+                stopping.join(" and ")
+            ),
             Tone::Info,
         );
         return false;

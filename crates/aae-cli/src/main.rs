@@ -2737,6 +2737,16 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
     use tokio::io::AsyncBufReadExt;
     // With no terminal, as when run as a service, it serves until stopped.
     let mut terminal = true;
+    // launchd and systemd stop services with SIGTERM.
+    #[cfg(unix)]
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let terminated = async {
+        #[cfg(unix)]
+        terminate.recv().await;
+        #[cfg(not(unix))]
+        std::future::pending::<()>().await;
+    };
+    tokio::pin!(terminated);
     loop {
         tokio::select! {
             line = input.next_line(), if terminal => match line {
@@ -2751,10 +2761,21 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
             },
             Some(note) = notes.recv() => say(serde_json::json!({"event": "notice", "text": note}), note),
             _ = tokio::signal::ctrl_c() => break,
+            _ = &mut terminated => break,
         }
         if running.is_finished() {
             break;
         }
+    }
+    // Stopping a device midway would leave its emulator running.
+    let stopping = server.stopping();
+    if !stopping.is_empty() {
+        let text = format!("Waiting for {} to stop.", stopping.join(" and "));
+        say(
+            serde_json::json!({"event": "notice", "text": text}),
+            text.clone(),
+        );
+        server.wait_for_stops().await;
     }
     aae_remote::daemon::remove_pid();
     if running.is_finished() {
@@ -2770,5 +2791,9 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
     if !json {
         println!("Stopped serving.");
     }
-    Ok(())
+    // Exits now: the thread reading standard input would otherwise keep the
+    // process waiting for a line that may never come.
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    std::process::exit(0);
 }

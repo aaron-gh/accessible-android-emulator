@@ -34,6 +34,11 @@ use crate::json;
 use crate::media;
 use crate::security::{self, Clients, Identity, Pairing};
 
+/// Where the server notes the devices it's stopping.
+pub fn stopping_path() -> std::path::PathBuf {
+    security::folder().join("stopping")
+}
+
 /// The port AAE listens on unless told otherwise.
 pub const DEFAULT_PORT: u16 = 47735;
 /// The sound sent to phones: 48 kHz stereo.
@@ -54,6 +59,10 @@ pub struct Server {
     /// This computer's name, as phones list it.
     pub name: String,
     sessions: tokio::sync::Mutex<HashMap<String, Arc<Session>>>,
+    /// Devices being stopped, by name: the server waits for them before it
+    /// exits, as quitting midway would leave the emulator running.
+    stopping: Mutex<Vec<String>>,
+    stopped: tokio::sync::Notify,
     /// Things worth telling whoever runs the server, such as a phone pairing.
     notices: Mutex<Option<mpsc::UnboundedSender<String>>>,
 }
@@ -69,6 +78,8 @@ impl Server {
             pairing: Pairing::default(),
             name,
             sessions: tokio::sync::Mutex::new(HashMap::new()),
+            stopping: Mutex::new(Vec::new()),
+            stopped: tokio::sync::Notify::new(),
             notices: Mutex::new(None),
         }))
     }
@@ -94,6 +105,43 @@ impl Server {
         let session = self.engine.open_session(id.to_string()).await?;
         sessions.insert(id.to_string(), session.clone());
         Ok(session)
+    }
+
+    /// The devices being stopped, by name.
+    pub fn stopping(&self) -> Vec<String> {
+        self.stopping.lock().unwrap().clone()
+    }
+
+    /// Waits until no device is being stopped.
+    pub async fn wait_for_stops(&self) {
+        loop {
+            let waiting = self.stopped.notified();
+            if self.stopping.lock().unwrap().is_empty() {
+                return;
+            }
+            waiting.await;
+        }
+    }
+
+    /// Notes a stop, in a file too, so `aae daemon uninstall` can wait for it.
+    fn stop_began(&self, name: &str) {
+        let mut stopping = self.stopping.lock().unwrap();
+        stopping.push(name.to_string());
+        let _ = std::fs::write(stopping_path(), stopping.join("\n"));
+    }
+
+    fn stop_ended(&self, name: &str) {
+        let mut stopping = self.stopping.lock().unwrap();
+        if let Some(i) = stopping.iter().position(|n| n == name) {
+            stopping.remove(i);
+        }
+        if stopping.is_empty() {
+            let _ = std::fs::remove_file(stopping_path());
+        } else {
+            let _ = std::fs::write(stopping_path(), stopping.join("\n"));
+        }
+        drop(stopping);
+        self.stopped.notify_waiters();
     }
 
     async fn forget_session(&self, id: &str) {
@@ -514,7 +562,15 @@ async fn call(
         }
         "device.stop" => {
             let id = id()?;
-            engine.stop_device(id.clone()).await?;
+            let name = engine
+                .devices()?
+                .into_iter()
+                .find(|d| d.id == id)
+                .map_or(id.clone(), |d| d.name);
+            server.stop_began(&name);
+            let result = engine.stop_device(id.clone()).await;
+            server.stop_ended(&name);
+            result?;
             server.forget_session(&id).await;
             Value::Null
         }
