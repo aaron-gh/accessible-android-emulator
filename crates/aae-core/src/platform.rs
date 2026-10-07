@@ -176,3 +176,30 @@ pub(crate) fn windows_on_arm() -> bool {
     let asked = unsafe { IsWow64Process2(GetCurrentProcess(), &mut process, &mut native) };
     asked != 0 && native == IMAGE_FILE_MACHINE_ARM64
 }
+
+/// The computer's graphics adapters, by name.
+#[cfg(windows)]
+pub(crate) fn graphics_adapters() -> Vec<String> {
+    use windows_sys::Win32::Graphics::Gdi::{DISPLAY_DEVICEW, EnumDisplayDevicesW};
+    let mut names: Vec<String> = Vec::new();
+    for index in 0.. {
+        let mut device: DISPLAY_DEVICEW = unsafe { std::mem::zeroed() };
+        device.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+        if unsafe { EnumDisplayDevicesW(std::ptr::null(), index, &mut device, 0) } == 0 {
+            break;
+        }
+        let end = device
+            .DeviceString
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(128);
+        let name = String::from_utf16_lossy(&device.DeviceString[..end])
+            .trim()
+            .to_string();
+        // One entry per screen: each adapter once.
+        if !name.is_empty() && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}

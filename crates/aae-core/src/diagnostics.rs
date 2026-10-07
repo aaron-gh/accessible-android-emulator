@@ -75,6 +75,26 @@ pub fn report(sdk: &Sdk, store: &DeviceStore, version: &str) -> String {
     let _ = writeln!(out, "AAE {version}");
     section(&mut out, "Computer");
     let _ = writeln!(out, "{}", system_summary());
+    let (processor, graphics) = processor_and_graphics();
+    let _ = writeln!(
+        out,
+        "Processor: {}, {} threads; devices get {} cores",
+        processor.unwrap_or_else(|| "unknown".into()),
+        setup::threads(),
+        setup::device_cores()
+    );
+    let _ = writeln!(
+        out,
+        "Graphics: {}",
+        if graphics.is_empty() {
+            "unknown".to_string()
+        } else {
+            graphics.join("; ")
+        }
+    );
+    if let Some(warning) = setup::performance_warning() {
+        let _ = writeln!(out, "{warning}");
+    }
     let _ = writeln!(
         out,
         "Virtualisation: {}",
@@ -172,6 +192,9 @@ pub fn report(sdk: &Sdk, store: &DeviceStore, version: &str) -> String {
                 }
                 if m.pending_screen_reader.is_some() {
                     let _ = writeln!(out, "  A screen reader build is queued for its next start.");
+                }
+                if let Some(graphics) = emulator_graphics(&device.dir.join("emulator.log")) {
+                    let _ = writeln!(out, "  Graphics: {graphics}");
                 }
                 let log = tail(&device.dir.join("emulator.log"), 80);
                 if !log.is_empty() {
@@ -426,6 +449,104 @@ fn system_summary() -> String {
     } else {
         format!("{}, {}", std::env::consts::OS, std::env::consts::ARCH)
     }
+}
+
+/// The processor's name and the graphics adapters, as the system names them.
+fn processor_and_graphics() -> (Option<String>, Vec<String>) {
+    let run = |cmd: &str, args: &[&str]| -> Option<String> {
+        let out = std::process::Command::new(cmd)
+            .no_console()
+            .args(args)
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).to_string())
+    };
+    if cfg!(target_os = "macos") {
+        let processor =
+            run("sysctl", &["-n", "machdep.cpu.brand_string"]).map(|s| s.trim().to_string());
+        // "Chipset Model: Apple M5" and "Total Number of Cores: 8", per adapter.
+        let mut graphics = Vec::new();
+        for line in run("system_profiler", &["SPDisplaysDataType"])
+            .unwrap_or_default()
+            .lines()
+        {
+            let line = line.trim();
+            if let Some(model) = line.strip_prefix("Chipset Model:") {
+                graphics.push(model.trim().to_string());
+            } else if let Some(cores) = line.strip_prefix("Total Number of Cores:")
+                && let Some(last) = graphics.last_mut()
+            {
+                *last = format!("{last}, {} graphics cores", cores.trim());
+            }
+        }
+        (processor, graphics)
+    } else if cfg!(windows) {
+        // "    ProcessorNameString    REG_SZ    Intel(R) N150"
+        let processor = run(
+            "reg",
+            &[
+                "query",
+                r"HKLM\HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+                "/v",
+                "ProcessorNameString",
+            ],
+        )
+        .and_then(|out| {
+            out.lines().find_map(|l| {
+                l.split_once("REG_SZ")
+                    .map(|(_, name)| name.trim().to_string())
+            })
+        });
+        #[cfg(windows)]
+        let graphics = crate::platform::graphics_adapters();
+        #[cfg(not(windows))]
+        let graphics = Vec::new();
+        (processor, graphics)
+    } else {
+        let processor = std::fs::read_to_string("/proc/cpuinfo")
+            .ok()
+            .and_then(|info| {
+                info.lines()
+                    .find_map(|l| l.strip_prefix("model name"))
+                    .and_then(|l| l.split_once(':'))
+                    .map(|(_, name)| name.trim().to_string())
+            });
+        let graphics = run("lspci", &[])
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.contains("VGA") || l.contains("3D controller"))
+            .filter_map(|l| l.split_once(": ").map(|(_, name)| name.to_string()))
+            .collect();
+        (processor, graphics)
+    }
+}
+
+/// How the emulator drew the device's screen when it last started: with the
+/// computer's graphics adapter, or in software, which is much slower.
+fn emulator_graphics(log: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(log).ok()?;
+    // "emuglConfig_init: vulkan_mode_selected:lavapipe gles_mode_selected:swangle"
+    let modes = text.lines().find_map(|l| {
+        let (_, rest) = l.split_once("vulkan_mode_selected:")?;
+        let (vulkan, gles) = rest.split_once(" gles_mode_selected:")?;
+        Some((vulkan.trim().to_string(), gles.trim().to_string()))
+    })?;
+    let software = |mode: &str| {
+        ["swiftshader", "swangle", "lavapipe", "guest"]
+            .iter()
+            .any(|s| mode.contains(s))
+    };
+    let how = if software(&modes.0) && software(&modes.1) {
+        "in software, without the computer's graphics adapter"
+    } else {
+        "with the computer's graphics adapter"
+    };
+    Some(format!(
+        "{how} (OpenGL ES: {}, Vulkan: {})",
+        modes.1, modes.0
+    ))
 }
 
 /// The last lines of a text file, or nothing.
