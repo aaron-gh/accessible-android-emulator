@@ -85,16 +85,48 @@ pub async fn check(adb: &Adb) -> Result<SpeechStatus> {
     })
 }
 
+/// How long a speech engine may take to start answering, before AAE decides
+/// it's broken. Right after Android starts, and on slower computers, such as
+/// Windows PCs running Android for Intel processors, an engine can miss the
+/// helper's eight seconds several times; eSpeak NG also unpacks its voices
+/// the first time it runs.
+const SLOW_ENGINE: Duration = Duration::from_secs(30);
+const NEW_ENGINE: Duration = Duration::from_secs(60);
+
+/// True when a failed check may only mean the engine is slow, not broken.
+fn maybe_slow(status: &SpeechStatus) -> bool {
+    status.detail.contains("in time") || status.detail.contains("did not start")
+}
+
+/// Checks speech, trying again while the engine seems only slow, for up to
+/// `patience`.
+async fn check_patiently(adb: &Adb, patience: Duration) -> Result<SpeechStatus> {
+    let started = std::time::Instant::now();
+    loop {
+        let status = check(adb).await;
+        let slow = match &status {
+            Ok(status) => !status.ok && maybe_slow(status),
+            // The helper itself didn't answer, as when Android is busy.
+            Err(_) => true,
+        };
+        if !slow || started.elapsed() >= patience {
+            return status;
+        }
+        if let Ok(status) = &status {
+            tracing::info!(
+                "speech check: {} is slow ({}); trying again",
+                status.engine,
+                status.detail
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
 /// Makes sure the device can speak, repairing it if not. Returns what it had
 /// to do, or an error if nothing worked.
 pub async fn ensure_speech(adb: &Adb) -> Result<SpeechFix> {
-    let mut status = check(adb).await?;
-    if !status.ok && status.detail.contains("in time") {
-        // Right after Android starts, an engine can be slow to answer the
-        // first time. Give it one more chance before repairing anything.
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        status = check(adb).await?;
-    }
+    let status = check_patiently(adb, SLOW_ENGINE).await?;
     if status.ok {
         return Ok(SpeechFix::None);
     }
@@ -107,7 +139,7 @@ pub async fn ensure_speech(adb: &Adb) -> Result<SpeechFix> {
     if status.engine == GOOGLE_TTS || adb.is_installed(GOOGLE_TTS).await? {
         adb.shell(&format!("pm clear {GOOGLE_TTS}")).await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
-        if check(adb).await?.ok {
+        if check_patiently(adb, SLOW_ENGINE).await?.ok {
             return Ok(SpeechFix::ResetGoogleVoices);
         }
     }
@@ -116,7 +148,7 @@ pub async fn ensure_speech(adb: &Adb) -> Result<SpeechFix> {
     adb.put_setting("secure", "tts_default_synth", ESPEAK_PACKAGE)
         .await?;
     tokio::time::sleep(Duration::from_secs(1)).await;
-    let after = check(adb).await?;
+    let after = check_patiently(adb, NEW_ENGINE).await?;
     if after.ok {
         Ok(SpeechFix::InstalledEspeak)
     } else {
