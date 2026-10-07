@@ -98,6 +98,8 @@ pub struct DeviceInfo {
     pub backtalk_supported: bool,
     /// How loud AAE plays it on the Mac, from 0 to 1.
     pub volume: f32,
+    /// The computer's output it plays through, by name; None is the default.
+    pub audio_output: Option<String>,
 }
 
 impl DeviceInfo {
@@ -119,6 +121,7 @@ impl DeviceInfo {
             speech_log: device.meta.speech_log_engine.is_some(),
             backtalk_supported: device.meta.api >= aae_core::screenreader::BACKTALK_MIN_API,
             volume: device.meta.playback_volume.unwrap_or(1.0),
+            audio_output: device.meta.audio_output.clone(),
         }
     }
 }
@@ -547,6 +550,13 @@ fn describe_new_device_settings() -> String {
 pub fn forget_new_device_settings() -> Result<String, AaeError> {
     aae_core::device_settings::set_for_new_devices(&[])?;
     Ok(describe_new_device_settings())
+}
+
+/// The computer's audio outputs, by name, for choosing which a device plays
+/// through.
+#[uniffi::export]
+pub fn audio_outputs() -> Vec<String> {
+    aae_core::audio::output_names()
 }
 
 /// A battery health to choose: its name for `set_battery_health`, and in words.
@@ -1646,11 +1656,18 @@ impl Session {
             return Ok(());
         }
         let controller = self.controller.clone();
-        let measured = self.device.lock().unwrap().meta.audio_speed.unwrap_or(1.0);
+        let (measured, output) = {
+            let device = self.device.lock().unwrap();
+            (
+                device.meta.audio_speed.unwrap_or(1.0),
+                device.meta.audio_output.clone(),
+            )
+        };
         let speed = if correct_pitch { measured } else { 1.0 };
-        let player =
-            on_runtime(async move { Ok(AudioPlayer::start_with_speed(&controller, speed).await?) })
-                .await?;
+        let player = on_runtime(async move {
+            Ok(AudioPlayer::start_with_output(&controller, speed, output).await?)
+        })
+        .await?;
         player.set_volume(self.audio_volume());
         *self.audio.lock().unwrap() = Some(player);
         Ok(())
@@ -1726,6 +1743,37 @@ impl Session {
         if let Some(mut player) = self.audio.lock().unwrap().take() {
             player.stop();
         }
+    }
+
+    /// The computer's output this device plays through, by name, or None for
+    /// the default output.
+    pub fn audio_output(&self) -> Option<String> {
+        self.device.lock().unwrap().meta.audio_output.clone()
+    }
+
+    /// Plays this device through one of the computer's outputs, by name as
+    /// `audio_outputs` lists them, or None for the default, and remembers it.
+    /// Returns what to say.
+    pub async fn set_audio_output(
+        &self,
+        output: Option<String>,
+        correct_pitch: bool,
+    ) -> Result<String, AaeError> {
+        {
+            let mut device = self.device.lock().unwrap();
+            device.meta.audio_output = output.clone();
+            device.save_meta()?;
+        }
+        if self.audio.lock().unwrap().is_some() {
+            self.restart_audio(correct_pitch).await?;
+        }
+        Ok(match output {
+            Some(name) => format!("{}: audio output {name}.", self.device_name()),
+            None => format!(
+                "{}: audio output set to the system default.",
+                self.device_name()
+            ),
+        })
     }
 
     /// Sets how loud AAE plays this device on the Mac, from 0 to 1, and

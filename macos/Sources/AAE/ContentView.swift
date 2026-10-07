@@ -120,6 +120,14 @@ struct DeviceListView: View {
                 }
                 .accessibilityValue("\(Int((device.volume * 100).rounded())) percent")
                 .frame(maxWidth: 360)
+                Picker("Audio output", selection: Binding(
+                    get: { device.audioOutput ?? "" },
+                    set: { model.setAudioOutput($0.isEmpty ? nil : $0) }
+                )) {
+                    Text("System default").tag("")
+                    ForEach(model.audioOutputNames(including: device.audioOutput), id: \.self) { Text($0).tag($0) }
+                }
+                .frame(maxWidth: 360)
             }
 
             if let download = model.download {

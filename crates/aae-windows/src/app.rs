@@ -792,6 +792,7 @@ pub fn command(id: u16, notification: u32) {
         VOLUME_UP => step_volume(true),
         VOLUME_DOWN => step_volume(false),
         CHECK_AUDIO => check_audio(),
+        AUDIO_OUTPUT => choose_audio_output(),
         MICROPHONE => toggle_microphone(),
         CHECK_MICROPHONE => check_microphone(),
         PLAY_FILE => play_file_into_microphone(),
@@ -2084,6 +2085,56 @@ fn toggle_mute() {
             },
             Tone::Info,
         );
+        Ok(())
+    });
+}
+
+/// Chooses which of this computer's outputs the selected device plays
+/// through, remembered for it.
+fn choose_audio_output() {
+    let (device, hwnd) = selected();
+    let Some(device) = device else { return };
+    let mut outputs = aae_ffi::audio_outputs();
+    if let Some(chosen) = &device.audio_output
+        && !outputs.contains(chosen)
+    {
+        outputs.push(chosen.clone());
+    }
+    let mut items = vec!["System default".to_string()];
+    items.extend(outputs.iter().cloned());
+    let selected_index = device
+        .audio_output
+        .as_ref()
+        .and_then(|o| outputs.iter().position(|x| x == o))
+        .map_or(0, |i| i + 1);
+    let form = Form::new(&format!("Audio Output for {}", device.name))
+        .field(Field::Choice {
+            label: "&Audio output".into(),
+            items,
+            selected: selected_index,
+        })
+        .button("OK", 1, Role::Default)
+        .button("Cancel", 0, Role::Cancel);
+    let answer = forms::run(hwnd, form);
+    if answer.button != 1 {
+        return;
+    }
+    let output = answer.values[0]
+        .choice()
+        .and_then(|i| i.checked_sub(1))
+        .and_then(|i| outputs.get(i).cloned());
+    with_session(move |s| async move {
+        let said = s
+            .set_audio_output(output, settings::get().correct_pitch)
+            .await?;
+        run_on_ui(|| {
+            with(|app| {
+                app.apply_audio_focus();
+                app.refresh();
+                app.render();
+            })
+        });
+        say(said, Tone::Success);
         Ok(())
     });
 }

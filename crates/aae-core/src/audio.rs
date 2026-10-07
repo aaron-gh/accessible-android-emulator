@@ -145,14 +145,28 @@ impl AudioPlayer {
     /// play about 8% slow in the emulator, which lowers the pitch; for those,
     /// AAE raises the pitch back by the same amount, keeping the timing.
     pub async fn start_with_speed(controller: &Controller, speed: f64) -> Result<Self> {
-        Self::start_inner(controller, speed).await
+        Self::start_inner(controller, speed, None).await
+    }
+
+    /// Starts playing through the output named `output`, as [`output_names`]
+    /// lists it, or the default output if it's None or isn't there now.
+    pub async fn start_with_output(
+        controller: &Controller,
+        speed: f64,
+        output: Option<String>,
+    ) -> Result<Self> {
+        Self::start_inner(controller, speed, output).await
     }
 
     pub async fn start(controller: &Controller) -> Result<Self> {
-        Self::start_inner(controller, 1.0).await
+        Self::start_inner(controller, 1.0, None).await
     }
 
-    async fn start_inner(controller: &Controller, speed: f64) -> Result<Self> {
+    async fn start_inner(
+        controller: &Controller,
+        speed: f64,
+        output: Option<String>,
+    ) -> Result<Self> {
         let controls = Arc::new(Controls {
             volume: AtomicU32::new(1.0f32.to_bits()),
             muted: AtomicBool::new(false),
@@ -169,7 +183,7 @@ impl AudioPlayer {
             let stats = stats.clone();
             std::thread::Builder::new()
                 .name("aae-audio-out".into())
-                .spawn(move || run_output(controls, stats, ready_tx))
+                .spawn(move || run_output(controls, stats, output, ready_tx))
                 .map_err(|e| Error::Audio(e.to_string()))?
         };
         tracing::debug!("waiting for the audio output to open");
@@ -287,15 +301,31 @@ type SampleProducer = <HeapRb<i16> as Split>::Prod;
 type SampleConsumer = <HeapRb<i16> as Split>::Cons;
 type Ready = std::result::Result<(SampleProducer, u32, u16), Error>;
 
-/// Opens the default output and plays from the ring buffer until told to stop.
+/// Opens the output named, or the default, and plays from the ring buffer
+/// until told to stop.
 fn run_output(
     controls: Arc<Controls>,
     stats: Arc<AudioStats>,
+    output: Option<String>,
     ready: std::sync::mpsc::Sender<Ready>,
 ) {
     let opened = (|| -> Result<(cpal::Stream, SampleProducer, u32, u16)> {
         let host = cpal::default_host();
-        let device = host.default_output_device().ok_or(Error::NoAudioOutput)?;
+        let chosen = output.as_deref().and_then(|name| {
+            let found = host
+                .output_devices()
+                .ok()?
+                .find(|d| device_name(d).as_deref() == Some(name));
+            if found.is_none() {
+                // Headphones unplugged, say: play on, through the default.
+                tracing::warn!("the output {name} isn't there now; using the default");
+            }
+            found
+        });
+        let device = match chosen {
+            Some(device) => device,
+            None => host.default_output_device().ok_or(Error::NoAudioOutput)?,
+        };
         let supported = device
             .default_output_config()
             .map_err(|e| Error::Audio(e.to_string()))?;
@@ -520,6 +550,22 @@ pub async fn pcm_stream(
         }
     });
     Ok(rx)
+}
+
+fn device_name(device: &cpal::Device) -> Option<String> {
+    device.description().ok().map(|d| d.name().to_string())
+}
+
+/// The computer's audio outputs, by name, for choosing which a device plays
+/// through.
+pub fn output_names() -> Vec<String> {
+    let host = cpal::default_host();
+    let mut names: Vec<String> = host
+        .output_devices()
+        .map(|devices| devices.filter_map(|d| device_name(&d)).collect())
+        .unwrap_or_default();
+    names.dedup();
+    names
 }
 
 pub fn output_name() -> Option<String> {

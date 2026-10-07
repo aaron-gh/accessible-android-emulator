@@ -491,7 +491,9 @@ pub fn set_for_new_devices(settings: &[(String, String)]) -> Result<()> {
     }
     for (name, _) in settings {
         if setting(name).is_none() {
-            return Err(Error::Message(format!("\"{name}\" isn't a setting AAE changes.")));
+            return Err(Error::Message(format!(
+                "\"{name}\" isn't a setting AAE changes."
+            )));
         }
     }
     let json = serde_json::to_vec_pretty(settings).map_err(|e| Error::Message(e.to_string()))?;

@@ -37,6 +37,7 @@ pub const CHECK_AUDIO: u16 = 225;
 pub const MICROPHONE: u16 = 226;
 pub const CHECK_MICROPHONE: u16 = 227;
 pub const PLAY_FILE: u16 = 228;
+pub const AUDIO_OUTPUT: u16 = 229;
 pub const COPY_CLIPBOARD: u16 = 230;
 pub const SEND_CLIPBOARD: u16 = 231;
 pub const TYPE_CLIPBOARD: u16 = 232;
@@ -138,6 +139,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                     Some((ca, VK_DOWN.0)),
                 ),
                 Item(CHECK_AUDIO, "&Check Audio", Some((ca, b'K' as u16))),
+                Item(AUDIO_OUTPUT, "Audio Ou&tput…", None),
                 Item(MICROPHONE, MICROPHONE_ON, Some((cs, b'U' as u16))),
                 Item(CHECK_MICROPHONE, "Check Microp&hone", None),
                 Item(PLAY_FILE, PLAY_FILE_START, None),

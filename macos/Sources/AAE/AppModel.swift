@@ -1228,6 +1228,28 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The Mac's outputs, with the one a device is set to even if it isn't
+    /// there now, such as headphones unplugged.
+    func audioOutputNames(including chosen: String?) -> [String] {
+        var names = audioOutputs()
+        if let chosen, !names.contains(chosen) {
+            names.append(chosen)
+        }
+        return names
+    }
+
+    /// Plays the selected device through one of the Mac's outputs, or the
+    /// default, and remembers it.
+    func setAudioOutput(_ output: String?) {
+        withSession { [weak self] session in
+            guard let self else { return }
+            let said = try await session.setAudioOutput(output: output, correctPitch: self.correctPitch)
+            self.applyAudioFocus()
+            self.announce(said, tone: .success)
+            self.refresh()
+        }
+    }
+
     /// Turns the selected device's audio up or down by a tenth.
     func stepVolume(up: Bool) {
         guard let device = selected else { return }

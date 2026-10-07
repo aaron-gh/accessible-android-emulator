@@ -104,6 +104,10 @@ pub struct DeviceMeta {
     /// None is full volume.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playback_volume: Option<f32>,
+    /// The computer's audio output this device plays through, by name. None
+    /// is the default output, following the system's choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_output: Option<String>,
     /// The emulator couldn't use the computer's graphics adapter for this
     /// device, so it draws the screen in software, which is slower.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -274,6 +278,7 @@ impl DeviceStore {
             speech_log_engine: None,
             playback_volume: None,
             software_graphics: false,
+            audio_output: None,
             keep_enabled: Vec::new(),
             app_choices: Default::default(),
         };

@@ -285,8 +285,13 @@ enum Command {
     /// 100 percent, remembered for the device. With no percentage, says it.
     /// (aae volume sets the screen reader's own volume on the device.)
     PlaybackVolume { device: String, percent: Option<u8> },
-    /// Check the device's sound reaches AAE: AAE's helper plays a test tone,
-    /// which AAE listens for without playing it.
+    /// Set a device's audio output: a name, or "default". No value lists outputs.
+    AudioOutput {
+        device: String,
+        /// The output's name, as listed, or "default".
+        output: Option<String>,
+    },
+    /// Check the device's audio reaches AAE, with a test tone it doesn't play.
     SoundCheck { device: String },
     /// Measure how fast the device plays audio, so AAE can correct its pitch.
     /// AAE does this by itself on setup; use this to measure again.
@@ -969,6 +974,55 @@ async fn run(cli: Cli) -> Result<()> {
                     device.meta.name,
                     (device.meta.playback_volume.unwrap_or(1.0) * 100.0).round()
                 ),
+            }
+            Ok(())
+        }
+        Command::AudioOutput { device, output } => {
+            let mut device = ctx.device(&device)?;
+            let outputs = aae_core::audio::output_names();
+            match output {
+                Some(name) => {
+                    let chosen = if name.eq_ignore_ascii_case("default") {
+                        None
+                    } else {
+                        Some(
+                            outputs
+                                .iter()
+                                .find(|o| o.eq_ignore_ascii_case(&name))
+                                .or_else(|| {
+                                    outputs
+                                        .iter()
+                                        .find(|o| o.to_lowercase().contains(&name.to_lowercase()))
+                                })
+                                .cloned()
+                                .ok_or_else(|| {
+                                    anyhow!(
+                                        "There's no output called {name}. The outputs are: {}.",
+                                        outputs.join(", ")
+                                    )
+                                })?,
+                        )
+                    };
+                    device.meta.audio_output = chosen.clone();
+                    device.save_meta()?;
+                    println!(
+                        "{}: audio output {}.",
+                        device.meta.name,
+                        chosen.as_deref().unwrap_or("system default")
+                    );
+                }
+                None => {
+                    println!(
+                        "{}: audio output {}.",
+                        device.meta.name,
+                        device
+                            .meta
+                            .audio_output
+                            .as_deref()
+                            .unwrap_or("system default")
+                    );
+                    println!("Outputs: {}.", outputs.join(", "));
+                }
             }
             Ok(())
         }
