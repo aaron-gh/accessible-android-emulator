@@ -221,8 +221,8 @@ pub struct App {
     c: Controls,
     startup_error: Option<String>,
     pub(crate) devices: Vec<DeviceInfo>,
-    selection: Option<String>,
-    busy: HashMap<String, String>,
+    pub(crate) selection: Option<String>,
+    pub(crate) busy: HashMap<String, String>,
     status: String,
     shown_status: String,
     shown_rows: Vec<String>,
@@ -660,7 +660,7 @@ impl App {
         }
     }
 
-    fn apply_audio_focus(&self) {
+    pub(crate) fn apply_audio_focus(&self) {
         let only_in_use = settings::get().play_only_in_use;
         let in_use = self.device_mode.clone().or_else(|| self.selection.clone());
         let sessions = open_sessions();
@@ -770,6 +770,10 @@ pub fn command(id: u16, notification: u32) {
         APPS => crate::tools::apps::show(),
         SERVICES => crate::tools::services::show(),
         SNAPSHOTS => crate::tools::snapshots::show(),
+        OWN_WINDOW => match selected().0 {
+            Some(device) => crate::tools::device_window::show(&device.id),
+            None => announce("Select a device first.", Tone::Failure),
+        },
         ANDROID_VERSIONS => crate::tools::versions::show(),
         WATCH_BUILDS => crate::tools::watch::watch_for_builds(),
         RENAME => rename(),
@@ -1217,7 +1221,7 @@ async fn install_version(engine: &Arc<Engine>, version: &VersionInfo) -> Option<
     })
 }
 
-fn start(id: Option<String>) {
+pub(crate) fn start(id: Option<String>) {
     let Some(engine) = engine() else { return };
     let Some((id, choices)) = with(|app| {
         let id = id.or_else(|| app.selection.clone())?;
@@ -1458,7 +1462,7 @@ fn wipe() {
     });
 }
 
-fn stop(id: Option<String>) {
+pub(crate) fn stop(id: Option<String>) {
     let Some(engine) = engine() else { return };
     let Some((id, name)) = with(|app| {
         let id = id.or_else(|| app.selection.clone())?;
@@ -1945,7 +1949,7 @@ fn rotate(left: bool) {
 
 /// Sets how loud AAE plays the selected device, from 0 to 1, remembered for
 /// the device.
-fn set_volume(volume: f32, announce_it: bool) {
+pub(crate) fn set_volume(volume: f32, announce_it: bool) {
     let (device, _) = selected();
     let Some(device) = device else { return };
     let volume = volume.clamp(0.0, 1.0);

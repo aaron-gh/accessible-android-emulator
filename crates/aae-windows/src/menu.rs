@@ -50,6 +50,7 @@ pub const INSPECTOR: u16 = 273;
 pub const APPS: u16 = 274;
 pub const SERVICES: u16 = 275;
 pub const SNAPSHOTS: u16 = 276;
+pub const OWN_WINDOW: u16 = 206;
 pub const ANDROID_VERSIONS: u16 = 105;
 pub const WATCH_BUILDS: u16 = 243;
 
@@ -95,6 +96,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 Item(RESTART, "&Restart", Some((cs, b'R' as u16))),
                 Item(KEYBOARD, "Use Android &Keyboard", Some((cs, b'E' as u16))),
                 Item(GESTURES, "Use &Gestures", Some((cs, b'G' as u16))),
+                Item(OWN_WINDOW, "Open in O&wn Window", Some((ca, b'O' as u16))),
                 Item(SPEAK_STATUS, "S&peak Status", Some((cs, b'I' as u16))),
                 Item(
                     INSPECTOR,

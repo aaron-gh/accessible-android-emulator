@@ -110,10 +110,10 @@ fn load(panel: &Panel) {
     let Some(device) = device.filter(|d| d.running) else {
         STATE.with(|s| s.borrow_mut().snapshots.clear());
         ui::set_list_items(c.list, &[], None);
-        ui::set_text(c.status, "Start the device to see its snapshots.");
+        panels::set_text(c.status, "Start the device to see its snapshots.");
         return;
     };
-    ui::set_text(c.status, "Reading…");
+    panels::set_text(c.status, "Reading…");
     spawn(async move {
         let result = async { session_for(device.id).await?.snapshots().await }.await;
         run_on_ui(move || {
@@ -138,10 +138,10 @@ fn load(panel: &Panel) {
                             1 => "1 snapshot.".to_string(),
                             n => format!("{n} snapshots."),
                         };
-                        ui::set_text(c.status, &status);
+                        panels::set_text(c.status, &status);
                         s.snapshots = snapshots;
                     }
-                    Err(e) => ui::set_text(c.status, &e.to_string()),
+                    Err(e) => panels::set_text(c.status, &e.to_string()),
                 }
             })
         });

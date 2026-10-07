@@ -107,7 +107,7 @@ fn load(panel: &Panel) {
         return;
     };
     if let Some(c) = STATE.with(|s| s.borrow().window) {
-        ui::set_text(c.status, "Reading…");
+        panels::set_text(c.status, "Reading…");
     }
     spawn(async move {
         let result = async { session_for(device.id).await?.list_services().await }.await;
@@ -131,7 +131,7 @@ fn show_services(services: Vec<ServiceInfo>, status: &str) {
         let mut s = s.borrow_mut();
         s.services = services;
         let Some(c) = s.window else { return };
-        ui::set_text(c.status, status);
+        panels::set_text(c.status, status);
         let readers = screen_readers(&s);
         let mut items = vec!["None".to_string()];
         items.extend(readers.iter().map(|r| r.label.clone()));

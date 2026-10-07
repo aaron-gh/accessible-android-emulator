@@ -4,6 +4,7 @@
 pub mod apps;
 pub mod conditions;
 pub mod device_log;
+pub mod device_window;
 pub mod inspector;
 pub mod links;
 pub mod services;

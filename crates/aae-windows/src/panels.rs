@@ -24,6 +24,8 @@ pub trait Handler {
     fn command(&mut self, panel: &Panel, id: u16);
     /// The window is closing.
     fn closed(&mut self) {}
+    /// The window has come to the front.
+    fn activated(&mut self, _panel: &Panel) {}
     /// The window's timer fired; see [`Panel::every`].
     fn tick(&mut self, _panel: &Panel) {}
 }
@@ -55,6 +57,8 @@ pub struct Panel {
     default_button: Option<u16>,
     /// Keys that press buttons: key, with Control, and the button's id.
     shortcuts: Vec<(u16, bool, u16)>,
+    /// The menu's shortcuts work here too, for windows without text fields.
+    menu_shortcuts: bool,
     next_id: u16,
 }
 
@@ -65,6 +69,9 @@ struct State {
 
 thread_local! {
     static PANELS: RefCell<HashMap<isize, Rc<RefCell<State>>>> = RefCell::new(HashMap::new());
+    /// The control that had the focus when each window was left, to give it
+    /// back on return, as dialogs do.
+    static FOCUS: RefCell<HashMap<isize, isize>> = RefCell::new(HashMap::new());
     /// Open windows by kind, such as "shell", so each kind opens once.
     static KINDS: RefCell<HashMap<&'static str, isize>> = RefCell::new(HashMap::new());
 }
@@ -110,6 +117,18 @@ pub fn bring_forward(kind: &'static str) -> Option<HWND> {
 pub fn open_window(kind: &'static str) -> Option<HWND> {
     let hwnd = HWND(KINDS.with(|k| k.borrow().get(kind).copied())? as *mut _);
     unsafe { IsWindow(Some(hwnd)) }.as_bool().then_some(hwnd)
+}
+
+/// Changes a sentence in a window, laying the window out again for its
+/// new length.
+pub fn set_text(label: HWND, text: &str) {
+    if ui::text(label) == text {
+        return;
+    }
+    ui::set_text(label, text);
+    if let Ok(window) = unsafe { GetParent(label) } {
+        relayout(window);
+    }
 }
 
 /// Lays a window out again, as when a sentence in it has changed length.
@@ -158,6 +177,16 @@ pub fn shortcut(hwnd: HWND, msg: &MSG) -> bool {
     }
 }
 
+/// True for windows where the menu's shortcuts work.
+pub fn wants_menu_shortcuts(hwnd: HWND) -> bool {
+    PANELS.with(|p| {
+        p.borrow()
+            .get(&(hwnd.0 as isize))
+            .and_then(|s| s.try_borrow().ok().map(|s| s.panel.menu_shortcuts))
+            .unwrap_or(false)
+    })
+}
+
 /// True for AAE's tool windows, so the message loop can give them dialog keys.
 pub fn is_panel(hwnd: HWND) -> bool {
     PANELS.with(|p| p.borrow().contains_key(&(hwnd.0 as isize)))
@@ -193,6 +222,7 @@ impl Panel {
             grow: None,
             default_button: None,
             shortcuts: Vec::new(),
+            menu_shortcuts: false,
             next_id: 100,
         }
     }
@@ -301,6 +331,12 @@ impl Panel {
         if let Some(Row::Labelled { twins, .. }) = self.rows.last_mut() {
             twins.push(control);
         }
+    }
+
+    /// Lets the menu's shortcuts work in this window, as for a device's own
+    /// window, which has no text fields for them to get in the way of.
+    pub fn use_menu_shortcuts(&mut self) {
+        self.menu_shortcuts = true;
     }
 
     /// A key that presses a button, such as F5 for Refresh.
@@ -497,6 +533,28 @@ unsafe fn handle(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESUL
             }
             LRESULT(0)
         }
+        WM_ACTIVATE => {
+            use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
+            let key = hwnd.0 as isize;
+            if wparam.0 & 0xFFFF == WA_INACTIVE as usize {
+                let focus = unsafe { GetFocus() };
+                if unsafe { IsChild(hwnd, focus) }.as_bool() {
+                    FOCUS.with(|f| f.borrow_mut().insert(key, focus.0 as isize));
+                }
+                return LRESULT(0);
+            }
+            dispatch(hwnd, |panel, handler| handler.activated(panel));
+            let saved = FOCUS.with(|f| f.borrow().get(&key).copied());
+            match saved.map(|c| HWND(c as *mut _)) {
+                Some(control) if unsafe { IsChild(hwnd, control) }.as_bool() => {
+                    unsafe {
+                        let _ = SetFocus(Some(control));
+                    }
+                    LRESULT(0)
+                }
+                _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+            }
+        }
         WM_TIMER if wparam.0 == TIMER => {
             dispatch(hwnd, |panel, handler| handler.tick(panel));
             LRESULT(0)
@@ -532,6 +590,7 @@ unsafe fn handle(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESUL
         }
         WM_DESTROY => {
             PANELS.with(|p| p.borrow_mut().remove(&(hwnd.0 as isize)));
+            FOCUS.with(|f| f.borrow_mut().remove(&(hwnd.0 as isize)));
             KINDS.with(|k| k.borrow_mut().retain(|_, h| *h != hwnd.0 as isize));
             LRESULT(0)
         }

@@ -354,7 +354,7 @@ fn read_new(c: Controls) {
             None => count,
         };
         if status != s.status {
-            ui::set_text(c.status, &status);
+            panels::set_text(c.status, &status);
             s.status = status;
         }
     });

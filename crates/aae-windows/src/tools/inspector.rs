@@ -145,7 +145,7 @@ fn set_inspecting(on: bool) {
         if let Some(c) = s.window {
             ui::enable(c.refresh, !on);
             if on {
-                ui::set_text(c.status, "Reading the screen.");
+                panels::set_text(c.status, "Reading the screen.");
             }
         }
     });
@@ -171,7 +171,7 @@ fn show_inspection() {
             1 => "1 problem".to_string(),
             n => format!("{n} problems"),
         };
-        ui::set_text(
+        panels::set_text(
             c.status,
             &format!(
                 "{} elements, {}.",

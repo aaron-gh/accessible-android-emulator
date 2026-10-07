@@ -125,7 +125,8 @@ mod window {
             while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
                 // The window the message is for: the main window, where the
                 // menu's shortcuts work, or a tool window, where they don't,
-                // so Delete or Control-V in a text field does what it says.
+                // so Delete or Control-V in a text field does what it says,
+                // unless it has no text fields, as a device's own window.
                 let root = GetAncestor(msg.hwnd, GA_ROOT);
                 if root == hwnd || msg.hwnd.is_invalid() {
                     if TranslateAcceleratorW(hwnd, shortcuts, &msg) != 0 {
@@ -135,7 +136,10 @@ mod window {
                         continue;
                     }
                 } else if panels::is_panel(root)
-                    && (panels::shortcut(root, &msg) || IsDialogMessageW(root, &msg).as_bool())
+                    && ((panels::wants_menu_shortcuts(root)
+                        && TranslateAcceleratorW(hwnd, shortcuts, &msg) != 0)
+                        || panels::shortcut(root, &msg)
+                        || IsDialogMessageW(root, &msg).as_bool())
                 {
                     continue;
                 }

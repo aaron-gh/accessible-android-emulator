@@ -108,21 +108,17 @@ fn load() {
                             1 => "1 version.".to_string(),
                             n => format!("{n} versions."),
                         };
-                        ui::set_text(c.status, &text);
+                        panels::set_text(c.status, &text);
                         s.images = images;
                     }
-                    Err(e) => ui::set_text(c.status, &e.to_string()),
+                    Err(e) => panels::set_text(c.status, &e.to_string()),
                 }
                 let (text, updates) = match status {
                     Ok(status) => (tools_text(&status), !status.updates.is_empty()),
                     Err(e) => (e.to_string(), false),
                 };
-                ui::set_text(c.tools, &text);
+                panels::set_text(c.tools, &text);
                 ui::enable(c.update, updates);
-                // The text may need more lines.
-                if let Some(window) = panels::open_window(KIND) {
-                    panels::relayout(window);
-                }
             })
         });
     });

@@ -114,10 +114,10 @@ fn load(panel: &Panel) {
     let Some(device) = device.filter(|d| d.running) else {
         STATE.with(|s| s.borrow_mut().apps.clear());
         ui::set_list_items(c.list, &[], None);
-        ui::set_text(c.status, "Start the device to see its apps.");
+        panels::set_text(c.status, "Start the device to see its apps.");
         return;
     };
-    ui::set_text(c.status, "Reading…");
+    panels::set_text(c.status, "Reading…");
     let system = ui::checked(c.system);
     spawn(async move {
         let result = async { session_for(device.id).await?.list_apps(system).await }.await;
@@ -148,10 +148,10 @@ fn load(panel: &Panel) {
                             1 => "1 app.".to_string(),
                             n => format!("{n} apps."),
                         };
-                        ui::set_text(c.status, &status);
+                        panels::set_text(c.status, &status);
                         s.apps = apps;
                     }
-                    Err(e) => ui::set_text(c.status, &e.to_string()),
+                    Err(e) => panels::set_text(c.status, &e.to_string()),
                 }
             })
         });
