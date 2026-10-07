@@ -16,11 +16,15 @@ mod keyboard;
 #[cfg(windows)]
 mod menu;
 #[cfg(windows)]
+mod panels;
+#[cfg(windows)]
 mod screen_readers;
 #[cfg(windows)]
 mod settings;
 #[cfg(windows)]
 mod speech;
+#[cfg(windows)]
+mod tools;
 #[cfg(windows)]
 mod ui;
 #[cfg(windows)]
@@ -65,7 +69,7 @@ mod window {
 
     use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 
-    use crate::{app, menu, speech, ui, updates};
+    use crate::{app, menu, panels, speech, ui, updates};
 
     /// The control that had the focus when AAE's window was last active.
     static LAST_FOCUS: AtomicIsize = AtomicIsize::new(0);
@@ -116,10 +120,18 @@ mod window {
 
             let mut msg = MSG::default();
             while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
-                if TranslateAcceleratorW(hwnd, shortcuts, &msg) != 0 {
-                    continue;
-                }
-                if IsDialogMessageW(hwnd, &msg).as_bool() {
+                // The window the message is for: the main window, where the
+                // menu's shortcuts work, or a tool window, where they don't,
+                // so Delete or Control-V in a text field does what it says.
+                let root = GetAncestor(msg.hwnd, GA_ROOT);
+                if root == hwnd || msg.hwnd.is_invalid() {
+                    if TranslateAcceleratorW(hwnd, shortcuts, &msg) != 0 {
+                        continue;
+                    }
+                    if IsDialogMessageW(hwnd, &msg).as_bool() {
+                        continue;
+                    }
+                } else if panels::is_panel(root) && IsDialogMessageW(root, &msg).as_bool() {
                     continue;
                 }
                 let _ = TranslateMessage(&msg);

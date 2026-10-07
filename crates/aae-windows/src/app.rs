@@ -31,7 +31,7 @@ use crate::{keyboard, menu, settings};
 
 // MARK: - Background work
 
-fn runtime() -> &'static tokio::runtime::Runtime {
+pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
@@ -43,13 +43,13 @@ fn runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
-fn spawn(work: impl Future<Output = ()> + Send + 'static) {
+pub(crate) fn spawn(work: impl Future<Output = ()> + Send + 'static) {
     runtime().spawn(work);
 }
 
 /// Runs something on the window thread, such as asking a question, and waits
 /// for its answer.
-async fn on_ui<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+pub(crate) async fn on_ui<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
     let (tx, rx) = tokio::sync::oneshot::channel();
     run_on_ui(move || {
         let _ = tx.send(work());
@@ -59,7 +59,7 @@ async fn on_ui<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> 
 
 static ENGINE: OnceLock<Result<Arc<Engine>, String>> = OnceLock::new();
 
-fn engine() -> Option<Arc<Engine>> {
+pub(crate) fn engine() -> Option<Arc<Engine>> {
     ENGINE.get().and_then(|e| e.as_ref().ok()).cloned()
 }
 
@@ -88,7 +88,7 @@ fn open_sessions() -> Vec<(String, Arc<Session>)> {
 
 /// The connection to a running device, made the first time it's needed,
 /// with its sound playing.
-async fn session_for(id: String) -> Result<Arc<Session>, AaeError> {
+pub(crate) async fn session_for(id: String) -> Result<Arc<Session>, AaeError> {
     if let Some(session) = session_if_open(&id) {
         return Ok(session);
     }
@@ -111,12 +111,12 @@ fn failed(message: &str) -> AaeError {
 }
 
 /// Says something from any thread.
-fn say(text: impl Into<String>, tone: Tone) {
+pub(crate) fn say(text: impl Into<String>, tone: Tone) {
     let text = text.into();
     run_on_ui(move || announce(&text, tone));
 }
 
-fn say_error(error: AaeError) {
+pub(crate) fn say_error(error: AaeError) {
     say(error.to_string(), Tone::Failure);
 }
 
@@ -245,7 +245,7 @@ thread_local! {
 
 /// Works with the app's state. Never asks a question or opens a form while
 /// in here: forms run the window's messages, which may need the state too.
-fn with<R>(work: impl FnOnce(&mut App) -> R) -> R {
+pub(crate) fn with<R>(work: impl FnOnce(&mut App) -> R) -> R {
     APP.with(|cell| {
         let mut app = cell.borrow_mut();
         work(app.as_mut().expect("the app has started"))
@@ -253,7 +253,7 @@ fn with<R>(work: impl FnOnce(&mut App) -> R) -> R {
 }
 
 /// The selected device, and AAE's main window.
-fn selected() -> (Option<DeviceInfo>, HWND) {
+pub(crate) fn selected() -> (Option<DeviceInfo>, HWND) {
     with(|app| (app.selected().cloned(), app.hwnd))
 }
 
@@ -551,6 +551,7 @@ impl App {
             ui::set_text(c.status, &self.status);
             self.shown_status = self.status.clone();
         }
+        crate::tools::device_changed(self.selected().map(|d| d.name.as_str()));
         self.layout();
     }
 
@@ -759,6 +760,9 @@ pub fn command(id: u16, notification: u32) {
         INSTALL_APP => install_app(),
         INSTALL_SCREEN_READER => install_screen_reader_build(),
         SCREENSHOT => screenshot(),
+        OPEN_LINK => crate::tools::links::open_link(),
+        SEND_INTENT => crate::tools::links::send_intent(),
+        CONDITIONS => crate::tools::conditions::show(),
         RENAME => rename(),
         COPY_DEVICE => copy_device(),
         WIPE => wipe(),
@@ -1577,7 +1581,7 @@ fn copy_device() {
 }
 
 /// Runs an action on the selected device's session, announcing any failure.
-fn with_session<F, Fut>(action: F)
+pub(crate) fn with_session<F, Fut>(action: F)
 where
     F: FnOnce(Arc<Session>) -> Fut + Send + 'static,
     Fut: Future<Output = Result<(), AaeError>> + Send + 'static,
@@ -2076,7 +2080,7 @@ fn send_clipboard(type_it: bool) {
 }
 
 /// The start of some text, to read out.
-fn preview(text: &str) -> String {
+pub(crate) fn preview(text: &str) -> String {
     if text.chars().count() > 80 {
         format!("{}…", text.chars().take(80).collect::<String>())
     } else {
@@ -2194,7 +2198,7 @@ fn install_paths(paths: Vec<String>) {
     }
 }
 
-fn file_name(path: &str) -> String {
+pub(crate) fn file_name(path: &str) -> String {
     std::path::Path::new(path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())

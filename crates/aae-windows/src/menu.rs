@@ -40,6 +40,9 @@ pub const RENAME: u16 = 250;
 pub const COPY_DEVICE: u16 = 251;
 pub const WIPE: u16 = 252;
 pub const DELETE: u16 = 253;
+pub const OPEN_LINK: u16 = 260;
+pub const SEND_INTENT: u16 = 261;
+pub const CONDITIONS: u16 = 262;
 
 pub const CHECK_UPDATES: u16 = 303;
 pub const SELF_TEST: u16 = 300;
@@ -111,6 +114,14 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                     TYPE_CLIPBOARD,
                     "&Type Windows Clipboard on Device",
                     Some((ca, b'V' as u16)),
+                ),
+                SEPARATOR,
+                Item(OPEN_LINK, "Open &Link…", Some((cs, b'L' as u16))),
+                Item(SEND_INTENT, "Send Int&ent…", None),
+                Item(
+                    CONDITIONS,
+                    "Batter&y, Location and Phone",
+                    Some((ca, b'B' as u16)),
                 ),
                 SEPARATOR,
                 Item(INSTALL_APP, "&Install App…", Some((c, b'I' as u16))),
