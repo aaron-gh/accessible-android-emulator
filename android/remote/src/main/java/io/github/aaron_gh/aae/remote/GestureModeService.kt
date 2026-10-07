@@ -34,6 +34,11 @@ class GestureModeService : AccessibilityService() {
         volumeDown = false
         gesture?.leave() ?: keyboard?.leave()
     }
+    private var volumeUp = false
+    private val toggle = Runnable {
+        volumeUp = false
+        gesture?.toggle()
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -118,8 +123,16 @@ class GestureModeService : AccessibilityService() {
             }
             return true
         }
+        // A long press of volume up switches gesture mode's kind of touch.
         if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-            if (event.action == KeyEvent.ACTION_UP) mode.volume(up = true)
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                volumeUp = true
+                main.postDelayed(toggle, LONG_PRESS_MS)
+            } else if (event.action == KeyEvent.ACTION_UP && volumeUp) {
+                volumeUp = false
+                main.removeCallbacks(toggle)
+                mode.volume(up = true)
+            }
             return true
         }
         // Keyboard mode takes the keyboard's keys before the phone does.
@@ -135,6 +148,8 @@ class GestureModeService : AccessibilityService() {
         /** The phone's volume keys change the device's volume. */
         fun volume(up: Boolean)
         fun leave()
+        /** Switches between gesture mode and touch point mode. */
+        fun toggle() {}
     }
 
     companion object {

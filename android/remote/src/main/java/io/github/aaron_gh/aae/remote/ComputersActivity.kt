@@ -35,6 +35,12 @@ class ComputersActivity : Activity() {
             setOnCheckedChangeListener { _, on -> Updater.setOffersDevelopmentBuilds(this@ComputersActivity, on) }
             ui.column.addView(this)
         }
+        android.widget.CheckBox(this).apply {
+            text = "Touch point drag moves the point from where it is, at half speed"
+            isChecked = TouchPoint.relativeDrag(this@ComputersActivity)
+            setOnCheckedChangeListener { _, on -> TouchPoint.setRelativeDrag(this@ComputersActivity, on) }
+            ui.column.addView(this)
+        }
         ui.show(scroll = false)
         if (Updater.dueForCheck(this)) checkForUpdates(quietly = true)
         discovery = Discovery(this) { list ->

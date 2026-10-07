@@ -622,6 +622,14 @@ fn param(params: &Value, key: &str) -> Result<String, AaeError> {
         .ok_or_else(|| failed(format!("The request needs \"{key}\".")))
 }
 
+/// A point as "x" and "y", in the pixels gestures take, if given.
+fn point(params: &Value) -> Option<aae_ffi::ScreenPoint> {
+    Some(aae_ffi::ScreenPoint {
+        x: params["x"].as_i64()? as i32,
+        y: params["y"].as_i64()? as i32,
+    })
+}
+
 /// Runs a command from the phone.
 async fn call(
     server: &Arc<Server>,
@@ -787,9 +795,39 @@ async fn call(
             server
                 .session(&id()?)
                 .await?
-                .perform_gesture(param(params, "gesture")?, None)
+                .perform_gesture(param(params, "gesture")?, point(params))
                 .await?;
             Value::Null
+        }
+        // A gesture whose last touch stays down until device.gesture.release.
+        "device.gesture.press" => {
+            server
+                .session(&id()?)
+                .await?
+                .press_gesture(param(params, "gesture")?, point(params))
+                .await?;
+            Value::Null
+        }
+        "device.gesture.release" => {
+            server.session(&id()?).await?.release_gesture().await?;
+            Value::Null
+        }
+        // For touch point mode: the screen's size and what can be touched,
+        // in reading order, in the pixels gestures take.
+        "device.touch_targets" => {
+            let screen = server.session(&id()?).await?.touch_targets().await?;
+            json!({
+                "width": screen.width,
+                "height": screen.height,
+                "targets": screen.targets.iter().map(|t| json!({
+                    "label": t.label, "x": t.x, "y": t.y,
+                    "left": t.left, "top": t.top, "right": t.right, "bottom": t.bottom,
+                })).collect::<Vec<_>>(),
+            })
+        }
+        "device.details_at" => {
+            let at = point(params).ok_or_else(|| failed("The request needs \"x\" and \"y\"."))?;
+            json!(server.session(&id()?).await?.details_at(at.x, at.y).await?)
         }
         "device.status" => {
             // As the desktop apps say it: the device, its state, then its screen reader.
