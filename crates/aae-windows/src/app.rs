@@ -765,6 +765,7 @@ pub fn command(id: u16, notification: u32) {
         CONDITIONS => crate::tools::conditions::show(),
         SPEECH_LOG => crate::tools::speech_log::show(),
         SHELL => crate::tools::shell::show(),
+        DEVICE_LOG => crate::tools::device_log::show(),
         RENAME => rename(),
         COPY_DEVICE => copy_device(),
         WIPE => wipe(),

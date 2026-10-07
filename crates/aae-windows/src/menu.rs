@@ -45,6 +45,7 @@ pub const SEND_INTENT: u16 = 261;
 pub const CONDITIONS: u16 = 262;
 pub const SPEECH_LOG: u16 = 270;
 pub const SHELL: u16 = 271;
+pub const DEVICE_LOG: u16 = 272;
 
 pub const CHECK_UPDATES: u16 = 303;
 pub const SELF_TEST: u16 = 300;
@@ -85,6 +86,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 Item(GESTURES, "Use &Gestures", Some((cs, b'G' as u16))),
                 Item(SPEAK_STATUS, "S&peak Status", Some((cs, b'I' as u16))),
                 Item(SPEECH_LOG, "Speech &Log", Some((ca, b'L' as u16))),
+                Item(DEVICE_LOG, "Device Lo&g", Some((ca, b'J' as u16))),
                 Item(SHELL, "S&hell", Some((ca, b'T' as u16))),
                 SEPARATOR,
                 Item(BACK, "&Back", Some((cs, b'B' as u16))),

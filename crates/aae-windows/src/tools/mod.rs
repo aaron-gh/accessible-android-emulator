@@ -2,6 +2,7 @@
 //! selected device, and tool windows that stay open beside the main one.
 
 pub mod conditions;
+pub mod device_log;
 pub mod links;
 pub mod shell;
 pub mod speech_log;
