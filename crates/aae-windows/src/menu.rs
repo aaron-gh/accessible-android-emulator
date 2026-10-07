@@ -24,6 +24,10 @@ pub const HOME: u16 = 211;
 pub const RECENTS: u16 = 212;
 pub const NOTIFICATIONS: u16 = 213;
 pub const QUICK_SETTINGS: u16 = 214;
+pub const POWER: u16 = 215;
+pub const ASSISTANT: u16 = 216;
+pub const DEVICE_VOLUME_UP: u16 = 217;
+pub const DEVICE_VOLUME_DOWN: u16 = 218;
 pub const ROTATE_LEFT: u16 = 220;
 pub const ROTATE_RIGHT: u16 = 221;
 pub const MUTE: u16 = 222;
@@ -117,6 +121,10 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 Item(RECENTS, "Recent &Apps", Some((cs, b'A' as u16))),
                 Item(NOTIFICATIONS, "&Notifications", Some((cs, b'N' as u16))),
                 Item(QUICK_SETTINGS, "&Quick Settings", Some((cs, b'Q' as u16))),
+                Item(POWER, "Po&wer Button", None),
+                Item(ASSISTANT, "Assis&tant", None),
+                Item(DEVICE_VOLUME_UP, "Device &Volume Up", None),
+                Item(DEVICE_VOLUME_DOWN, "Device Volume Dow&n", None),
                 SEPARATOR,
                 Item(ROTATE_LEFT, "Rotate &Left", Some((cs, VK_LEFT.0))),
                 Item(ROTATE_RIGHT, "Rotate Ri&ght", Some((cs, VK_RIGHT.0))),

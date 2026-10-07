@@ -45,6 +45,8 @@ class DeviceActivity : ConnectedActivity() {
         running("Recent Apps") { press("recents") }
         running("Notifications") { call("device.notifications", idParams()) }
         running("Quick Settings") { call("device.quick_settings", idParams()) }
+        running("Power Button") { press("power") }
+        running("Assistant") { press("assistant") }
         running("Rotate Left") { call("device.rotate", idParams().put("left", true)) { ui.say(it.toString()) } }
         running("Rotate Right") { call("device.rotate", idParams().put("left", false)) { ui.say(it.toString()) } }
         running("Restart") {

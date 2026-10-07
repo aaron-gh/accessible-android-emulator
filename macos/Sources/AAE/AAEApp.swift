@@ -53,6 +53,10 @@ struct AAEApp: App {
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                 Button("Quick Settings") { model.showQuickSettings() }
                     .keyboardShortcut("q", modifiers: [.command, .shift])
+                Button("Power Button") { model.press("power") }
+                Button("Assistant") { model.press("assistant") }
+                Button("Device Volume Up") { model.press("volume-up") }
+                Button("Device Volume Down") { model.press("volume-down") }
                 Divider()
                 Button("Rotate Left") { model.rotate(left: true) }
                     .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])

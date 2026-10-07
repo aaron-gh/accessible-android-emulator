@@ -1454,8 +1454,12 @@ async fn run(cli: Cli) -> Result<()> {
             device,
             keys: names,
         } => {
-            let (_, controller, _) = ctx.connect_keyboard(&device).await?;
+            let (_, controller, adb) = ctx.connect_keyboard(&device).await?;
             for name in &names {
+                if let Some(code) = keys::android_only(name) {
+                    adb.shell(&format!("input keyevent {code}")).await?;
+                    continue;
+                }
                 let key = keys::parse(name)
                     .ok_or_else(|| anyhow!("\"{name}\" is not a key name. {}", keys::HELP))?;
                 controller.press(&key).await?;

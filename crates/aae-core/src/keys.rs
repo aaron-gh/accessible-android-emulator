@@ -383,7 +383,26 @@ pub fn is_modifier(code: i32) -> bool {
 }
 
 /// Names accepted by [`parse`], for help text.
-pub const HELP: &str = "Android buttons: back, home, recents, power, volume-up, volume-down, mute. \
+/// Android buttons with no key of their own that the emulator takes, which
+/// go through Android's input command instead: their names, and Android's
+/// key code.
+const ANDROID_ONLY: &[(&str, &str)] = &[
+    ("assistant", "KEYCODE_ASSIST"),
+    ("assist", "KEYCODE_ASSIST"),
+    ("voice-assistant", "KEYCODE_VOICE_ASSIST"),
+];
+
+/// Android's key code for a button [`parse`] can't send, such as
+/// "assistant", for `input keyevent`.
+pub fn android_only(name: &str) -> Option<&'static str> {
+    let name = name.to_ascii_lowercase();
+    ANDROID_ONLY
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, code)| *code)
+}
+
+pub const HELP: &str = "Android buttons: back, home, recents, power, volume-up, volume-down, mute, assistant. \
 Keys: enter, escape, tab, space, backspace, delete, up, down, left, right, home-key, end, \
 page-up, page-down, insert, menu, F1 to F12, or any single character. \
 Add modifiers with plus: ctrl, alt, shift, meta. For example meta+right, which moves TalkBack to the next item.";

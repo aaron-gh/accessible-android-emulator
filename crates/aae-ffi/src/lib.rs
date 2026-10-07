@@ -1557,6 +1557,14 @@ impl Session {
 
     /// Presses a key by name, such as "back", "home" or "meta+right".
     pub async fn press(&self, name: String) -> Result<(), AaeError> {
+        if let Some(code) = keys::android_only(&name) {
+            let adb = self.adb.clone();
+            return on_runtime(async move {
+                adb.shell(&format!("input keyevent {code}")).await?;
+                Ok(())
+            })
+            .await;
+        }
         let key = keys::parse(&name).ok_or_else(|| AaeError::Failed {
             message: format!("\"{name}\" is not a key name."),
         })?;
