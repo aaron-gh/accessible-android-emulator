@@ -10,6 +10,16 @@ There's a Mac app, a Windows app, the `aae` command line, and an MCP server for 
 - **Windows:** download the installer, `AAE-<version>-windows-x64-setup.exe`, from the [latest release](https://github.com/aaron-gh/accessible-android-emulator/releases/latest) and run it. It installs AAE for you alone, with no administrator prompt. It needs Windows 10 or 11 on an Intel or AMD processor, with Windows Hypervisor Platform turned on. Google doesn't make its emulator for Windows on ARM, so AAE doesn't install there. AAE isn't signed for Windows yet, so SmartScreen may say it protected your PC: choose More info, then Run anyway.
 - **Development builds:** every change to `master` is built for both and published as the [dev prerelease](https://github.com/aaron-gh/accessible-android-emulator/releases/tag/dev), replacing the one before, so it can be tried before a stable release. The latest are always at [AAE-dev.dmg](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev.dmg) and [AAE-dev-windows-x64-setup.exe](https://github.com/aaron-gh/accessible-android-emulator/releases/download/dev/AAE-dev-windows-x64-setup.exe). Help, About AAE, says which build you have.
 
+### System requirements
+
+Android runs inside the emulator as a whole computer of its own, so AAE needs a reasonably capable machine. On less than this, Android starts, but it can be too slow to use with a screen reader: a laptop with an Intel N150, with four threads, was. AAE's setup and self-test say when a computer is below it.
+
+- **Processor:** at least 6 threads, such as an Intel Core i5 or AMD Ryzen 5 from the last several years, or any Mac with Apple silicon. Low-power chips such as Intel's N100, N150 and N200, Celeron, Pentium Silver and Atom are too slow. Each device gets half the threads, up to 4.
+- **Memory:** at least 8 GB; 16 GB to run more than one device at once.
+- **Disk:** an SSD, with about 10 GB free for the emulator, one Android version and a device, and around 2 GB more for each further Android version.
+- **Mac:** Apple silicon and macOS 13 or later.
+- **Windows:** Windows 10 or 11, 64-bit, on an Intel or AMD processor, with Windows Hypervisor Platform turned on.
+
 Both apps update themselves. Check for Updates never offers a development build; from one, it offers the next stable release.
 
 ## What AAE does

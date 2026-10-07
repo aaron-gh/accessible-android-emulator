@@ -236,12 +236,24 @@ pub async fn self_test(sdk: &Sdk, store: &DeviceStore) -> Vec<Check> {
         setup::Virtualisation::Available => Check::new(
             "Virtualisation",
             Passed,
-            "This computer can run the emulator at full speed.",
+            "The emulator can use this computer's hardware virtualisation.",
         ),
         setup::Virtualisation::Missing(why) => Check::new("Virtualisation", Failed, why),
         setup::Virtualisation::Unknown => {
             Check::new("Virtualisation", Warning, "AAE can't tell on this system.")
         }
+    });
+    let memory = crate::platform::memory()
+        .map(|b| format!(", {} GB of memory", (b as f64 / 1_073_741_824.0).round()))
+        .unwrap_or_default();
+    let computer = format!(
+        "{} processor threads{memory}. Devices get {} cores.",
+        setup::threads(),
+        setup::device_cores()
+    );
+    checks.push(match setup::performance_warning() {
+        None => Check::new("This computer", Passed, computer),
+        Some(warning) => Check::new("This computer", Warning, format!("{computer} {warning}")),
     });
     checks.push(match sdk.emulator_bin() {
         Ok(_) => Check::new(

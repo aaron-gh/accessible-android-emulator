@@ -2280,9 +2280,14 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
     };
     println!("Using {own} Android SDK at {}.", sdk.root.display());
     match setup::virtualisation(sdk) {
-        Virtualisation::Available => println!("This computer can run the emulator at full speed."),
+        Virtualisation::Available => {
+            println!("The emulator can use this computer's hardware virtualisation.")
+        }
         Virtualisation::Missing(how) => bail!("{how}"),
         Virtualisation::Unknown => {}
+    }
+    if let Some(warning) = setup::performance_warning() {
+        println!("{warning}");
     }
     let tools = tokio::task::spawn_blocking(move || Tools::load(refresh)).await??;
     let mut wanted: Vec<setup::Tool> = tools.missing(sdk).into_iter().cloned().collect();

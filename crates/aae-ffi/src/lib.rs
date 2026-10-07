@@ -205,6 +205,8 @@ pub struct SetupStatus {
     pub managed_elsewhere: Vec<String>,
     /// The download size of the missing tools, in words.
     pub missing_size: String,
+    /// What's below AAE's minimum about this computer, if anything.
+    pub performance_warning: Option<String>,
 }
 
 /// Receives download progress.
@@ -760,6 +762,7 @@ impl Engine {
                     _ => None,
                 },
                 missing_size: human_size(missing.iter().map(|t| t.size).sum()),
+                performance_warning: setup::performance_warning(),
                 missing: missing.into_iter().map(info).collect(),
                 updates: tools.updates(&sdk).into_iter().map(info).collect(),
                 managed_elsewhere: tools

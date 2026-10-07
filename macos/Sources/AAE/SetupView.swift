@@ -24,6 +24,9 @@ struct SetupView: View {
                     Text(problem)
                         .foregroundStyle(.red)
                 }
+                if let warning = status.performanceWarning {
+                    Text(warning)
+                }
                 if let download = model.download {
                     ProgressView(value: Double(download.percent), total: 100) {
                         Text("Downloading: \(download.percent)%")

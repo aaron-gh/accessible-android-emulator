@@ -356,6 +356,52 @@ pub fn install(
     result
 }
 
+/// AAE's minimum: below this, Android starts, but runs too slowly to use
+/// with a screen reader. An Intel N150, with four cores of one thread each,
+/// was unusable.
+pub const MIN_THREADS: usize = 6;
+/// In bytes. A computer sold with 8 GB reports a little less.
+pub const MIN_MEMORY: u64 = 7_500_000_000;
+
+/// The processor threads this computer has.
+pub fn threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get())
+}
+
+/// How many processor cores to give a device: half the computer's threads,
+/// up to four, so the computer keeps enough for itself, the emulator's
+/// graphics and sound, and the screen reader.
+pub fn device_cores() -> usize {
+    (threads() / 2).clamp(1, 4)
+}
+
+/// What's below AAE's minimum about this computer, in words, if anything.
+pub fn performance_warning() -> Option<String> {
+    warning_for(threads(), crate::platform::memory())
+}
+
+fn warning_for(threads: usize, memory: Option<u64>) -> Option<String> {
+    let mut short = Vec::new();
+    if threads < MIN_THREADS {
+        short.push(format!(
+            "its processor runs {threads} threads at once, and AAE needs at least {MIN_THREADS}, such as an Intel Core i5 or AMD Ryzen 5"
+        ));
+    }
+    if let Some(bytes) = memory.filter(|&b| b < MIN_MEMORY) {
+        let gb = (bytes as f64 / 1_073_741_824.0).round();
+        short.push(format!(
+            "it has {gb} GB of memory, and AAE needs at least 8 GB, or 16 GB to run more than one device"
+        ));
+    }
+    if short.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "This computer is below what AAE needs: {}. Android will start, but it may be too slow to use.",
+        short.join(", and ")
+    ))
+}
+
 /// Whether this computer can run the emulator at full speed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Virtualisation {
@@ -592,5 +638,24 @@ mod tests {
             tools.tools[1].install_dir(&sdk),
             PathBuf::from("/nowhere/build-tools/36.1.0")
         );
+    }
+}
+
+#[cfg(test)]
+mod requirement_tests {
+    use super::*;
+
+    #[test]
+    fn warns_below_the_minimum() {
+        const GB: u64 = 1 << 30;
+        // An Intel N150 with 8 GB: four threads.
+        let n150 = warning_for(4, Some(8 * GB)).unwrap();
+        assert!(n150.contains("runs 4 threads at once"), "{n150}");
+        assert!(!n150.contains("memory"), "{n150}");
+        let small = warning_for(4, Some(4 * GB)).unwrap();
+        assert!(small.contains("4 GB of memory"), "{small}");
+        // A computer sold with 8 GB, a little of it kept for graphics.
+        assert_eq!(warning_for(8, Some(7_800_000_000)), None);
+        assert_eq!(warning_for(12, None), None);
     }
 }

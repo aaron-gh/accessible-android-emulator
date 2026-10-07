@@ -6,7 +6,8 @@ WHAT YOU NEED
 
 - Windows 10 or 11, 64-bit, on an Intel or AMD processor. Google's Android emulator isn't made for Windows on ARM, such as Snapdragon laptops, so AAE doesn't install there.
 - Windows Hypervisor Platform turned on, which the Android emulator needs to run at full speed. In Control Panel, choose Programs, then "Turn Windows features on or off", check "Windows Hypervisor Platform", and restart. Virtualisation must also be on in the computer's firmware settings; it usually is. The self-test, in the Help menu, says whether the emulator can use it.
-- About 10 gigabytes free for the emulator, one Android version and a device.
+- A processor that runs at least 6 threads at once, such as an Intel Core i5 or AMD Ryzen 5, and at least 8 gigabytes of memory (16 to run more than one device). Low-power chips such as Intel's N100, N150 and N200, Celeron, Pentium Silver and Atom are too slow: Android starts, but it's too slow to use. AAE's setup says when a computer is below this.
+- An SSD with about 10 gigabytes free for the emulator, one Android version and a device.
 
 STARTING
 

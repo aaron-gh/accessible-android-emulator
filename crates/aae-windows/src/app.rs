@@ -599,6 +599,9 @@ impl App {
         if let Some(problem) = &status.virtualisation_problem {
             lines.push(problem.clone());
         }
+        if let Some(warning) = &status.performance_warning {
+            lines.push(warning.clone());
+        }
         lines.join("\n")
     }
 
