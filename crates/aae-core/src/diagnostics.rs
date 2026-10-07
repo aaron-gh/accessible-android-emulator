@@ -616,15 +616,25 @@ fn redact_with(text: &str, home: Option<&str>, names: &[(String, &'static str)])
             text = replace_ignoring_case(&text, name, with);
         }
     }
-    hide_adb_keys(&text)
+    hide_tokens(&hide_adb_keys(&text))
+}
+
+/// gRPC errors can quote the emulator's access token.
+fn hide_tokens(text: &str) -> String {
+    hide_after(text, &["Bearer "], "<token>")
 }
 
 /// The emulator prints the computer's adb key, which is public but singles
 /// the computer out.
 fn hide_adb_keys(text: &str) -> String {
+    hide_after(text, &["pubkey=", "public key ["], "<adb key>")
+}
+
+/// Replaces the base64 text after each marker with `with`.
+fn hide_after(text: &str, markers: &[&str], with: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(at) = ["pubkey=", "public key ["]
+    while let Some(at) = markers
         .iter()
         .filter_map(|marker| rest.find(marker).map(|i| i + marker.len()))
         .min()
@@ -635,7 +645,7 @@ fn hide_adb_keys(text: &str) -> String {
             .find(|c: char| !(c.is_ascii_alphanumeric() || "+/=".contains(c)))
             .unwrap_or(rest.len());
         if key > 0 {
-            out.push_str("<adb key>");
+            out.push_str(with);
         }
         rest = &rest[key..];
     }
@@ -736,6 +746,13 @@ mod tests {
         );
         assert!(out.contains("/tmp/android-<user>/"), "{out}");
         assert!(out.contains("io.github.aaron_gh.backtalk"), "{out}");
+    }
+
+    #[test]
+    fn redacts_grpc_tokens() {
+        let log = "refused a request: The token `Bearer hQ9rOg+/s2f==` is invalid";
+        let out = redact_with(log, None, &[]);
+        assert_eq!(out, "refused a request: The token `Bearer <token>` is invalid");
     }
 
     #[test]
