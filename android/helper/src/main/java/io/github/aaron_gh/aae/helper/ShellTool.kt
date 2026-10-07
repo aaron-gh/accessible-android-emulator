@@ -34,7 +34,8 @@ object ShellTool {
             "keyboard-layout" -> useKeyboardLayout(args.getOrElse(1) { KeyboardLayouts.FULL_KEYBOARD })
             "clear-keyboard-layout" -> clearKeyboardLayout(args.getOrElse(1) { KeyboardLayouts.FULL_KEYBOARD })
             "keyboards" -> describeKeyboards()
-            else -> println("Usage: ShellTool methods | layouts | keyboards | keyboard-layout [descriptor] | clear-keyboard-layout [descriptor]")
+            "vibration-watch" -> VibrationWatch.run()
+            else -> println("Usage: ShellTool methods | layouts | keyboards | keyboard-layout [descriptor] | clear-keyboard-layout [descriptor] | vibration-watch")
         }
     }
 

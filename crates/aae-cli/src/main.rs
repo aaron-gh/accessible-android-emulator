@@ -47,6 +47,26 @@ enum Command {
         #[arg(long)]
         allow_destructive: bool,
     },
+    /// Serve this computer's devices to AAE's Android app, so a phone can
+    /// list, start, manage and use them: their sound plays on the phone, and
+    /// the phone sends keys and touches. Nothing plays here, so it can run on
+    /// a computer with no screen or speakers. Phones pair once with the code
+    /// it shows; press P and Enter for a new code, or Q and Enter to stop.
+    Serve {
+        /// The port to listen on.
+        #[arg(long, default_value_t = aae_remote::DEFAULT_PORT)]
+        port: u16,
+        /// Don't announce this computer on the local network; phones then
+        /// need its address typed in.
+        #[arg(long)]
+        no_discovery: bool,
+    },
+    /// List the phones paired with this computer's AAE, or unpair one.
+    Phones {
+        /// The id of a phone to unpair, as the list shows it.
+        #[arg(long)]
+        unpair: Option<String>,
+    },
     /// Check everything AAE needs: this computer's virtualisation and sound,
     /// the SDK, AAE's own parts, and each running device's screen reader
     /// and speech. Makes no sound.
@@ -695,6 +715,29 @@ async fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new()?;
     match cli.command {
         Command::Doctor => doctor(&ctx),
+        Command::Serve { port, no_discovery } => serve(port, !no_discovery).await,
+        Command::Phones { unpair } => {
+            let clients = aae_remote::security::Clients::load();
+            match unpair {
+                Some(id) => {
+                    if clients.remove(&id) {
+                        println!("Unpaired {id}. It can't connect until it pairs again.");
+                    } else {
+                        bail!("No phone with the id {id} is paired.");
+                    }
+                }
+                None => {
+                    let list = clients.list();
+                    if list.is_empty() {
+                        println!("No phones are paired. Run aae serve to pair one.");
+                    }
+                    for client in list {
+                        println!("{}: {}", client.id, client.name);
+                    }
+                }
+            }
+            Ok(())
+        }
         Command::Mcp { allow_destructive } => {
             aae_mcp::serve(aae_mcp::Options { allow_destructive }).await
         }
@@ -2523,4 +2566,67 @@ fn confirm(question: &str) -> Result<bool> {
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer)?;
     Ok(answer.trim().eq_ignore_ascii_case("yes"))
+}
+
+/// Serves devices to AAE's Android app until stopped.
+async fn serve(port: u16, discovery: bool) -> Result<()> {
+    let engine = aae_ffi::Engine::new()?;
+    let name = aae_remote::discovery::computer_name();
+    let server = aae_remote::Server::new(engine, name.clone())?;
+    let (notices, mut notes) = tokio::sync::mpsc::unbounded_channel();
+    server.on_notice(notices);
+    let _announcement = if discovery {
+        match aae_remote::discovery::announce(&name, port, &server.fingerprint) {
+            Ok(a) => Some(a),
+            Err(e) => {
+                println!(
+                    "Couldn't announce this computer on the network ({e}); phones will need its address."
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let running = tokio::spawn(server.clone().run(port));
+    println!("Serving {name}'s devices to AAE's Android app, on port {port}.");
+    println!(
+        "Its certificate's fingerprint starts {}.",
+        &server.fingerprint[..16]
+    );
+    let show_code = || {
+        let code = server.pairing.new_code();
+        println!(
+            "To pair a phone, enter this code in AAE on it: {code}. It works once, for {} minutes.",
+            aae_remote::security::CODE_LIFETIME.as_secs() / 60
+        );
+    };
+    show_code();
+    println!("Press P and Enter for a new pairing code, or Q and Enter to stop.");
+    let mut input = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+    use tokio::io::AsyncBufReadExt;
+    // With no terminal, as when run as a service, it serves until stopped.
+    let mut terminal = true;
+    loop {
+        tokio::select! {
+            line = input.next_line(), if terminal => match line {
+                Ok(Some(line)) => match line.trim().to_lowercase().as_str() {
+                    "p" => show_code(),
+                    "q" => break,
+                    _ => {}
+                },
+                _ => terminal = false,
+            },
+            Some(note) = notes.recv() => println!("{note}"),
+            _ = tokio::signal::ctrl_c() => break,
+        }
+        if running.is_finished() {
+            break;
+        }
+    }
+    if running.is_finished() {
+        running.await??;
+    }
+    println!("Stopped serving.");
+    Ok(())
 }

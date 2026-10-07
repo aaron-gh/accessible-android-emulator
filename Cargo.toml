@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/aae-core", "crates/aae-cli", "crates/aae-ffi", "crates/aae-mcp", "crates/aae-windows"]
+members = ["crates/aae-core", "crates/aae-cli", "crates/aae-ffi", "crates/aae-mcp", "crates/aae-remote", "crates/aae-windows"]
 
 [workspace.package]
 version = "0.3.1"

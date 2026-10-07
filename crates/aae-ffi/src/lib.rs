@@ -1372,6 +1372,34 @@ pub struct Session {
     held: tokio::sync::Mutex<Option<Vec<aae_core::control::TouchPoint>>>,
 }
 
+/// For AAE's own Rust programs, such as the remote server, which need more
+/// than the apps do. Not part of the apps' interface.
+impl Session {
+    pub fn controller(&self) -> Controller {
+        self.controller.clone()
+    }
+
+    pub fn adb(&self) -> Adb {
+        self.adb.clone()
+    }
+
+    pub fn device_id(&self) -> String {
+        self.device.lock().unwrap().id.clone()
+    }
+
+    /// How fast the device really plays audio, as measured: 1.0 when right.
+    pub fn audio_speed(&self) -> f64 {
+        self.device.lock().unwrap().meta.audio_speed.unwrap_or(1.0)
+    }
+
+    /// Presses or releases a key by its Linux (evdev) code, which is also
+    /// what Android reports as a hardware key's scan code. In order with
+    /// every other key.
+    pub fn evdev_key(&self, code: u16, down: bool) -> bool {
+        self.keys.send(KeyMessage::Evdev(code as i32, down)).is_ok()
+    }
+}
+
 impl Session {
     fn new(sdk: Sdk, device: Device, controller: Controller, adb: Adb) -> Arc<Self> {
         // Keys go through one queue, sent one at a time, so they reach the

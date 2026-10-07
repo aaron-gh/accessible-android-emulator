@@ -13,6 +13,8 @@ path = "src/main.rs"
 [dependencies]
 aae-core.workspace = true
 aae-mcp = { path = "../aae-mcp" }
+aae-remote = { path = "../aae-remote" }
+aae-ffi = { path = "../aae-ffi" }
 anyhow.workspace = true
 tokio.workspace = true
 clap.workspace = true

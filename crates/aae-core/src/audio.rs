@@ -483,6 +483,45 @@ const GOLDFISH_SPEED: f64 = 44_100.0 / 48_000.0;
 /// the emulator's own output is off. A result close to a known fault snaps to
 /// its exact value.
 /// The name of the Mac's sound output, or None if it has none.
+/// The device's audio as 16-bit stereo samples at `rate`, interleaved, for
+/// sending elsewhere instead of playing here, as to AAE's Android app.
+/// Older Android's slow audio is corrected as for playing (see
+/// [`AudioPlayer::start_with_speed`]). Ends when the receiver is dropped, or
+/// the device stops.
+pub async fn pcm_stream(
+    controller: &Controller,
+    rate: u32,
+    speed: f64,
+) -> Result<tokio::sync::mpsc::Receiver<Vec<i16>>> {
+    let (tx, rx) = tokio::sync::mpsc::channel(64);
+    let controller = controller.clone();
+    tokio::spawn(async move {
+        // As for playing: the emulator answers once the device first sounds.
+        let mut stream = match controller.stream_audio(rate, true).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                tracing::warn!("could not start the device's audio stream: {e}");
+                return;
+            }
+        };
+        let mut pitch = PitchCorrection::new(speed, rate);
+        while let Some(Ok(packet)) = stream.next().await {
+            let mut samples: Vec<i16> = packet
+                .audio
+                .chunks_exact(2)
+                .map(|b| i16::from_le_bytes([b[0], b[1]]))
+                .collect();
+            if let Some(pitch) = pitch.as_mut() {
+                pitch.process(&mut samples);
+            }
+            if tx.send(samples).await.is_err() {
+                break;
+            }
+        }
+    });
+    Ok(rx)
+}
+
 pub fn output_name() -> Option<String> {
     let device = cpal::default_host().default_output_device()?;
     Some(
