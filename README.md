@@ -80,9 +80,11 @@ Both apps update themselves. Check for Updates never offers a development build;
   - Question mark lists the keys.
 - `aae gesture <device> swipe-right double-tap`; `--at X,Y`. `aae inspect <device> --targets` lists touch targets.
 
-### Battery, fingerprints and motion
+### Display and language
 
-The same window sets the battery's level, charging and health (good, failed, dead, over voltage or overheated), touches the fingerprint sensor with one of ten fingers, and shakes the device for apps that act on a shake. To enroll a finger, add a fingerprint in Android's security settings and touch with the same finger each time it asks; a finger that wasn't enrolled is refused, for testing what an app says then. In the terminal: `aae battery <device> 15 --health overheated`, `aae fingerprint <device> 1` and `aae shake <device>`. AI agents have `touch_fingerprint` and `shake`, and a battery health.
+Display and Language (Option-Command-Comma on the Mac, Control-Alt-Comma on Windows) changes the device's language, font size, display size, dark theme, bold text, high contrast text, colour inversion, colour correction, animations, captions and touch and hold delay, without going through Android's Settings. The languages include two pseudo-locales, accented and longer text, and right to left, for finding text that's cut off or laid out the wrong way; any other language tags can be typed. `aae settings <device>` says them all, `aae settings <device> font-size 150 language ar-XB` changes them, and `aae settings --list` lists the choices. AI agents have `device_settings`, and AAE Remote has Display and Language in Testing Tools. Dark theme needs Android 10, and bold text Android 12.
+
+Language, font size, display size, dark theme (Android 10+), bold text (Android 12+), high contrast text, colour inversion, colour correction, animations, captions and touch and hold delay. Languages include the pseudo-locales en-XA (accented, longer) and ar-XB (right to left), and any typed language tag. Use These Settings for New Devices applies them to devices created later. `aae settings <device> [name value]...`, `--list`, `--for-new-devices`, `--forget-new-devices`.
 
 ### Testing tools
 
@@ -102,7 +104,7 @@ The Mac app is in `macos/`. Announcements go through VoiceOver when it's running
 - File menu: New Device (Command-N) and Android Versions (Option-Command-A).
 - Device menu, for the selected device: Start (Command-Shift-S), Stop (Command-Shift-.), Restart (Command-Shift-R), Use Android Keyboard (Command-Shift-E), Use Gestures (Command-Shift-G), Open in Own Window (Option-Command-O) and Speak Status (Command-Shift-I). Then Android's buttons and screens, including Power, Assistant and the device's own volume buttons, rotation, the device's sound, the clipboard, apps and services, conditions, installing, and renaming, copying, wiping and deleting.
 - Testing tools: Accessibility Inspector (Option-Command-I), Speech Log (Option-Command-L), Device Log (Option-Command-J) and Shell (Option-Command-T).
-- Apps (Option-Command-P), Accessibility Services (Option-Command-U), Snapshots (Option-Command-S), and Battery, Location, Phone and Network (Option-Command-B).
+- Apps (Option-Command-P), Accessibility Services (Option-Command-U), Snapshots (Option-Command-S), Battery, Location, Phone and Network (Option-Command-B), and Display and Language (Option-Command-Comma).
 - Sound: Mute (Command-Shift-M), Turn Device Audio Up and Down (Option-Command-Up and Down), Check Audio (Option-Command-K), Turn On Microphone (Command-Shift-U), and a volume slider in the main window. The first time, macOS asks whether AAE may use the microphone.
 - Clipboard: Command-Shift-C copies the device's clipboard to the Mac, Command-Shift-V sends the Mac's clipboard to the device, and Option-Command-V types it on the device as key presses, for fields that block pasting.
 - Installing: Install App (Command-I), or drop APKs on the window, or copy them in Finder and paste them into it. Install Screen Reader Build is Option-Shift-Command-I, and Open Link is Command-Shift-L.
@@ -119,7 +121,7 @@ Announcements go straight to NVDA, through NV Access's controller client, which 
 - Device mode sends every key to Android, with the Windows key as Meta, including Windows' own shortcuts such as Alt-Tab, the Windows key and Alt-F4; only Control-Alt-Delete and Windows-L can't be taken. Your screen reader keeps its keys: while Insert or Caps Lock is held, keys go to Windows. Control-Windows-Escape, or the "Return to Windows" button, brings the keyboard back.
 - Turn On Microphone is Control-Shift-U.
 - Installing apps: Install App (Control-I), or drop APKs on the window, or copy them in File Explorer and paste them into it with Control-V.
-- It has the Mac app's windows, with the same shortcuts: Accessibility Inspector (Control-Alt-I), Speech Log (Control-Alt-L), Device Log (Control-Alt-J), Shell (Control-Alt-T), Apps (Control-Alt-P), Accessibility Services (Control-Alt-U), Snapshots (Control-Alt-S), Battery, Location, Phone and Network (Control-Alt-B), Android Versions (Control-Alt-A), Open Link (Control-Shift-L), Send Intent, Watch for New Builds, and Open in Own Window (Control-Alt-O). Each window stays open beside the main one: Tab moves through it, F5 refreshes it if it has a Refresh button, and Escape closes it.
+- It has the Mac app's windows, with the same shortcuts: Accessibility Inspector (Control-Alt-I), Speech Log (Control-Alt-L), Device Log (Control-Alt-J), Shell (Control-Alt-T), Apps (Control-Alt-P), Accessibility Services (Control-Alt-U), Snapshots (Control-Alt-S), Battery, Location, Phone and Network (Control-Alt-B), Display and Language (Control-Alt-Comma), Android Versions (Control-Alt-A), Open Link (Control-Shift-L), Send Intent, Watch for New Builds, and Open in Own Window (Control-Alt-O). Each window stays open beside the main one: Tab moves through it, F5 refreshes it if it has a Refresh button, and Escape closes it.
 - In a device's own window, the menu's shortcuts act on that device. Device and gesture mode started there take the keyboard in the main window, which has the way back.
 - Battery, Location, Phone and Network looks up places and addresses on OpenStreetMap, which gets only the text you typed; latitude and longitude are used as they are.
 
@@ -157,7 +159,7 @@ aae stop "Android 16 test"
 - Keyboard, sound and speech: `attach`, `listen`, `playback-volume`, `volume` (the screen reader's own volume), `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `mic`, `speech`.
 - Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
 - Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`.
-- Device conditions: `rotate`, `battery`, `fingerprint`, `shake`, `location`, `network`, `sms`, `call`, `clipboard`.
+- Device conditions: `rotate`, `battery`, `fingerprint`, `shake`, `location`, `network`, `settings`, `sms`, `call`, `clipboard`.
 - AI agents: `mcp`, below.
 
 ## AI agents (MCP)
@@ -166,13 +168,11 @@ aae stop "Android 16 test"
 
 Besides the screen, an agent can hear what a blind user hears. The speech log records what the screen reader says, so an agent can swipe through an app with the screen reader's own gestures and check what was announced, not just what was drawn.
 
-- Looking: `screenshot`, `inspect` (the accessibility tree, as a screen reader describes it), `check_accessibility`, `touch_targets`, `speech_log`, and `device_log`.
-- Acting: `gesture` (any screen reader gesture), `tap_target` and `activate_target` (by a thing's label), `type_text`, `press_key`, `open_app`, `open_link`, `send_intent`, notifications and quick settings, `rotate`, battery, location, network, text messages, calls, the clipboard, and `play_into_microphone`, a sound file for voice input.
-- Waiting: `wait_for` text to appear on the screen or be spoken, or to go, and `pause`.
-- Setting up: listing, creating, copying, starting, stopping and restarting devices, `install_app`, apps, permissions, accessibility services, and snapshots for repeatable starting points. Downloading Android versions isn't offered, as Google's licence is for you to accept, in the app.
-- Tools that can't be undone, wiping and deleting devices, deleting snapshots, uninstalling apps, clearing their data and running shell commands, are only offered when the server is started with `aae mcp --allow-destructive`. Loading a snapshot is offered, marked as destructive, so agents ask first.
-
-To add it to Claude Code on a Mac:
+- Observe: `screenshot`, `inspect`, `check_accessibility`, `touch_targets`, `speech_log`, `device_log`.
+- Act: `gesture`, `tap_target`, `activate_target`, `type_text`, `press_key`, `open_app`, `open_link`, `send_intent`, notifications, quick settings, `rotate`, `device_settings`, battery, `touch_fingerprint`, `shake`, location, `play_route`, `stop_route`, network, SMS, calls, clipboard, `play_into_microphone`, `start_recording`, `stop_recording`.
+- Wait: `wait_for` text on screen or in speech, or its absence; `pause`.
+- Set up: devices, `install_app`, apps, permissions, accessibility services, snapshots. No Android version downloads (the user accepts Google's licence in the app).
+- Wipe, delete, delete snapshot, uninstall, clear data and shell need `aae mcp --allow-destructive`. Loading a snapshot is marked destructive.
 
 ```sh
 claude mcp add aae -- /Applications/AAE.app/Contents/Helpers/aae mcp

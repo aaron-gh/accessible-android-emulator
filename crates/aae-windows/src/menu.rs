@@ -50,6 +50,7 @@ pub const DELETE: u16 = 253;
 pub const OPEN_LINK: u16 = 260;
 pub const SEND_INTENT: u16 = 261;
 pub const CONDITIONS: u16 = 262;
+pub const DEVICE_SETTINGS: u16 = 263;
 pub const SPEECH_LOG: u16 = 270;
 pub const SHELL: u16 = 271;
 pub const DEVICE_LOG: u16 = 272;
@@ -165,6 +166,11 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                     CONDITIONS,
                     "Batter&y, Location, Phone and Network",
                     Some((ca, b'B' as u16)),
+                ),
+                Item(
+                    DEVICE_SETTINGS,
+                    "Display and Lan&guage",
+                    Some((ca, VK_OEM_COMMA.0)),
                 ),
                 SEPARATOR,
                 Item(INSTALL_APP, "&Install App…", Some((c, b'I' as u16))),

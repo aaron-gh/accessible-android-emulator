@@ -4,6 +4,7 @@
 pub mod apps;
 pub mod conditions;
 pub mod device_log;
+pub mod device_settings;
 pub mod device_window;
 pub mod inspector;
 pub mod links;
@@ -24,9 +25,14 @@ use crate::{panels, ui};
 /// Keeps tool windows' titles naming the selected device.
 pub fn device_changed(name: Option<&str>) {
     conditions::device_changed(name);
-    if let Some(hwnd) = panels::open_window(conditions::KIND) {
-        let title = conditions::title(name);
-        if ui::text(hwnd) != title {
+    device_settings::device_changed(name);
+    for (kind, title) in [
+        (conditions::KIND, conditions::title(name)),
+        (device_settings::KIND, device_settings::title(name)),
+    ] {
+        if let Some(hwnd) = panels::open_window(kind)
+            && ui::text(hwnd) != title
+        {
             ui::set_text(hwnd, &title);
         }
     }

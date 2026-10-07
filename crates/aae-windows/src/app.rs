@@ -798,6 +798,7 @@ pub fn command(id: u16, notification: u32) {
         OPEN_LINK => crate::tools::links::open_link(),
         SEND_INTENT => crate::tools::links::send_intent(),
         CONDITIONS => crate::tools::conditions::show(),
+        DEVICE_SETTINGS => crate::tools::device_settings::show(),
         SPEECH_LOG => crate::tools::speech_log::show(),
         SHELL => crate::tools::shell::show(),
         DEVICE_LOG => crate::tools::device_log::show(),

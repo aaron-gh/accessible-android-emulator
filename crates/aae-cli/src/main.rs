@@ -498,9 +498,22 @@ enum Command {
     },
     /// Shake the device, as for apps that act on a shake.
     Shake { device: String },
-    /// The device's network: with nothing else, says how it is. Turn airplane
-    /// mode, Wi-Fi or mobile data on or off, or set the speed: full, lte,
-    /// 3g, slow-3g, edge or gprs. For example: aae network Pixel wifi off speed edge
+    /// The device's language, display and accessibility settings. With
+    /// nothing else, says them; otherwise sets pairs of name and value, such
+    /// as: aae settings Pixel font-size 150 dark-theme on language fr-FR.
+    /// aae settings --list says every setting and its choices.
+    Settings {
+        /// The device, unless listing.
+        device: Option<String>,
+        /// Pairs of setting and value.
+        changes: Vec<String>,
+        /// List every setting and its choices.
+        #[arg(long)]
+        list: bool,
+    },
+    /// Show or change airplane mode, Wi-Fi, mobile data and speed.
+    ///
+    /// Speeds: full, lte, 3g, slow-3g, edge, gprs. Example: aae network Pixel wifi off speed edge
     Network {
         device: String,
         /// Pairs of setting and value: airplane on|off, wifi on|off,
@@ -2113,6 +2126,42 @@ async fn run(cli: Cli) -> Result<()> {
             let (_, controller, _) = ctx.connect(&device).await?;
             controller.touch_fingerprint(finger).await?;
             println!("Touched the fingerprint sensor with finger {finger}.");
+            Ok(())
+        }
+        Command::Settings {
+            device,
+            changes,
+            list,
+        } => {
+            use aae_core::device_settings::{self as settings, SETTINGS};
+            if list || device.is_none() {
+                for setting in SETTINGS {
+                    println!("{} ({}):", setting.name, setting.label);
+                    for (value, label) in setting.choices {
+                        println!("  {value}: {label}");
+                    }
+                }
+                println!(
+                    "The language also takes any language tags, such as fr-CA or fr-FR,en-US."
+                );
+                return Ok(());
+            }
+            let device = device.unwrap_or_default();
+            if changes.len() % 2 != 0 {
+                bail!("Give each setting a value, such as: font-size 150 dark-theme on");
+            }
+            let (_, _, adb) = ctx.connect(&device).await?;
+            // The helper sets the language.
+            provision::update_helper(&ctx.sdk, &adb).await?;
+            for pair in changes.chunks(2) {
+                println!("{}", settings::change(&adb, &pair[0], &pair[1]).await?);
+            }
+            if changes.is_empty() {
+                for (name, value) in settings::read(&adb).await? {
+                    let label = settings::setting(name).map_or(name, |s| s.label);
+                    println!("{label}: {}", settings::label_of(name, &value));
+                }
+            }
             Ok(())
         }
         Command::Shake { device } => {

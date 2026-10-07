@@ -500,6 +500,25 @@ pub fn network_speeds() -> Vec<NetworkSpeedInfo> {
         .collect()
 }
 
+/// One of a setting's choices.
+#[derive(uniffi::Record, Clone)]
+pub struct SettingChoice {
+    pub value: String,
+    pub label: String,
+}
+
+/// A language, display or accessibility setting, with its value now.
+#[derive(uniffi::Record, Clone)]
+pub struct DeviceSettingInfo {
+    /// Its name for `change_device_setting`, such as "font-size".
+    pub name: String,
+    pub label: String,
+    /// Its choices. The value now is added if it isn't one of them, such as
+    /// a language set in Android's settings.
+    pub choices: Vec<SettingChoice>,
+    pub value: String,
+}
+
 /// A battery health to choose: its name for `set_battery_health`, and in words.
 #[derive(uniffi::Record, Clone)]
 pub struct BatteryHealthInfo {
@@ -2201,6 +2220,63 @@ impl Session {
             Ok(controller
                 .set_battery(level.min(100) as i32, charging)
                 .await?)
+        })
+        .await
+    }
+
+    /// The device's language, display and accessibility settings, with their
+    /// values now. Settings the device doesn't have are left out.
+    pub async fn device_settings(&self) -> Result<Vec<DeviceSettingInfo>, AaeError> {
+        let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
+        on_runtime(async move {
+            use aae_core::device_settings as settings;
+            // The helper reads and sets the language.
+            provision::update_helper(&sdk, &adb).await?;
+            let values = settings::read(&adb).await?;
+            Ok(settings::SETTINGS
+                .iter()
+                .filter_map(|s| {
+                    let value = values.iter().find(|(n, _)| *n == s.name)?.1.clone();
+                    let mut choices: Vec<SettingChoice> = s
+                        .choices
+                        .iter()
+                        .map(|(v, l)| SettingChoice {
+                            value: v.to_string(),
+                            label: l.to_string(),
+                        })
+                        .collect();
+                    if !choices.iter().any(|c| c.value == value) {
+                        choices.insert(
+                            0,
+                            SettingChoice {
+                                value: value.clone(),
+                                label: value.clone(),
+                            },
+                        );
+                    }
+                    Some(DeviceSettingInfo {
+                        name: s.name.into(),
+                        label: s.label.into(),
+                        choices,
+                        value,
+                    })
+                })
+                .collect())
+        })
+        .await
+    }
+
+    /// Changes a language, display or accessibility setting. Returns what to
+    /// say, such as "Font size: 150 percent."
+    pub async fn change_device_setting(
+        &self,
+        name: String,
+        value: String,
+    ) -> Result<String, AaeError> {
+        let (sdk, adb) = (self.sdk.clone(), self.adb.clone());
+        on_runtime(async move {
+            provision::update_helper(&sdk, &adb).await?;
+            Ok(aae_core::device_settings::change(&adb, &name, &value).await?)
         })
         .await
     }

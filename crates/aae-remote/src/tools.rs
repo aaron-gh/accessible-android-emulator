@@ -246,6 +246,24 @@ pub async fn call(
                     .touch_fingerprint(params["finger"].as_u64().unwrap_or(1) as u32)
                     .await?
             ),
+            "tools.settings" => json!(
+                session
+                    .device_settings()
+                    .await?
+                    .into_iter()
+                    .map(|s| json!({
+                        "name": s.name,
+                        "label": s.label,
+                        "value": s.value,
+                        "choices": s.choices.iter().map(|c| json!({"value": c.value, "label": c.label})).collect::<Vec<_>>(),
+                    }))
+                    .collect::<Vec<_>>()
+            ),
+            "tools.settings.set" => json!(
+                session
+                    .change_device_setting(text(params, "name")?, text(params, "value")?)
+                    .await?
+            ),
             "tools.shake" => {
                 session.shake().await?;
                 Value::Null

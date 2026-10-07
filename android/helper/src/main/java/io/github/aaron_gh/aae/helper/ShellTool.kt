@@ -36,7 +36,8 @@ object ShellTool {
             "keyboards" -> describeKeyboards()
             "vibration-watch" -> VibrationWatch.run()
             "recording-watch" -> RecordingWatch.run()
-            else -> println("Usage: ShellTool methods | layouts | keyboards | keyboard-layout [descriptor] | clear-keyboard-layout [descriptor] | vibration-watch | recording-watch")
+            "locale" -> SystemLocale.run(args.getOrNull(1))
+            else -> println("Usage: ShellTool methods | layouts | keyboards | keyboard-layout [descriptor] | clear-keyboard-layout [descriptor] | vibration-watch | recording-watch | locale [tags]")
         }
     }
 

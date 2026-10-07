@@ -30,6 +30,7 @@ class ToolsActivity : ToolActivity() {
         open("Accessibility Services", ServicesActivity::class.java)
         open("Snapshots", SnapshotsActivity::class.java)
         open("Battery, Location, Phone and Network", ConditionsActivity::class.java)
+        open("Display and Language", DeviceSettingsActivity::class.java)
         open("Open Link or Send Intent", LinkActivity::class.java)
         ui.button("Install App") { chooseApk() }
         playButton = ui.button("Play Audio File into Microphone") { playOrStop() }

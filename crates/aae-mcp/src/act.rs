@@ -119,6 +119,22 @@ pub(crate) struct BatteryParam {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(crate) struct DeviceSettingsParam {
+    /// The device's name. Leave it out when only one device is running.
+    pub device: Option<String>,
+    /// Settings to change, by name: language (any language tags, such as
+    /// "fr-FR" or "ar-XB" for a right-to-left pseudo-locale), font-size (a
+    /// percentage: 85, 100, 115, 130, 150, 180 or 200), display-size (small,
+    /// default, large, larger, largest), dark-theme, bold-text,
+    /// high-contrast-text, colour-inversion, animations and captions (on or
+    /// off), colour-correction (off, deuteranomaly, protanomaly,
+    /// tritanomaly, grayscale) and touch-and-hold (short, medium, long).
+    /// Leave out to only read them.
+    #[serde(default)]
+    pub changes: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub(crate) struct FingerprintParam {
     /// The device's name. Leave it out when only one device is running.
     pub device: Option<String>,
@@ -555,6 +571,39 @@ impl AaeServer {
                     "{:.1} seconds of audio will play into the device's microphone when an app on it next records.",
                     sound.seconds()
                 ))
+            }
+            .await,
+        )
+    }
+
+    /// The device's language, display and accessibility settings: reads
+    /// them, or changes some and reads them after, to test an app in another
+    /// language or right to left, with large text, dark theme, colour
+    /// inversion or correction, or without animations.
+    #[tool(annotations(destructive_hint = false, idempotent_hint = true))]
+    async fn device_settings(
+        &self,
+        Parameters(p): Parameters<DeviceSettingsParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                let mut lines = Vec::new();
+                for (name, value) in p.changes {
+                    lines.push(session.change_device_setting(name, value).await?);
+                }
+                if !lines.is_empty() {
+                    lines.push("Now:".into());
+                }
+                for setting in session.device_settings().await? {
+                    let label = setting
+                        .choices
+                        .iter()
+                        .find(|c| c.value == setting.value)
+                        .map_or(setting.value.clone(), |c| c.label.clone());
+                    lines.push(format!("{} ({}): {}", setting.label, setting.name, label));
+                }
+                text(lines.join("\n"))
             }
             .await,
         )

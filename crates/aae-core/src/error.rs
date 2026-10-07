@@ -63,6 +63,10 @@ pub enum Error {
     #[error("adb failed: {0}")]
     Adb(String),
 
+    /// Something asked of AAE that can't be done, said as it is.
+    #[error("{0}")]
+    Message(String),
+
     #[error("Could not read the app package {path}: {reason}")]
     Apk { path: PathBuf, reason: String },
 

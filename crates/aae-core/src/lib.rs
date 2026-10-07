@@ -14,6 +14,7 @@ pub mod audio;
 pub mod catalog;
 pub mod control;
 pub mod device;
+pub mod device_settings;
 pub mod diagnostics;
 pub mod emulator;
 pub mod error;

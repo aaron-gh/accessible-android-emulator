@@ -1812,6 +1812,27 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The selected device's language, display and accessibility settings.
+    @Published private(set) var deviceSettings: [DeviceSettingInfo] = []
+
+    func loadDeviceSettings() {
+        guard selected?.running == true else {
+            deviceSettings = []
+            return
+        }
+        withSession { [weak self] session in
+            self?.deviceSettings = try await session.deviceSettings()
+        }
+    }
+
+    func changeDeviceSetting(_ name: String, to value: String) {
+        withSession { [weak self] session in
+            let said = try await session.changeDeviceSetting(name: name, value: value)
+            self?.announce(said, tone: .success)
+            self?.deviceSettings = try await session.deviceSettings()
+        }
+    }
+
     func touchFingerprint(finger: Int) {
         withSession { [weak self] session in
             let said = try await session.touchFingerprint(finger: UInt32(finger))

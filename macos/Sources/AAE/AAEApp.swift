@@ -86,6 +86,7 @@ struct AAEApp: App {
                 Button("Send Intent…") { model.showingSendIntent = true }
                 SnapshotsMenuItem()
                 ConditionsMenuItem()
+                DeviceSettingsMenuItem()
                 Divider()
                 Button("Install App…") { model.installApp() }
                     .keyboardShortcut("i")
@@ -145,6 +146,10 @@ struct AAEApp: App {
         }
         Window("Snapshots", id: "snapshots") {
             SnapshotsView()
+                .environmentObject(model)
+        }
+        Window("Display and Language", id: "device-settings") {
+            DeviceSettingsView()
                 .environmentObject(model)
         }
         Window("Battery, Location, Phone and Network", id: "conditions") {
