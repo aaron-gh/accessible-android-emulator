@@ -43,7 +43,10 @@ Below these, Android starts but is too slow to use with a screen reader. Setup a
 - Create, copy, rename, wipe and delete. Wipe resets to first setup and keeps name, hardware and volume.
 - Hardware (stopped devices): memory, cores, storage, screen size and density, from next start. `aae hardware <device> memory 4096 cores 6 storage 16G screen 1440x3120 density 560`; `cores auto` reverts to AAE's choice. Reducing storage needs a wipe.
 - Export and Import: one `.aaedevice` file with apps, data, settings and named snapshots, between computers with the same processor architecture. The Android version must be installed on the target. `aae export`, `aae import`.
-- No emulator window. Stop saves state for a quick start. Restart restarts Android only.
+- No emulator window.
+- Stop doesn't shut Android down: it saves the whole running device, open apps included, as its quick-boot snapshot. Start restores it in a few seconds.
+- Restart reboots Android in the running emulator.
+- Cold Boot starts Android from its disk without the quick-boot snapshot, and deletes the snapshot, stopping the device first if needed (`aae start --cold`). Apps and data stay.
 - First boot: hardware keyboard on, setup wizard skipped, screen kept on, animations off, screen reader installed and on.
 - No screen reader in the image: AAE offers Backtalk (latest development build, verified against Backtalk's signing key), an APK, or none.
 - Screen reader builds install on several devices at once. Same signature keeps settings; stopped devices get it at next start. A different signature replaces the old app after confirmation.
@@ -111,7 +114,7 @@ Language, font size, display size, dark theme (Android 10+), bold text (Android 
 
 - File: New Device (Command-N), Import Device, Android Versions (Option-Command-A), Serve Devices to Phones.
 - Device:
-  - Start (Command-Shift-S), Stop (Command-Shift-.), Restart (Command-Shift-R), Use Android Keyboard (Command-Shift-E), Use Gestures (Command-Shift-G), Open in Own Window (Option-Command-O), Speak Status (Command-Shift-I).
+  - Start (Command-Shift-S), Stop (Command-Shift-.), Restart (Command-Shift-R), Cold Boot, Use Android Keyboard (Command-Shift-E), Use Gestures (Command-Shift-G), Open in Own Window (Option-Command-O), Speak Status (Command-Shift-I).
   - Android buttons including Power and Assistant, rotation, Hardware, Export, rename, copy, wipe, delete.
   - Accessibility Inspector (Option-Command-I), Speech Log (Option-Command-L), Device Log (Option-Command-J), Shell (Option-Command-T), Apps (Option-Command-P), Accessibility Services (Option-Command-U), Snapshots (Option-Command-S), Battery, Location, Phone and Network (Option-Command-B), Display and Language (Option-Command-Comma).
   - Mute (Command-Shift-M), volume (Option-Command-Up and Down), Check Audio (Option-Command-K), Turn On Microphone (Command-Shift-U), Turn On Speech Bridge.
@@ -144,7 +147,7 @@ Android app (`android/remote`; server `crates/aae-remote`) for the devices on a 
 - **At login:** Serve at login, without AAE open (in Serve Devices to Phones) or `aae daemon install|uninstall|status`: a LaunchAgent, a Windows Run entry or a systemd user service. `aae pair` makes a pairing code for it. Logs to `serve.log`.
 - **Pairing:** Pair with a Computer: choose a computer on the network or type an address, then enter its 12-character code (single use, 10 minutes). TLS with the certificate pinned. `aae phones`, `aae phones --unpair <id>`.
 - **Managing:** devices (create, start, stop, restart, wipe, copy, rename, delete), Android versions (download after accepting the licence on the phone, delete), tool setup and updates.
-- **Device screen:** Android buttons, Speak Status, rotation. Testing Tools: speech log, device log, inspector, apps, services, snapshots, Battery, Location, Phone and Network (including GPX upload), Display and Language, links and intents, clipboard, APK install.
+- **Device screen:** Android buttons, Speak Status, rotation, Restart, Cold Boot. Testing Tools: speech log, device log, inspector, apps, services, snapshots, Battery, Location, Phone and Network (including GPX upload), Display and Language, links and intents, clipboard, APK install.
 - **Microphone:** sends the phone's microphone while an app on the device records (voice communication source, echo cancelled). Foreground only. Testing Tools uploads an audio file to play into it.
 - **Speech bridge:** sends the device's speech to the phone's text-to-speech. Engine and rate: Bridge Text-to-Speech Settings (default: system). Takes priority over a desktop app while the phone is attached.
 - **Keyboard mode:** a connected keyboard's keys go to the device. Control-Shift-Escape or a long press of volume down exits.

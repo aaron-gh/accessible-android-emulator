@@ -523,6 +523,31 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Starts the selected device without its quick-boot snapshot, stopping
+    /// it first if it's running.
+    func coldBoot() {
+        guard let engine, let device = selected, busy[device.id] == nil else { return }
+        if deviceModeID == device.id {
+            leaveDeviceMode()
+        }
+        let id = device.id
+        busy[id] = "Cold booting"
+        endSession(id)
+        let relay = ProgressRelay { [weak self] message in self?.announce(message) }
+        Task {
+            do {
+                try await engine.coldBootDevice(id: id, listener: relay)
+                _ = try await session(for: id)
+                checkSoundAfterStart(id)
+                Tone.success.play()
+            } catch {
+                announce(error.localizedDescription, tone: .failure)
+            }
+            busy[id] = nil
+            refresh()
+        }
+    }
+
     /// Asks, then wipes the selected device back to its first-boot state and
     /// sets it up again with its screen reader.
     func wipe() {

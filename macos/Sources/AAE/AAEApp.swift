@@ -35,6 +35,7 @@ struct AAEApp: App {
                     .keyboardShortcut(".", modifiers: [.command, .shift])
                 Button("Restart") { model.restart() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
+                Button("Cold Boot") { model.coldBoot() }
                 DeviceModeMenuItem(model: model)
                 DeviceWindowMenuItem(model: model)
                 Button("Speak Status") { model.speakStatus() }

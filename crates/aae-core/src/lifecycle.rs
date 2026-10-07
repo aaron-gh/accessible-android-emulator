@@ -18,6 +18,7 @@ pub const BOOT_TIMEOUT: Duration = Duration::from_secs(600);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Progress {
     Starting,
+    ColdBooting,
     AlreadyRunning,
     WaitingForAndroid {
         first_boot: bool,
@@ -48,6 +49,7 @@ impl Progress {
     pub fn describe(&self, device: &str) -> String {
         match self {
             Progress::Starting => format!("Starting {device}."),
+            Progress::ColdBooting => format!("Cold booting {device}."),
             Progress::AlreadyRunning => format!("{device} is already running."),
             Progress::WaitingForAndroid { first_boot: true } => {
                 "The emulator is running. Waiting for Android to start, which takes a few minutes the first time."
@@ -129,6 +131,28 @@ pub async fn wipe_device(
         ..Default::default()
     };
     start_device(sdk, store, device, &start, &setup, &mut report).await
+}
+
+/// Boots a device without its quick-boot snapshot, stopping it first if it's
+/// running, then checks it as a start does. Its apps and data stay; the
+/// snapshot is deleted, and the next stop saves a new one.
+pub async fn cold_boot_device(
+    sdk: &Sdk,
+    store: &DeviceStore,
+    device: &mut Device,
+    setup: &ProvisionOptions,
+    mut report: impl FnMut(Progress),
+) -> Result<(Controller, Adb)> {
+    tracing::info!("{}", Progress::ColdBooting.describe(&device.meta.name));
+    report(Progress::ColdBooting);
+    if emulator::running(device).is_ok() {
+        emulator::stop(sdk, device, Duration::from_secs(60)).await?;
+    }
+    let start = StartOptions {
+        cold_boot: true,
+        ..Default::default()
+    };
+    start_device(sdk, store, device, &start, setup, report).await
 }
 
 /// Starts a device if it isn't running, waits for Android, runs first-boot

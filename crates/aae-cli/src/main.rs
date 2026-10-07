@@ -226,7 +226,8 @@ enum Command {
     /// Start a device and make sure its screen reader is on.
     Start {
         device: String,
-        /// Boot from scratch instead of resuming the quick-boot state.
+        /// Cold boot: start without the quick-boot snapshot, and delete it.
+        /// Stops the device first if it's running.
         #[arg(long)]
         cold: bool,
         /// On a device's first start, the screen reader APK to install.
@@ -1277,6 +1278,11 @@ async fn run(cli: Cli) -> Result<()> {
                 emulator_audio,
                 ..Default::default()
             };
+            if cold && aae_core::emulator::running(&device).is_ok() {
+                println!("Stopping {}.", device.meta.name);
+                aae_core::emulator::stop(&ctx.sdk, &device, std::time::Duration::from_secs(60))
+                    .await?;
+            }
             start(&ctx, &mut device, &start_options, &options).await?;
             if attach {
                 attach::run(&ctx.sdk, &device, false, true).await?;

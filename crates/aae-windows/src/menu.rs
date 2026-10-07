@@ -16,6 +16,7 @@ pub const PASTE: u16 = 104;
 pub const START: u16 = 200;
 pub const STOP: u16 = 201;
 pub const RESTART: u16 = 202;
+pub const COLD_BOOT: u16 = 207;
 pub const KEYBOARD: u16 = 203;
 pub const GESTURES: u16 = 204;
 pub const SPEAK_STATUS: u16 = 205;
@@ -111,6 +112,7 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 Item(START, "&Start", Some((cs, b'S' as u16))),
                 Item(STOP, "St&op", Some((cs, VK_OEM_PERIOD.0))),
                 Item(RESTART, "&Restart", Some((cs, b'R' as u16))),
+                Item(COLD_BOOT, "&Cold Boot", None),
                 Item(KEYBOARD, "Use Android &Keyboard", Some((cs, b'E' as u16))),
                 Item(GESTURES, "Use &Gestures", Some((cs, b'G' as u16))),
                 Item(OWN_WINDOW, "Open in O&wn Window", Some((ca, b'O' as u16))),

@@ -252,6 +252,28 @@ impl AaeServer {
         )
     }
 
+    /// Cold boots a device: starts it without its quick-boot snapshot, which
+    /// is deleted, stopping it first if it's running. Apps and data stay;
+    /// what was open is lost. Use when a device won't start from its saved state.
+    #[tool(annotations(destructive_hint = false))]
+    async fn cold_boot_device(
+        &self,
+        Parameters(p): Parameters<DeviceParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let device = self.device(p.device.as_deref())?;
+                self.forget(&device.id).await;
+                let steps = Arc::new(Steps::default());
+                self.engine
+                    .cold_boot_device(device.id.clone(), steps.clone())
+                    .await?;
+                text(format!("{} is ready. {}", device.name, steps.said()))
+            }
+            .await,
+        )
+    }
+
     /// Lists the Android versions installed, which devices can be created
     /// from, and with `all`, those Google offers to download too.
     #[tool(annotations(read_only_hint = true))]

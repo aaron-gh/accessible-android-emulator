@@ -106,6 +106,13 @@ pub fn start(
     }
     if options.cold_boot {
         command.arg("-no-snapshot-load");
+        // Otherwise a start after an emulator crash, which saves nothing,
+        // would restore the old state again.
+        let quick_boot = device.dir.join("snapshots").join("default_boot");
+        if quick_boot.exists() {
+            std::fs::remove_dir_all(&quick_boot)
+                .context(|| format!("Deleting {}", quick_boot.display()))?;
+        }
     }
     if options.no_snapshot_save {
         command.arg("-no-snapshot-save");

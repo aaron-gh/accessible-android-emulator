@@ -56,6 +56,10 @@ class DeviceActivity : ConnectedActivity() {
             ui.say("Restarting.")
             whileBusy { done -> call("device.restart", idParams(), done) { done(); ui.say("Restarted.") } }
         }
+        ui.button("Cold Boot") {
+            ui.say("Cold booting.")
+            whileBusy { done -> call("device.cold_boot", idParams(), done) { done(); ui.say("Ready.") } }
+        }
         ui.button("Hardware") { hardware() }
         ui.button("Rename") { rename() }
         ui.button("Copy") { copy() }

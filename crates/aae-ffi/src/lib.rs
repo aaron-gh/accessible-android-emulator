@@ -1290,6 +1290,30 @@ impl Engine {
         .await
     }
 
+    /// Boots a device without its quick-boot snapshot, stopping it first if
+    /// it's running, then checks it as a start does. Apps and data stay.
+    pub async fn cold_boot_device(
+        &self,
+        id: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> Result<(), AaeError> {
+        let (sdk, store) = (self.sdk.clone(), self.store.clone());
+        on_runtime(async move {
+            let mut device = store.get(&id)?;
+            let name = device.meta.name.clone();
+            lifecycle::cold_boot_device(
+                &sdk,
+                &store,
+                &mut device,
+                &ProvisionOptions::default(),
+                |p| listener.progress(p.describe(&name)),
+            )
+            .await?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Wipes a device back to its first-boot state and sets it up again,
     /// with its screen reader. Its apps, data and snapshots go; its name,
     /// hardware and volume stay.

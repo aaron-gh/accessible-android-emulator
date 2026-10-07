@@ -696,6 +696,12 @@ async fn call(
             engine.restart_device(id()?, Arc::new(progress)).await?;
             Value::Null
         }
+        "device.cold_boot" => {
+            let id = id()?;
+            server.forget_session(&id).await;
+            engine.cold_boot_device(id, Arc::new(progress)).await?;
+            Value::Null
+        }
         "device.wipe" => {
             let id = id()?;
             server.forget_session(&id).await;

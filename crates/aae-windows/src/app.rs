@@ -803,6 +803,7 @@ pub fn command(id: u16, notification: u32) {
         START => start(None),
         STOP => stop(None),
         RESTART => restart(),
+        COLD_BOOT => cold_boot(),
         KEYBOARD => enter_device_mode(false),
         GESTURES => enter_device_mode(true),
         SPEAK_STATUS => speak_status(),
@@ -1480,6 +1481,51 @@ fn set_up_screen_reader(device: DeviceInfo, source: Option<ScreenReaderSource>) 
                         Default::default(),
                     );
                 }
+            }
+        });
+    });
+}
+
+/// Starts the selected device without its quick-boot snapshot, stopping it
+/// first if it's running.
+fn cold_boot() {
+    let Some(engine) = engine() else { return };
+    let (device, _) = selected();
+    let Some(device) = device else { return };
+    if with(|app| app.busy.contains_key(&device.id)) {
+        return;
+    }
+    if with(|app| app.device_mode.as_ref() == Some(&device.id)) {
+        leave_device_mode(false);
+    }
+    let id = device.id.clone();
+    with(|app| {
+        app.busy.insert(id.clone(), "Cold booting".into());
+        app.render();
+    });
+    close_session(&id);
+    spawn(async move {
+        let result = async {
+            engine
+                .cold_boot_device(id.clone(), Arc::new(Progress))
+                .await?;
+            session_for(id.clone()).await?;
+            Ok::<(), AaeError>(())
+        }
+        .await;
+        let ok = result.is_ok();
+        if let Err(e) = result {
+            say_error(e);
+        }
+        run_on_ui(move || {
+            with(|app| {
+                app.busy.remove(&id);
+                app.refresh();
+                app.render();
+            });
+            if ok {
+                Tone::Success.play();
+                check_sound_after_start(id);
             }
         });
     });
