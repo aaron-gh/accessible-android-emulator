@@ -11,19 +11,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf};
 use tokio::sync::Mutex;
 
 use crate::error::{Error, Result};
+use crate::platform::{LocalStream, connect_local};
 
 /// The touchscreen's coordinate range: QEMU scales every absolute axis to 0..=0x7fff.
 const ABS_MAX: i64 = 0x7fff;
 
 struct Link {
-    reader: BufReader<OwnedReadHalf>,
-    writer: OwnedWriteHalf,
+    reader: BufReader<ReadHalf<LocalStream>>,
+    writer: WriteHalf<LocalStream>,
 }
 
 /// Which finger is in which touchscreen slot.
@@ -58,11 +57,11 @@ impl Qmp {
     }
 
     async fn open(path: &Path) -> Result<Link> {
-        let stream = tokio::time::timeout(Duration::from_secs(5), UnixStream::connect(path))
+        let stream = tokio::time::timeout(Duration::from_secs(5), connect_local(path))
             .await
             .map_err(|_| Error::Vm("QEMU didn't accept a connection".into()))?
             .map_err(|e| Error::Vm(format!("QEMU's control socket: {e}")))?;
-        let (read, writer) = stream.into_split();
+        let (read, writer) = tokio::io::split(stream);
         let mut link = Link {
             reader: BufReader::new(read),
             writer,
@@ -205,7 +204,7 @@ async fn send(link: &mut Link, message: &Value) -> Result<Value> {
     }
 }
 
-async fn read_message(reader: &mut BufReader<OwnedReadHalf>) -> Result<Value> {
+async fn read_message(reader: &mut BufReader<ReadHalf<LocalStream>>) -> Result<Value> {
     let mut line = String::new();
     let n = reader
         .read_line(&mut line)

@@ -203,3 +203,27 @@ pub(crate) fn graphics_adapters() -> Vec<String> {
     }
     names
 }
+
+/// A connection to a local socket, such as a VM's control socket.
+#[cfg(unix)]
+pub(crate) type LocalStream = tokio::net::UnixStream;
+
+/// Connects to the local socket at `path`.
+#[cfg(unix)]
+pub(crate) async fn connect_local(path: &Path) -> std::io::Result<LocalStream> {
+    tokio::net::UnixStream::connect(path).await
+}
+
+/// A connection to a local socket. Windows has no VMs that use one, so this
+/// is never connected.
+#[cfg(windows)]
+pub(crate) type LocalStream = tokio::io::DuplexStream;
+
+/// Connects to the local socket at `path`.
+#[cfg(windows)]
+pub(crate) async fn connect_local(_path: &Path) -> std::io::Result<LocalStream> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Local sockets aren't supported on Windows",
+    ))
+}

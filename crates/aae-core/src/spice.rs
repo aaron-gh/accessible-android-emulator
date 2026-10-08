@@ -13,10 +13,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use num_bigint::BigUint;
 use sha1::{Digest, Sha1};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 
 use crate::error::{Error, Result};
+use crate::platform::{LocalStream, connect_local};
 
 const MAGIC: u32 = u32::from_le_bytes(*b"REDQ");
 const CHANNEL_MAIN: u8 = 1;
@@ -126,7 +126,7 @@ fn now_micros() -> u64 {
 
 /// One linked SPICE channel.
 struct Channel {
-    stream: UnixStream,
+    stream: LocalStream,
     mini_header: bool,
     /// Acknowledge every this many messages (0: not asked to).
     ack_window: u32,
@@ -137,7 +137,7 @@ struct Channel {
 impl Channel {
     async fn link(path: &Path, session: u32, kind: u8) -> Result<Channel> {
         let fail = |what: &str| Error::Vm(format!("The VM's sound connection {what}"));
-        let mut stream = tokio::time::timeout(Duration::from_secs(5), UnixStream::connect(path))
+        let mut stream = tokio::time::timeout(Duration::from_secs(5), connect_local(path))
             .await
             .map_err(|_| fail("didn't open"))?
             .map_err(|e| Error::Vm(format!("The VM's sound connection: {e}")))?;
