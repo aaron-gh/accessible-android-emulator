@@ -33,38 +33,56 @@ class DeviceActivity : ConnectedActivity() {
         title = ui.heading("Device")
         about = ui.text("")
         ui.addStatus()
-        startStop = ui.button("Start") { startOrStop() }
         fun running(text: String, action: () -> Unit) = whileRunning.add(ui.button(text, action))
-        running("Use Keyboard") { startActivity(Intent(this, KeyboardActivity::class.java)) }
-        running("Gesture Mode") { startActivity(Intent(this, GestureActivity::class.java)) }
-        running("Testing Tools") { startActivity(Intent(this, ToolsActivity::class.java).putExtra("id", id)) }
-        microphoneButton = ui.button("Turn On Microphone") { toggleMicrophone() }
-        whileRunning.add(microphoneButton)
-        bridgeButton = ui.button("Turn On Speech Bridge") { toggleBridge() }
-        whileRunning.add(bridgeButton)
-        running("Speak Status") { call("device.status", idParams()) { ui.say(it.toString()) } }
-        running("Back") { press("back") }
-        running("Home") { press("home") }
-        running("Recent Apps") { press("recents") }
-        running("Notifications") { call("device.notifications", idParams()) }
-        running("Quick Settings") { call("device.quick_settings", idParams()) }
-        running("Power Button") { press("power") }
-        running("Assistant") { press("assistant") }
-        running("Rotate Left") { call("device.rotate", idParams().put("left", true)) { ui.say(it.toString()) } }
-        running("Rotate Right") { call("device.rotate", idParams().put("left", false)) { ui.say(it.toString()) } }
-        running("Restart") {
-            ui.say("Restarting.")
-            whileBusy { done -> call("device.restart", idParams(), done) { done(); ui.say("Restarted.") } }
+        ui.row {
+            startStop = ui.button("Start") { startOrStop() }
+            running("Restart") {
+                ui.say("Restarting.")
+                whileBusy { done -> call("device.restart", idParams(), done) { done(); ui.say("Restarted.") } }
+            }
+            ui.button("Cold Boot") {
+                ui.say("Cold booting.")
+                whileBusy { done -> call("device.cold_boot", idParams(), done) { done(); ui.say("Ready.") } }
+            }
         }
-        ui.button("Cold Boot") {
-            ui.say("Cold booting.")
-            whileBusy { done -> call("device.cold_boot", idParams(), done) { done(); ui.say("Ready.") } }
+        ui.row {
+            running("Use Keyboard") { startActivity(Intent(this, KeyboardActivity::class.java)) }
+            running("Gesture Mode") { startActivity(Intent(this, GestureActivity::class.java)) }
+            running("Testing Tools") { startActivity(Intent(this, ToolsActivity::class.java).putExtra("id", id)) }
         }
-        ui.button("Hardware") { hardware() }
-        ui.button("Rename") { rename() }
-        ui.button("Copy") { copy() }
-        ui.button("Wipe") { wipe() }
-        ui.button("Delete") { delete() }
+        ui.row {
+            running("Back") { press("back") }
+            running("Home") { press("home") }
+            running("Recent Apps") { press("recents") }
+        }
+        ui.row {
+            running("Notifications") { call("device.notifications", idParams()) }
+            running("Quick Settings") { call("device.quick_settings", idParams()) }
+            running("Speak Status") { call("device.status", idParams()) { ui.say(it.toString()) } }
+        }
+        ui.row {
+            running("Power Button") { press("power") }
+            running("Assistant") { press("assistant") }
+        }
+        ui.row {
+            running("Rotate Left") { call("device.rotate", idParams().put("left", true)) { ui.say(it.toString()) } }
+            running("Rotate Right") { call("device.rotate", idParams().put("left", false)) { ui.say(it.toString()) } }
+        }
+        ui.row {
+            microphoneButton = ui.button("Turn On Microphone") { toggleMicrophone() }
+            whileRunning.add(microphoneButton)
+            bridgeButton = ui.button("Turn On Speech Bridge") { toggleBridge() }
+            whileRunning.add(bridgeButton)
+        }
+        ui.row {
+            ui.button("Hardware") { hardware() }
+            ui.button("Rename") { rename() }
+            ui.button("Copy") { copy() }
+        }
+        ui.row {
+            ui.button("Wipe") { wipe() }
+            ui.button("Delete") { delete() }
+        }
         ui.show()
     }
 

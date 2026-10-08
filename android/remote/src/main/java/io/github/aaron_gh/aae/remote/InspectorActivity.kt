@@ -9,11 +9,22 @@ import org.json.JSONObject
 /**
  * The accessibility inspector: the device's screen as its screen reader sees
  * it, in reading order with each element's level, then the problems found.
- * Choosing an element shows its details.
+ * Elements with children, and the problems, are sections: choosing one
+ * expands or collapses it. Choosing another element, or a long press on any,
+ * shows its details.
  */
 class InspectorActivity : ToolActivity() {
+    private class Row(val key: String, val parent: Int?, val level: Int, val summary: String, val details: String) {
+        var children = 0
+    }
+
     private lateinit var rows: ArrayAdapter<String>
-    private var details = listOf<String>()
+    private var all = listOf<Row>()
+    /** The rows shown, as indices into [all]. */
+    private var shown = listOf<Int>()
+    /** Expanded sections, by key, kept when the screen is read again.
+     *  Sections start collapsed. */
+    private val expanded = HashSet<String>()
     private var text = ""
     private lateinit var follow: android.widget.CheckBox
     private var seen: Long? = null
@@ -47,9 +58,12 @@ class InspectorActivity : ToolActivity() {
         if (isFinishing) return
         ui.heading("Accessibility Inspector")
         ui.addStatus()
-        rows = ui.list("Screen elements and problems") { index ->
-            details.getOrNull(index)?.let { ui.message("Details", it) }
-        }.second
+        val (list, adapter) = ui.list("Screen elements and problems") { index -> choose(index) }
+        rows = adapter
+        list.setOnItemLongClickListener { _, _, index, _ ->
+            shown.getOrNull(index)?.let { ui.message("Details", all[it].details) }
+            true
+        }
         ui.button("Refresh") { inspect() }
         follow = android.widget.CheckBox(this).apply {
             text = "Follow the screen"
@@ -81,6 +95,44 @@ class InspectorActivity : ToolActivity() {
         if (::follow.isInitialized && follow.isChecked) main.post(poll)
     }
 
+    /** The rows whose sections are all expanded, with each section's state. */
+    private fun showRows() {
+        val visible = mutableListOf<Int>()
+        for (i in all.indices) {
+            var parent = all[i].parent
+            var hidden = false
+            while (parent != null) {
+                if (all[parent].key !in expanded) hidden = true
+                parent = all[parent].parent
+            }
+            if (!hidden) visible += i
+        }
+        shown = visible
+        rows.clear()
+        rows.addAll(visible.map { i ->
+            val row = all[i]
+            val level = if (row.key.startsWith("problems")) "" else "Level ${row.level + 1}, "
+            val state = when {
+                row.children == 0 -> ""
+                row.key in expanded -> ", ${items(row.children)}, expanded"
+                else -> ", ${items(row.children)}, collapsed"
+            }
+            "$level${row.summary}$state"
+        })
+    }
+
+    private fun items(count: Int) = if (count == 1) "1 item" else "$count items"
+    private fun problems(count: Int) = if (count == 1) "1 problem" else "$count problems"
+
+    /** A section expands or collapses; any other element shows its details. */
+    private fun choose(index: Int) {
+        val row = all[shown.getOrNull(index) ?: return]
+        if (row.children == 0) return ui.message("Details", row.details)
+        if (!expanded.remove(row.key)) expanded += row.key
+        showRows()
+        ui.say(if (row.key in expanded) "Expanded." else "Collapsed.")
+    }
+
     /** Reads the screen. [quietly], while following it, says so only if it changed. */
     private fun inspect(quietly: Boolean = false) {
         if (!quietly) ui.say("Reading the screen.")
@@ -89,32 +141,43 @@ class InspectorActivity : ToolActivity() {
             if (quietly && json.optString("text") == text) return@call
             text = json.optString("text")
             val list = json.optJSONArray("rows")
-            val depth = HashMap<Int, Int>()
-            val shown = mutableListOf<String>()
-            val more = mutableListOf<String>()
+            val rowsRead = mutableListOf<Row>()
+            val position = HashMap<Int, Int>()
             if (list != null) {
                 for (i in 0 until list.length()) {
                     val row = list.getJSONObject(i)
-                    val level = if (row.isNull("parent")) 0 else (depth[row.optInt("parent")] ?: 0) + 1
-                    depth[row.optInt("index")] = level
-                    shown += "Level ${level + 1}, ${row.optString("summary")}"
+                    val parent = if (row.isNull("parent")) null else position[row.optInt("parent")]
+                    val level = parent?.let { rowsRead[it].level + 1 } ?: 0
+                    val summary = row.optString("summary")
                     val lines = row.optJSONArray("details")
-                    more += (listOf(row.optString("summary")) +
-                        (0 until (lines?.length() ?: 0)).map { lines!!.getString(it) }).joinToString("\n")
+                    val details = (listOf(summary) + (0 until (lines?.length() ?: 0)).map { lines!!.getString(it) })
+                        .joinToString("\n")
+                    // Its place in the tree, so a section stays expanded when the screen changes.
+                    val key = (parent?.let { rowsRead[it].key + "/" } ?: "") + summary
+                    position[row.optInt("index")] = rowsRead.size
+                    parent?.let { rowsRead[it].children++ }
+                    rowsRead += Row(key, parent, level, summary, details)
                 }
             }
             val issues = json.optJSONArray("issues")
-            for (i in 0 until (issues?.length() ?: 0)) {
-                val issue = issues!!.getJSONObject(i)
-                val kind = if (issue.optBoolean("error")) "Error" else "Warning"
-                shown += "$kind: ${issue.optString("message")} Element: ${issue.optString("element")}"
-                more += shown.last()
+            val problemCount = issues?.length() ?: 0
+            if (problemCount > 0) {
+                val section = rowsRead.size
+                rowsRead += Row("problems", null, 0, "Problems", "${problems(problemCount)} found on the screen.")
+                for (i in 0 until problemCount) {
+                    val issue = issues!!.getJSONObject(i)
+                    val kind = if (issue.optBoolean("error")) "Error" else "Warning"
+                    val line = "$kind: ${issue.optString("message")} Element: ${issue.optString("element")}"
+                    rowsRead[section].children++
+                    rowsRead += Row("problems/$i", section, 1, line, line)
+                }
             }
-            rows.clear()
-            rows.addAll(shown)
-            details = more
+            all = rowsRead
+            showRows()
             val problems = issues?.length() ?: 0
-            val what = "${list?.length() ?: 0} elements, ${if (problems == 0) "no problems" else "$problems problems, listed after the elements"}."
+            val elements = list?.length() ?: 0
+            val what = "${if (elements == 1) "1 element" else "$elements elements"}, " +
+                "${if (problems == 0) "no problems" else "${problems(problems)}, in the Problems section"}."
             ui.say(if (quietly) "The screen changed: $what" else "Read $what")
         }
     }

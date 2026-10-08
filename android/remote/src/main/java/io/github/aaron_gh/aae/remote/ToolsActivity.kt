@@ -22,25 +22,37 @@ class ToolsActivity : ToolActivity() {
         ui.addStatus()
         fun open(label: String, screen: Class<*>) =
             ui.button(label) { startActivity(Intent(this, screen).putExtra("id", id)) }
-        open("Speech Log", SpeechLogActivity::class.java)
-        open("Device Log", LogActivity::class.java)
-        open("Accessibility Inspector", InspectorActivity::class.java)
-        open("Apps", AppsActivity::class.java)
-        open("Accessibility Services", ServicesActivity::class.java)
-        open("Snapshots", SnapshotsActivity::class.java)
-        open("Battery, Location, Phone and Network", ConditionsActivity::class.java)
-        open("Display and Language", DeviceSettingsActivity::class.java)
-        open("Open Link or Send Intent", LinkActivity::class.java)
-        ui.button("Install App") { chooseApk() }
-        playButton = ui.button("Play Audio File into Microphone") { playOrStop() }
-        ui.button("Send Phone Clipboard to Device") { sendClipboard(type = false) }
-        ui.button("Type Phone Clipboard on Device") { sendClipboard(type = true) }
-        ui.button("Copy Device Clipboard to Phone") { copyClipboard() }
-        ui.button("Read the Screen's Text") {
-            call("tools.screen_text", params()) { text ->
-                ui.message("The Screen's Text", text?.toString()?.ifEmpty { "The screen has no text." } ?: "")
+        ui.row {
+            open("Speech Log", SpeechLogActivity::class.java)
+            open("Device Log", LogActivity::class.java)
+        }
+        ui.row {
+            open("Accessibility Inspector", InspectorActivity::class.java)
+            ui.button("Read the Screen's Text") {
+                call("tools.screen_text", params()) { text ->
+                    ui.message("The Screen's Text", text?.toString()?.ifEmpty { "The screen has no text." } ?: "")
+                }
             }
         }
+        ui.row {
+            open("Apps", AppsActivity::class.java)
+            ui.button("Install App") { chooseApk() }
+            open("Accessibility Services", ServicesActivity::class.java)
+        }
+        ui.row {
+            open("Battery, Location, Phone and Network", ConditionsActivity::class.java)
+            open("Display and Language", DeviceSettingsActivity::class.java)
+        }
+        ui.row {
+            open("Snapshots", SnapshotsActivity::class.java)
+            open("Open Link or Send Intent", LinkActivity::class.java)
+        }
+        ui.row {
+            ui.button("Send Phone Clipboard to Device") { sendClipboard(type = false) }
+            ui.button("Type Phone Clipboard on Device") { sendClipboard(type = true) }
+            ui.button("Copy Device Clipboard to Phone") { copyClipboard() }
+        }
+        playButton = ui.button("Play Audio File into Microphone") { playOrStop() }
         ui.show()
     }
 

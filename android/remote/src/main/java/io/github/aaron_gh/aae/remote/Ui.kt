@@ -16,7 +16,7 @@ import android.widget.TextView
 
 /**
  * Builds screens from standard Android controls, top to bottom: headings,
- * text, buttons and lists, with a live-region status line.
+ * text, buttons, rows of buttons and lists, with a live-region status line.
  */
 class Ui(private val activity: Activity) {
     val column = LinearLayout(activity).apply {
@@ -97,10 +97,30 @@ class Ui(private val activity: Activity) {
         status.text = text
     }
 
+    /** The row buttons go in, while [row] builds one. */
+    private var row: LinearLayout? = null
+
     fun button(text: String, action: () -> Unit): Button = Button(activity).apply {
         this.text = text
         setOnClickListener { action() }
-        column.addView(this)
+        val row = row
+        if (row != null) {
+            row.addView(this, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        } else {
+            column.addView(this)
+        }
+    }
+
+    /** Puts the buttons [build] adds side by side, sharing the width. */
+    fun row(build: () -> Unit) {
+        val line = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        column.addView(line)
+        row = line
+        try {
+            build()
+        } finally {
+            row = null
+        }
     }
 
     /** A list of rows that takes the space left; [chosen] gets the row's index. */
