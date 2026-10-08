@@ -53,6 +53,18 @@ pub fn for_device(meta: &crate::device::DeviceMeta) -> &'static Layout {
         .unwrap_or_else(default_layout)
 }
 
+/// The first layout that types `c`, for a character the device's layout
+/// doesn't have.
+pub fn with_character(c: char) -> Option<&'static Layout> {
+    static KEYS: std::sync::OnceLock<Vec<Keys>> = std::sync::OnceLock::new();
+    let keys = KEYS.get_or_init(|| LAYOUTS.iter().map(Layout::keys).collect());
+    LAYOUTS
+        .iter()
+        .zip(keys)
+        .find(|(_, keys)| keys.stroke(c).is_some())
+        .map(|(layout, _)| layout)
+}
+
 /// A layout by its name or label, ignoring case.
 pub fn find(name: &str) -> Option<&'static Layout> {
     let name = name.trim();
@@ -403,6 +415,13 @@ mod tests {
         assert_eq!(de.stroke('y'), Some(Stroke { key: 44, shift: false, altgr: false }));
         assert_eq!(de.stroke('@'), Some(Stroke { key: 16, shift: false, altgr: true }));
         assert_eq!(de.stroke('ü'), Some(Stroke { key: 26, shift: false, altgr: false }));
+    }
+
+    #[test]
+    fn a_character_finds_a_layout_with_it() {
+        assert_eq!(with_character('a').unwrap().name, "english_us");
+        assert!(with_character('ß').unwrap().keys().stroke('ß').is_some());
+        assert!(with_character('ж').unwrap().keys().stroke('ж').is_some());
     }
 
     #[test]

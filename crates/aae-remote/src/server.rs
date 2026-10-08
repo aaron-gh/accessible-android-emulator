@@ -13,6 +13,9 @@
 //! - `{"type":"speech_done","id":…}` when the phone has finished or stopped
 //!   an utterance it was sent for the speech bridge.
 //! - `{"type":"key","code":30,"down":true}`, with Linux key codes, and
+//!   `"text":"@"`, the character the phone's layout typed, for keys typing
+//!   text, which the device types on its own layout (`{"type":"keyboard",
+//!   "language":"en-GB"}` chooses it), and
 //!   `{"type":"touch","points":[{"id":0,"x":…,"y":…,"down":true}]}`, in the
 //!   device's screen pixels, for the attached device. These aren't answered,
 //!   so they go as fast as they come.
@@ -310,9 +313,25 @@ impl Phone {
         match kind {
             "key" => {
                 if let (Some(attached), Some(code)) = (&self.attached, message["code"].as_u64()) {
-                    attached
-                        .session
-                        .evdev_key(code as u16, message["down"].as_bool().unwrap_or(false));
+                    let down = message["down"].as_bool().unwrap_or(false);
+                    match message["text"].as_str() {
+                        Some(text) => attached.session.evdev_key_text(code as u16, text, down),
+                        None => attached.session.evdev_key(code as u16, down),
+                    };
+                }
+            }
+            "keyboard" => {
+                // The phone keyboard's language: the device uses its layout.
+                if let (Some(attached), Some(language)) =
+                    (&self.attached, message["language"].as_str())
+                {
+                    let session = attached.session.clone();
+                    let language = language.to_string();
+                    tokio::spawn(async move {
+                        if let Err(e) = session.use_host_keyboard(language).await {
+                            tracing::warn!("couldn't choose the device's keyboard layout: {e}");
+                        }
+                    });
                 }
             }
             "touch" => {

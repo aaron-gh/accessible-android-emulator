@@ -170,8 +170,16 @@ class Connection private constructor(
     }
 
     /** A key on the attached device, by its Linux key code (an Android key event's scan code). */
-    fun key(code: Int, down: Boolean) {
-        socket?.send(JSONObject().put("type", "key").put("code", code).put("down", down).toString())
+    /** A key by its Linux key code; with [text], the character it typed on the phone. */
+    fun key(code: Int, down: Boolean, text: String? = null) {
+        val message = JSONObject().put("type", "key").put("code", code).put("down", down)
+        if (text != null) message.put("text", text)
+        socket?.send(message.toString())
+    }
+
+    /** The phone keyboard's language, such as "en-GB": the device uses its layout. */
+    fun keyboard(language: String) {
+        socket?.send(JSONObject().put("type", "keyboard").put("language", language).toString())
     }
 
     /** Fingers on the attached device's screen, in its pixels. */

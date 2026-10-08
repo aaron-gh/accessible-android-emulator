@@ -1657,6 +1657,8 @@ async fn load_catalogue() -> Result<Catalogue, AaeError> {
 
 enum KeyMessage {
     Evdev(i32, bool),
+    /// Selects a keyboard layout, between keys.
+    Layout(&'static Layout),
 }
 
 /// A screen reader's display name, from its package.
@@ -1705,13 +1707,15 @@ pub struct Session {
 struct Typing {
     layout: &'static Layout,
     keys: aae_core::keyboard_layouts::Keys,
-    /// Keys typing a character, by the computer's key code, and how.
-    pressed: HashMap<u16, Pressed>,
+    /// Keys typing a character, by where they came from (see `key_text`), and how.
+    pressed: HashMap<u32, Pressed>,
     /// Dead keys: they type nothing themselves, so they're not sent.
-    swallowed: HashSet<u16>,
+    swallowed: HashSet<u32>,
     /// Left and right Shift, and Caps Lock, as the device has them.
     shift: [bool; 2],
     caps: bool,
+    /// The device has a layout chosen for it, which typing doesn't change.
+    chosen: bool,
 }
 
 /// A character's key, and the modifiers changed around it.
@@ -1731,6 +1735,7 @@ impl Typing {
             swallowed: HashSet::new(),
             shift: [false; 2],
             caps: false,
+            chosen: false,
         }
     }
 
@@ -1805,7 +1810,15 @@ impl Session {
     /// what Android reports as a hardware key's scan code. In order with
     /// every other key.
     pub fn evdev_key(&self, code: u16, down: bool) -> bool {
+        self.typing.lock().unwrap().track(code as i32, down);
         self.keys.send(KeyMessage::Evdev(code as i32, down)).is_ok()
+    }
+
+    /// As `mac_key_text`, for a key by its Linux key code, as AAE Remote
+    /// sends a phone keyboard's keys, with the character the phone's layout
+    /// typed.
+    pub fn evdev_key_text(&self, code: u16, text: &str, down: bool) -> bool {
+        self.key_text(1 << 16 | code as u32, text, down, &|down| self.evdev_key(code, down))
     }
 }
 
@@ -1822,10 +1835,18 @@ impl Session {
         // device in the order they were pressed however fast they come.
         let (tx, mut rx) = mpsc::unbounded_channel::<KeyMessage>();
         let sender = controller.clone();
+        let layouts = adb.clone();
         runtime().spawn(async move {
-            while let Some(KeyMessage::Evdev(code, down)) = rx.recv().await {
-                if let Err(e) = sender.evdev_key(code, down).await {
-                    tracing::warn!("a key could not be sent: {e}");
+            while let Some(message) = rx.recv().await {
+                match message {
+                    KeyMessage::Evdev(code, down) => {
+                        if let Err(e) = sender.evdev_key(code, down).await {
+                            tracing::warn!("a key could not be sent: {e}");
+                        }
+                    }
+                    KeyMessage::Layout(layout) => {
+                        provision::reselect_keyboard_layout_quietly(&layouts, layout).await;
+                    }
                 }
             }
         });
@@ -1845,12 +1866,122 @@ impl Session {
             bridge: Mutex::new(None),
             screen: tokio::sync::Mutex::new(None),
             held: tokio::sync::Mutex::new(None),
-            typing: Mutex::new(Typing::new(keyboard_layouts::for_device(&device_meta))),
+            typing: Mutex::new(Typing {
+                chosen: device_meta.keyboard_layout.is_some(),
+                ..Typing::new(keyboard_layouts::for_device(&device_meta))
+            }),
         })
     }
 
     fn send_key(&self, code: i32, down: bool) {
         let _ = self.keys.send(KeyMessage::Evdev(code, down));
+    }
+
+    /// Sends a key typing `text` as the key that types it on the device's
+    /// layout, with Shift and AltGr as that needs; or by position with
+    /// `by_position`, for keys typing no single character the layout has.
+    /// `source` tells keys apart: a Mac key code, or a Linux one with 1 << 16.
+    fn key_text(&self, source: u32, text: &str, down: bool, by_position: &dyn Fn(bool) -> bool) -> bool {
+        let mut typing = self.typing.lock().unwrap();
+        if !down {
+            if typing.swallowed.remove(&source) {
+                return true;
+            }
+            let Some(pressed) = typing.pressed.remove(&source) else {
+                drop(typing);
+                return by_position(false);
+            };
+            self.send_key(pressed.key, false);
+            if pressed.added_altgr {
+                self.send_key(keyboard_layouts::ALTGR, false);
+            }
+            if pressed.added_shift {
+                self.send_key(keyboard_layouts::SHIFT, false);
+            }
+            // Shift back down if it's still held on the Mac.
+            for (side, code) in [keyboard_layouts::SHIFT, keyboard_layouts::RIGHT_SHIFT]
+                .into_iter()
+                .enumerate()
+            {
+                if pressed.lifted_shift[side] && typing.shift[side] {
+                    self.send_key(code, true);
+                }
+            }
+            return true;
+        }
+        // Held down: the key repeats.
+        if let Some(pressed) = typing.pressed.get(&source) {
+            self.send_key(pressed.key, true);
+            return true;
+        }
+        if typing.swallowed.contains(&source) {
+            return true;
+        }
+        let mut chars = text.chars();
+        let c = match (chars.next(), chars.next()) {
+            (Some(c), None) if !c.is_control() => c,
+            (None, _) => {
+                typing.swallowed.insert(source);
+                return true;
+            }
+            _ => {
+                drop(typing);
+                return by_position(true);
+            }
+        };
+        if typing.keys.stroke(c).is_none() && !typing.chosen {
+            // Not on the device's layout: switch to one it's on, unless a
+            // layout was chosen for the device.
+            if let Some(layout) = keyboard_layouts::with_character(c) {
+                *typing = Typing {
+                    chosen: false,
+                    shift: typing.shift,
+                    caps: typing.caps,
+                    pressed: std::mem::take(&mut typing.pressed),
+                    swallowed: std::mem::take(&mut typing.swallowed),
+                    ..Typing::new(layout)
+                };
+                let _ = self.keys.send(KeyMessage::Layout(layout));
+            }
+        }
+        let Some(mut stroke) = typing.keys.stroke(c) else {
+            drop(typing);
+            return by_position(true);
+        };
+        // Caps Lock on the device shifts letters itself.
+        if typing.caps && c.to_lowercase().ne(c.to_uppercase()) {
+            stroke.shift = !stroke.shift;
+        }
+        let held = typing.shift;
+        let shifted = held[0] || held[1];
+        let mut pressed = Pressed {
+            key: stroke.key,
+            added_shift: false,
+            lifted_shift: [false; 2],
+            added_altgr: false,
+        };
+        if stroke.shift && !shifted {
+            self.send_key(keyboard_layouts::SHIFT, true);
+            pressed.added_shift = true;
+        }
+        if !stroke.shift && shifted {
+            for (side, code) in [keyboard_layouts::SHIFT, keyboard_layouts::RIGHT_SHIFT]
+                .into_iter()
+                .enumerate()
+            {
+                if held[side] {
+                    self.send_key(code, false);
+                    pressed.lifted_shift[side] = true;
+                }
+            }
+        }
+        if stroke.altgr {
+            self.send_key(keyboard_layouts::ALTGR, true);
+            pressed.added_altgr = true;
+        }
+        self.send_key(stroke.key, true);
+        typing.pressed.insert(source, pressed);
+        true
     }
 }
 
@@ -1895,91 +2026,7 @@ impl Session {
     /// `mac_key` sends them. A dead key, typing nothing until the next key,
     /// isn't sent: the character it makes comes with the next key.
     pub fn mac_key_text(&self, keycode: u16, text: String, down: bool) -> bool {
-        let mut typing = self.typing.lock().unwrap();
-        if !down {
-            if typing.swallowed.remove(&keycode) {
-                return true;
-            }
-            let Some(pressed) = typing.pressed.remove(&keycode) else {
-                drop(typing);
-                return self.mac_key(keycode, false);
-            };
-            self.send_key(pressed.key, false);
-            if pressed.added_altgr {
-                self.send_key(keyboard_layouts::ALTGR, false);
-            }
-            if pressed.added_shift {
-                self.send_key(keyboard_layouts::SHIFT, false);
-            }
-            // Shift back down if it's still held on the Mac.
-            for (side, code) in [keyboard_layouts::SHIFT, keyboard_layouts::RIGHT_SHIFT]
-                .into_iter()
-                .enumerate()
-            {
-                if pressed.lifted_shift[side] && typing.shift[side] {
-                    self.send_key(code, true);
-                }
-            }
-            return true;
-        }
-        // Held down: the key repeats.
-        if let Some(pressed) = typing.pressed.get(&keycode) {
-            self.send_key(pressed.key, true);
-            return true;
-        }
-        if typing.swallowed.contains(&keycode) {
-            return true;
-        }
-        let mut chars = text.chars();
-        let c = match (chars.next(), chars.next()) {
-            (Some(c), None) if !c.is_control() => c,
-            (None, _) => {
-                typing.swallowed.insert(keycode);
-                return true;
-            }
-            _ => {
-                drop(typing);
-                return self.mac_key(keycode, true);
-            }
-        };
-        let Some(mut stroke) = typing.keys.stroke(c) else {
-            drop(typing);
-            return self.mac_key(keycode, true);
-        };
-        // Caps Lock on the device shifts letters itself.
-        if typing.caps && c.to_lowercase().ne(c.to_uppercase()) {
-            stroke.shift = !stroke.shift;
-        }
-        let held = typing.shift;
-        let shifted = held[0] || held[1];
-        let mut pressed = Pressed {
-            key: stroke.key,
-            added_shift: false,
-            lifted_shift: [false; 2],
-            added_altgr: false,
-        };
-        if stroke.shift && !shifted {
-            self.send_key(keyboard_layouts::SHIFT, true);
-            pressed.added_shift = true;
-        }
-        if !stroke.shift && shifted {
-            for (side, code) in [keyboard_layouts::SHIFT, keyboard_layouts::RIGHT_SHIFT]
-                .into_iter()
-                .enumerate()
-            {
-                if held[side] {
-                    self.send_key(code, false);
-                    pressed.lifted_shift[side] = true;
-                }
-            }
-        }
-        if stroke.altgr {
-            self.send_key(keyboard_layouts::ALTGR, true);
-            pressed.added_altgr = true;
-        }
-        self.send_key(stroke.key, true);
-        typing.pressed.insert(keycode, pressed);
-        true
+        self.key_text(keycode as u32, &text, down, &|down| self.mac_key(keycode, down))
     }
 
     /// Uses the layout for the computer's keyboard on the device, unless the
@@ -1998,7 +2045,10 @@ impl Session {
             if typing.layout.name == layout.name {
                 return Ok(layout.label.to_string());
             }
-            *typing = Typing::new(layout);
+            *typing = Typing {
+                chosen: chosen.is_some(),
+                ..Typing::new(layout)
+            };
         }
         let adb = self.adb.clone();
         on_runtime(async move { Ok(provision::reselect_keyboard_layout(&adb, layout).await?) })

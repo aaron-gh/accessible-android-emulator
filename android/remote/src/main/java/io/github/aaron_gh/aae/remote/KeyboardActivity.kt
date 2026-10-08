@@ -1,13 +1,19 @@
 package io.github.aaron_gh.aae.remote
 
 import android.os.Bundle
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
+import java.util.Locale
 import android.widget.TextView
 import org.json.JSONObject
 
 /**
  * Keyboard mode: every key of a keyboard attached to the phone goes to the
  * device, by its Linux key code, which Android gives as the key's scan code.
+ * Keys typing text, without Control, left Alt or Meta, also carry the
+ * character the phone's layout typed, and the device types that character
+ * on its own layout, chosen for the keyboard's language. Dead keys are
+ * combined with the next key here, as a text field would.
  * Control-Shift-Escape or a long press of volume down exits; plain Escape
  * goes to the device.
  *
@@ -18,6 +24,8 @@ import org.json.JSONObject
 class KeyboardActivity : ConnectedActivity(), GestureModeService.Mode {
     private lateinit var surface: TextView
     private val held = HashSet<Int>()
+    /** A dead key's accent, waiting for the next key. */
+    private var accent = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,6 +44,7 @@ class KeyboardActivity : ConnectedActivity(), GestureModeService.Mode {
     override fun onResume() {
         super.onResume()
         GestureModeService.keyboard = this
+        Remote.connection?.keyboard(keyboardLanguage())
         surface.announceForAccessibility("Keyboard mode on")
     }
 
@@ -43,8 +52,9 @@ class KeyboardActivity : ConnectedActivity(), GestureModeService.Mode {
         if (GestureModeService.keyboard === this) GestureModeService.keyboard = null
         // Keys left down would stay down on the device.
         val connection = Remote.connection
-        held.forEach { connection?.key(it, false) }
+        held.forEach { connection?.key(it, false, "") }
         held.clear()
+        accent = 0
         super.onPause()
     }
 
@@ -57,9 +67,35 @@ class KeyboardActivity : ConnectedActivity(), GestureModeService.Mode {
         if (code <= 0) return false
         val down = event.action == KeyEvent.ACTION_DOWN
         if (down) held.add(code) else held.remove(code)
-        Remote.connection?.key(code, down)
+        // Releases always go as text keys: the server releases whatever the
+        // press sent.
+        Remote.connection?.key(code, down, if (down) typed(event) else "")
         return true
     }
+
+    /** The character a key types, "" for a dead key, or null for a shortcut
+     *  or a key typing nothing, which go by position. */
+    private fun typed(event: KeyEvent): String? {
+        val shortcut = KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_LEFT_ON or KeyEvent.META_META_ON
+        if (event.metaState and shortcut != 0) return null
+        val unicode = event.getUnicodeChar(event.metaState)
+        if (unicode == 0) return null
+        if (unicode and KeyCharacterMap.COMBINING_ACCENT != 0) {
+            accent = unicode and KeyCharacterMap.COMBINING_ACCENT_MASK
+            return ""
+        }
+        val pending = accent
+        accent = 0
+        if (pending != 0) {
+            val combined = KeyCharacterMap.getDeadChar(pending, unicode)
+            if (combined != 0) return String(Character.toChars(combined))
+        }
+        return String(Character.toChars(unicode))
+    }
+
+    /** The phone's language, for the device's layout: characters are sent as
+     *  typed, so its layout only needs to have them. */
+    private fun keyboardLanguage(): String = Locale.getDefault().toLanguageTag()
 
     override fun volume(up: Boolean) {
         val id = Remote.attached ?: return
