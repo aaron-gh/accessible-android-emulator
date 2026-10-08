@@ -5,6 +5,21 @@
         <description>Updates for AAE, the Accessible Android Emulator, on Windows.</description>
         <language>en</language>
         <item>
+            <title>Version 0.5.1</title>
+            <pubDate>Thu, 08 Oct 2026 13:17:17 -0000</pubDate>
+            <sparkle:version>125</sparkle:version>
+            <sparkle:shortVersionString>0.5.1</sparkle:shortVersionString>
+            <description><![CDATA[<ul>
+<li>Keyboard layouts for 52 languages. The device follows the computer's keyboard; on a Mac, typed characters are sent as typed, so layouts such as British are right.</li>
+<li>Cold Boot, in the Device menu: starts without the saved state.</li>
+<li>Foldable devices, with Fold and Unfold.</li>
+<li>Gesture mode: W gives the pixel position, D reads the properties of the element at the touch point.</li>
+<li>Fixes: Windows crashed when saving Settings; a device that shut down on an empty battery wouldn't start; a device locked after a cold boot; slow fallback to software graphics on some graphics adapters.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.5.1/AAE-0.5.1-windows-x64-setup.exe" sparkle:edSignature="ETGv2aPGujZX68KB6ruEwNb21mDWjR7n86BXNm5XOXu14e7NVK0SBhpltrpm8XihY+YWQkqyn67wTiH9Eb9dBg==" length="35013477" type="application/octet-stream" sparkle:os="windows-x64" sparkle:installerArguments="/S" />
+        </item>
+        <item>
             <title>Version 0.5.0</title>
             <pubDate>Wed, 07 Oct 2026 22:15:29 -0000</pubDate>
             <sparkle:version>106</sparkle:version>

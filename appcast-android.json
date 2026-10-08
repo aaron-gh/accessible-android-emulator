@@ -1,7 +1,7 @@
 {
-  "version": "0.5.0",
-  "build": 106,
-  "url": "https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.5.0/AAE-Remote-0.5.0.apk",
-  "sha256": "f950446cdb4882f18793af719ff1a7a4d2f213be549aeaf4e606c85b6eb5f346",
-  "notes": "Speech bridge to the phone's text-to-speech, phone microphone into the device, Display and Language, network controls and GPX routes."
+  "version": "0.5.1",
+  "build": 125,
+  "url": "https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.5.1/AAE-Remote-0.5.1.apk",
+  "sha256": "0bee6d7e48b6a9b6ef05cf3ffd49920f7e15aac9477715c21cc37a71ae053c32",
+  "notes": "Touch point mode in gesture mode, two panes on tablets and unfolded phones, button rows, a collapsible accessibility inspector, Cold Boot, and Fold and Unfold."
 }
