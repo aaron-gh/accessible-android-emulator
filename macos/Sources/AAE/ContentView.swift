@@ -178,9 +178,11 @@ struct DeviceModeView: View {
 
     var body: some View {
         ZStack {
-            KeyCapture(capturing: model.inDeviceMode) { code, down in
-                model.sendKey(code, down)
-            }
+            KeyCapture(
+                capturing: model.inDeviceMode,
+                send: { code, down in model.sendKey(code, down) },
+                sendText: { code, text, down in model.sendText(code, text, down) }
+            )
             VStack(spacing: 12) {
                 Text(model.gestureMode
                     ? "Keys perform gestures on \(model.selected?.name ?? "Android")."

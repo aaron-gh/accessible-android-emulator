@@ -149,6 +149,11 @@ pub struct DeviceMeta {
     /// is the default output, following the system's choice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_output: Option<String>,
+    /// The keyboard layout chosen for the device, by name, such as
+    /// "german". None follows the computer's keyboard in the apps, and is
+    /// English (US) otherwise (see [`crate::keyboard_layouts`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyboard_layout: Option<String>,
     /// The emulator couldn't use the computer's graphics adapter for this
     /// device, so it draws the screen in software, which is slower.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -327,6 +332,7 @@ impl DeviceStore {
             playback_volume: None,
             software_graphics: false,
             audio_output: None,
+            keyboard_layout: None,
             cores: None,
             speech_bridge: false,
             speech_log: None,

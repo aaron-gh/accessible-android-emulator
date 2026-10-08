@@ -1831,6 +1831,8 @@ fn enter_device_mode(gestures: bool) {
             Ok(s) => s,
             Err(e) => return say_error(e),
         };
+        // The layout for Windows' keyboard, unless the device has one chosen.
+        let _ = session.use_host_keyboard(keyboard_layout_id()).await;
         // In case Android dropped AAE's full keyboard, which Meta needs.
         let _ = session.ensure_keyboard_layout().await;
         if gestures {
@@ -2154,6 +2156,16 @@ fn press(key: &'static str) {
 
 fn shell_quietly(command: &'static str) {
     with_session(move |s| async move { s.shell(command.into()).await.map(|_| ()) });
+}
+
+/// The active keyboard layout's ID, such as "00000809" for English (UK).
+fn keyboard_layout_id() -> String {
+    use windows::Win32::UI::Input::KeyboardAndMouse::GetKeyboardLayoutNameW;
+    let mut name = [0u16; 9];
+    match unsafe { GetKeyboardLayoutNameW(&mut name) } {
+        Ok(()) => String::from_utf16_lossy(&name[..8]),
+        Err(_) => "00000409".into(),
+    }
 }
 
 /// Folds or unfolds the selected device, if it's foldable.

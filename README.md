@@ -69,6 +69,7 @@ Below these, Android starts but is too slow to use with a screen reader. Setup a
 
 - Device mode sends every key to Android, system shortcuts included, until the return shortcut. The host screen reader keeps its keys.
 - AAE's helper selects a full PC keyboard layout at every start, so Meta, Escape, Home and End work as keys.
+- Keyboard layouts for 52 languages, each Android's own with the PC keys above. The apps use the one for the computer's keyboard, and switch when it changes. On a Mac, keys typed without Command, Control or Option are sent as the characters the Mac typed, so they're right even where Mac and PC layouts differ, such as British. `aae keyboard <device> [layout|auto]` chooses one; `--list` lists them. `aae attach` follows the terminal's language.
 - `aae keytest` checks 15 key types reach Android correctly. `aae latency` measures key press to speech.
 - `aae attach` sends the terminal's keys and plays audio until Control-]. Option is sent as Meta (`--keep-alt` for Alt). macOS Terminal: Settings, Profiles, Keyboard, turn on Use Option as Meta key, and map Option-Left to `\033[1;3D` and Option-Right to `\033[1;3C`. iTerm2, Ghostty, kitty and WezTerm need no changes.
 
@@ -172,7 +173,7 @@ aae stop "Android 16 test"
 - Setup: `setup`, `doctor`, `self-test`, `report`.
 - Android versions: `available`, `download`, `images`, `remove-image`.
 - Devices: `list`, `create`, `clone`, `rename`, `hardware`, `export`, `import`, `wipe`, `delete`, `start`, `restart`, `stop`, `status`, `snapshot`.
-- Keyboard, audio and speech: `attach`, `listen`, `playback-volume`, `audio-output`, `volume`, `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `mic`, `speech`, `speech-bridge`.
+- Keyboard, audio and speech: `attach`, `keyboard`, `listen`, `playback-volume`, `audio-output`, `volume`, `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `mic`, `speech`, `speech-bridge`.
 - Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
 - Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`, `record`.
 - Conditions: `rotate`, `battery`, `fingerprint`, `shake`, `fold`, `unfold`, `location`, `route`, `network`, `settings`, `sms`, `call`, `clipboard`.
@@ -252,3 +253,4 @@ android/build-remote.sh                              # AAE Remote
 - Sparkle (Mac updates): MIT.
 - NVDA controller client (`nvdaControllerClient.dll`): LGPL 2.1, downloaded, checked and shipped unchanged with its licence.
 - WinSparkle (Windows updates): MIT, downloaded, checked and shipped unchanged with its licence.
+- Android's keyboard layouts (`android/helper/layouts/aosp`), from Android's InputDevices app: Apache 2.0. AAE's layouts are generated from them by `android/helper/layouts/generate.py`.

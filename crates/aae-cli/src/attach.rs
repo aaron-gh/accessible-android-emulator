@@ -28,7 +28,9 @@ use crossterm::terminal;
 /// With `keep_alt`, Option is sent as Alt.
 pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool, correct_pitch: bool) -> Result<()> {
     let (_, controller, adb) = emulator::attach(sdk, device).await?;
-    aae_core::provision::reselect_keyboard_layout_quietly(&adb).await;
+    let layout = terminal_layout(device);
+    aae_core::provision::reselect_keyboard_layout_quietly(&adb, layout).await;
+    let layout_keys = layout.keys();
     let audio = AudioPlayer::start_with_output(
         &controller,
         playback_speed(device, correct_pitch),
@@ -86,6 +88,20 @@ pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool, correct_pitch: bool
             break;
         }
         if event.kind == KeyEventKind::Release {
+            continue;
+        }
+        // A character typed alone goes as the key that types it on the
+        // device's layout, which may not be where it is on a US keyboard.
+        if let KeyCode::Char(c) = event.code
+            && !event
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::META)
+            && let Some(stroke) = layout_keys.stroke(c)
+        {
+            if let Err(e) = type_stroke(&controller, stroke).await {
+                failure = Some(e);
+                break;
+            }
             continue;
         }
         if let Some(mut key) = to_device_key(&event) {
@@ -166,6 +182,42 @@ pub async fn listen(sdk: &Sdk, device: &Device, correct_pitch: bool) -> Result<(
 fn is_detach(key: &KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL)
         && matches!(key.code, KeyCode::Char(']') | KeyCode::Char('5'))
+}
+
+/// The device's chosen layout, or the terminal's language's, from LANG.
+fn terminal_layout(device: &Device) -> &'static aae_core::keyboard_layouts::Layout {
+    use aae_core::keyboard_layouts;
+    if device.meta.keyboard_layout.is_some() {
+        return keyboard_layouts::for_device(&device.meta);
+    }
+    ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .find(|value| !value.is_empty())
+        .map_or_else(keyboard_layouts::default_layout, |tag| keyboard_layouts::for_host(&tag))
+}
+
+/// Presses and releases a character's key, with Shift and AltGr as it needs.
+async fn type_stroke(
+    controller: &aae_core::control::Controller,
+    stroke: aae_core::keyboard_layouts::Stroke,
+) -> aae_core::error::Result<()> {
+    use aae_core::keyboard_layouts::{ALTGR, SHIFT};
+    if stroke.shift {
+        controller.evdev_key(SHIFT, true).await?;
+    }
+    if stroke.altgr {
+        controller.evdev_key(ALTGR, true).await?;
+    }
+    controller.evdev_key(stroke.key, true).await?;
+    controller.evdev_key(stroke.key, false).await?;
+    if stroke.altgr {
+        controller.evdev_key(ALTGR, false).await?;
+    }
+    if stroke.shift {
+        controller.evdev_key(SHIFT, false).await?;
+    }
+    Ok(())
 }
 
 fn to_device_key(event: &KeyEvent) -> Option<Key> {

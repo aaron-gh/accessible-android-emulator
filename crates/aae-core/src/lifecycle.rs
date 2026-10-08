@@ -258,7 +258,12 @@ pub async fn start_device(
         })
         .await?;
     } else {
-        provision::apply_keyboard_layout(sdk, &adb).await?;
+        provision::apply_keyboard_layout(
+            sdk,
+            &adb,
+            crate::keyboard_layouts::for_device(&device.meta),
+        )
+        .await?;
         if device.meta.profile == crate::device::Profile::Foldable {
             let folded = crate::fold::is_folded(&adb).await.unwrap_or(false);
             crate::fold::match_screen(&adb, folded).await?;

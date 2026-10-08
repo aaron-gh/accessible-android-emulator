@@ -21,6 +21,8 @@ pub mod geocode;
 pub mod gestures;
 pub mod hardware;
 pub mod inspector;
+pub mod keyboard_layouts;
+mod keyboard_layouts_table;
 pub mod keys;
 pub mod keytest;
 pub mod lifecycle;

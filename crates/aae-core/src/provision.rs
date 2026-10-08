@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::adb::Adb;
+use crate::keyboard_layouts::Layout;
 use crate::apk::{ApkInfo, ServiceKind};
 use crate::device::Device;
 use crate::error::{Error, IoContext, Result};
@@ -168,14 +169,15 @@ pub async fn update_helper(sdk: &Sdk, adb: &Adb) -> Result<bool> {
 ///
 /// Android may forget the choice when it restarts, so AAE applies it every
 /// time a device starts.
-pub async fn apply_keyboard_layout(sdk: &Sdk, adb: &Adb) -> Result<()> {
+pub async fn apply_keyboard_layout(sdk: &Sdk, adb: &Adb, layout: &Layout) -> Result<()> {
     update_helper(sdk, adb).await?;
+    let descriptor = layout.full_descriptor();
     // After a cold boot the package manager can take half a minute to list
     // the helper again, and until then the tool can't start, so keep trying.
     let mut last = String::new();
     for _ in 0..45 {
         match adb
-            .shell(&format!("{HELPER_SHELL_TOOL} keyboard-layout"))
+            .shell(&format!("{HELPER_SHELL_TOOL} keyboard-layout {descriptor}"))
             .await
         {
             Ok(out) if out.contains("Keyboard layout set") => return Ok(()),
@@ -195,9 +197,12 @@ pub async fn apply_keyboard_layout(sdk: &Sdk, adb: &Adb) -> Result<()> {
 /// choice while a device runs, for reasons not yet found, which leaves Meta
 /// and the Home button dead until it's selected again. Selecting it when
 /// it's still selected changes nothing.
-pub async fn reselect_keyboard_layout(adb: &Adb) -> Result<()> {
+pub async fn reselect_keyboard_layout(adb: &Adb, layout: &Layout) -> Result<()> {
     let out = adb
-        .shell(&format!("{HELPER_SHELL_TOOL} keyboard-layout"))
+        .shell(&format!(
+            "{HELPER_SHELL_TOOL} keyboard-layout {}",
+            layout.full_descriptor()
+        ))
         .await?;
     if out.contains("Keyboard layout set") {
         Ok(())
@@ -212,8 +217,8 @@ pub async fn reselect_keyboard_layout(adb: &Adb) -> Result<()> {
 /// Same as [`reselect_keyboard_layout`], but a failure is only logged: the
 /// keyboard mostly works without it, and what AAE was connecting for
 /// shouldn't fail because of it.
-pub async fn reselect_keyboard_layout_quietly(adb: &Adb) {
-    if let Err(e) = reselect_keyboard_layout(adb).await {
+pub async fn reselect_keyboard_layout_quietly(adb: &Adb, layout: &Layout) {
+    if let Err(e) = reselect_keyboard_layout(adb, layout).await {
         tracing::warn!("{e}");
     }
 }
@@ -273,7 +278,7 @@ pub async fn provision(
     // Don't show the on-screen keyboard while a hardware keyboard is connected.
     adb.put_setting("secure", "show_ime_with_hard_keyboard", "0")
         .await?;
-    apply_keyboard_layout(sdk, adb).await?;
+    apply_keyboard_layout(sdk, adb, crate::keyboard_layouts::for_device(&device.meta)).await?;
 
     progress(Step::SetupWizard);
     adb.put_setting("global", "device_provisioned", "1").await?;

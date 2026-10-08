@@ -16,6 +16,11 @@ import SwiftUI
 final class KeyCaptureView: NSView {
     /// Called for each key going down (true) or up (false), by macOS key code.
     var send: ((UInt16, Bool) -> Void)?
+    /// Called instead of `send` for keys that type text: pressed without
+    /// Command, Control or Option, with the characters the Mac's layout
+    /// typed, so the device can type the same ones whatever its layout. Their
+    /// releases come here too, as do releases of keys left held.
+    var sendText: ((UInt16, String, Bool) -> Void)?
 
     var isCapturing = false {
         didSet {
@@ -63,13 +68,22 @@ final class KeyCaptureView: NSView {
             return
         }
         heldKeys.insert(event.keyCode)
-        send?(event.keyCode, true)
+        let shortcut = !event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+        if let sendText, !shortcut {
+            sendText(event.keyCode, event.characters ?? "", true)
+        } else {
+            send?(event.keyCode, true)
+        }
     }
 
     override func keyUp(with event: NSEvent) {
         guard isCapturing else { return super.keyUp(with: event) }
         heldKeys.remove(event.keyCode)
-        send?(event.keyCode, false)
+        if let sendText {
+            sendText(event.keyCode, event.characters ?? "", false)
+        } else {
+            send?(event.keyCode, false)
+        }
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -127,7 +141,11 @@ final class KeyCaptureView: NSView {
 
     private func releaseHeldKeys() {
         for code in heldKeys {
-            send?(code, false)
+            if let sendText {
+                sendText(code, "", false)
+            } else {
+                send?(code, false)
+            }
         }
         heldKeys.removeAll()
     }
@@ -137,15 +155,18 @@ final class KeyCaptureView: NSView {
 struct KeyCapture: NSViewRepresentable {
     var capturing: Bool
     var send: (UInt16, Bool) -> Void
+    var sendText: ((UInt16, String, Bool) -> Void)? = nil
 
     func makeNSView(context: Context) -> KeyCaptureView {
         let view = KeyCaptureView()
         view.send = send
+        view.sendText = sendText
         return view
     }
 
     func updateNSView(_ view: KeyCaptureView, context: Context) {
         view.send = send
+        view.sendText = sendText
         if view.isCapturing != capturing {
             view.isCapturing = capturing
         }

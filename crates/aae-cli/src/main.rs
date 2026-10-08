@@ -599,6 +599,17 @@ enum Command {
         device: String,
         text: Option<String>,
     },
+    /// Show or choose a device's keyboard layout. --list lists them.
+    ///
+    /// With no layout chosen, the apps follow the computer's keyboard, and
+    /// aae attach the terminal's language. "auto" goes back to that.
+    Keyboard {
+        device: Option<String>,
+        /// A layout's name or label, such as german or "English (UK)", or auto.
+        layout: Option<String>,
+        #[arg(long)]
+        list: bool,
+    },
     /// Set the screen reader's volume on the device, 0 to 100.
     Volume {
         device: String,
@@ -834,7 +845,11 @@ impl Ctx {
     /// case Android dropped it.
     async fn connect_keyboard(&self, name: &str) -> Result<(Device, Controller, Adb)> {
         let (device, controller, adb) = self.connect(name).await?;
-        provision::reselect_keyboard_layout_quietly(&adb).await;
+        provision::reselect_keyboard_layout_quietly(
+            &adb,
+            aae_core::keyboard_layouts::for_device(&device.meta),
+        )
+        .await;
         Ok((device, controller, adb))
     }
 
@@ -2562,6 +2577,11 @@ async fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
+        Command::Keyboard {
+            device,
+            layout,
+            list,
+        } => keyboard(&ctx, device, layout, list).await,
         Command::Volume { device, percent } => {
             let (mut device, _, adb) = ctx.connect(&device).await?;
             let index = provision::boost_volume(&mut device, &adb, percent).await?;
@@ -2724,6 +2744,51 @@ async fn start(
     if device.meta.screen_reader.is_none() && !device.meta.screen_reader_declined {
         offer_screen_reader(ctx, device, &adb).await?;
     }
+    Ok(())
+}
+
+/// Lists, shows or chooses a device's keyboard layout.
+async fn keyboard(ctx: &Ctx, device: Option<String>, layout: Option<String>, list: bool) -> Result<()> {
+    use aae_core::keyboard_layouts::{self, LAYOUTS};
+    if list {
+        for layout in LAYOUTS {
+            println!("{} ({})", layout.label, layout.name);
+        }
+        return Ok(());
+    }
+    let Some(device) = device else {
+        anyhow::bail!("Name a device, or use --list.");
+    };
+    let mut device = ctx.device(&device)?;
+    let Some(layout) = layout else {
+        match &device.meta.keyboard_layout {
+            Some(_) => println!(
+                "{}, chosen for {}.",
+                keyboard_layouts::for_device(&device.meta).label,
+                device.meta.name
+            ),
+            None => println!(
+                "{} follows the computer's keyboard in the apps, and the terminal's language in aae attach.",
+                device.meta.name
+            ),
+        }
+        return Ok(());
+    };
+    if layout.eq_ignore_ascii_case("auto") {
+        device.meta.keyboard_layout = None;
+        device.save_meta()?;
+        println!("{} follows the computer's keyboard.", device.meta.name);
+        return Ok(());
+    }
+    let chosen = keyboard_layouts::find(&layout).ok_or_else(|| {
+        anyhow::anyhow!("\"{layout}\" isn't a layout. aae keyboard --list lists them.")
+    })?;
+    device.meta.keyboard_layout = Some(chosen.name.to_string());
+    device.save_meta()?;
+    if let Ok((_, _, adb)) = aae_core::emulator::attach(&ctx.sdk, &device).await {
+        provision::reselect_keyboard_layout(&adb, chosen).await?;
+    }
+    println!("{} uses {}.", device.meta.name, chosen.label);
     Ok(())
 }
 

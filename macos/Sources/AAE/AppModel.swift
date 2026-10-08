@@ -178,6 +178,10 @@ final class AppModel: ObservableObject {
         }
         appliedCorrectPitch = correctPitch
         setUpGestureKeys()
+        keyboardObserver = MacKeyboard.observe { [weak self] in
+            guard let self, self.inDeviceMode, !self.gestureMode, let session = self.activeSession else { return }
+            Task { await self.followMacKeyboard(session, announceChange: true) }
+        }
         watchSound()
         watchDevices()
         needsSetup = engine?.needsSetup() ?? false
@@ -1067,6 +1071,7 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let session = try await session(for: device.id)
+                await followMacKeyboard(session, announceChange: false)
                 // In case Android dropped AAE's full keyboard, which Meta needs.
                 try? await session.ensureKeyboardLayout()
                 gestureMode = gestures
@@ -1118,6 +1123,9 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Notices the Mac's keyboard layout changing, to follow it.
+    private var keyboardObserver: NSObjectProtocol?
+
     /// The session keys go to in device mode.
     private(set) var activeSession: Session?
 
@@ -1126,6 +1134,26 @@ final class AppModel: ObservableObject {
             gestureKeys.handle(keycode, down)
         } else {
             _ = activeSession?.macKey(keycode: keycode, down: down)
+        }
+    }
+
+    /// A key that types text: sent as the characters typed, in the device's layout.
+    func sendText(_ keycode: UInt16, _ text: String, _ down: Bool) {
+        if gestureMode {
+            gestureKeys.handle(keycode, down)
+        } else {
+            _ = activeSession?.macKeyText(keycode: keycode, text: text, down: down)
+        }
+    }
+
+    /// Uses the layout for the Mac's current keyboard on the device. Says
+    /// which, when it changes while the keyboard is Android's.
+    func followMacKeyboard(_ session: Session, announceChange: Bool) async {
+        guard let id = MacKeyboard.currentID() else { return }
+        let before = session.keyboardLayout()
+        guard let label = try? await session.useHostKeyboard(keyboard: id) else { return }
+        if announceChange, label != before {
+            announce("Android keyboard layout: \(label).")
         }
     }
 
