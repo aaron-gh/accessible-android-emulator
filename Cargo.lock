@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aae-cli"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "aae-core",
  "aae-ffi",
@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "aae-core"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "cpal",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "aae-ffi"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "aae-core",
  "serde_json",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "aae-mcp"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "aae-core",
  "aae-ffi",
@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "aae-remote"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "aae-core",
  "aae-ffi",
@@ -111,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "aae-windows"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "aae-core",
  "aae-ffi",
