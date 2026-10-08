@@ -309,6 +309,7 @@ pub async fn wait_until_ready(
         if stage == BootStage::WaitingForAndroid {
             connect_adb(&adb).await;
             if adb.boot_completed().await {
+                prime_audio(&adb).await;
                 enter_desktop_user(&adb).await?;
                 match_time_zone(&adb).await;
                 let controller = Controller::connect_vm(info, adb.clone()).await?;
@@ -318,6 +319,35 @@ pub async fn wait_until_ready(
         }
         tokio::time::sleep(Duration::from_millis(1000)).await;
     }
+}
+
+/// Plays silence and waits for Android's output to go to standby. After a
+/// boot, the first output stream to the VM's USB audio plays nothing until
+/// it goes to standby, which would lose the screen reader's first speech.
+async fn prime_audio(adb: &Adb) {
+    let played = adb
+        .shell(
+            "am broadcast -n io.github.aaron_gh.aae.helper/.CommandReceiver \
+             -a io.github.aaron_gh.aae.helper.PLAY_TONE --ei hz 0",
+        )
+        .await;
+    if !played.is_ok_and(|out| out.contains("result=") && !out.contains("result=0")) {
+        return;
+    }
+    // The silence lasts a second and a half; standby follows a few seconds later.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+    while tokio::time::Instant::now() < deadline {
+        let dump = adb
+            .shell("dumpsys media.audio_flinger")
+            .await
+            .unwrap_or_default();
+        if !dump.lines().any(|l| l.starts_with("  Standby: no")) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    tracing::debug!("Android's audio output didn't go to standby");
 }
 
 /// Switches to the desktop's user. Googlebook OS runs its system user
