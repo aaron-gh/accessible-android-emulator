@@ -25,7 +25,7 @@ import kotlin.math.hypot
  *   Triple tap: back to the middle.
  */
 class TouchPoint(
-    private val context: Context,
+    context: Context,
     private val call: (method: String, params: JSONObject, done: (Any?) -> Unit) -> Unit,
     private val say: (String) -> Unit,
     private val padSize: () -> Pair<Int, Int>,
@@ -209,7 +209,7 @@ class TouchPoint(
     private fun startDrag() {
         state = State.Dragging
         dragScreen = null
-        relative = relativeDrag(context)
+        relative = RemoteSettings.relativeDrag
         fingerStart = lastX to lastY
         screen {
             pointStart = pointOn(it)
@@ -317,15 +317,5 @@ class TouchPoint(
         if (state == State.Holding) gesture("device.gesture.release", null)
         state = State.Pending
         taps = 0
-    }
-
-    companion object {
-        private const val RELATIVE = "touch_point_relative_drag"
-
-        fun relativeDrag(context: Context) =
-            context.getSharedPreferences("aae", Context.MODE_PRIVATE).getBoolean(RELATIVE, false)
-
-        fun setRelativeDrag(context: Context, on: Boolean) =
-            context.getSharedPreferences("aae", Context.MODE_PRIVATE).edit().putBoolean(RELATIVE, on).apply()
     }
 }

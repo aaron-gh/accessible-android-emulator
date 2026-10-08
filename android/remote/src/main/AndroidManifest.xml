@@ -28,6 +28,7 @@
     </queries>
 
     <application
+        android:name=".RemoteApp"
         android:label="@string/app_name"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar"
         android:supportsRtl="true">

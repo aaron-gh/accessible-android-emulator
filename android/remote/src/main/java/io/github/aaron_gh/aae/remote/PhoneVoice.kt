@@ -20,7 +20,7 @@ class PhoneVoice(context: Context, private val done: (Long) -> Unit) {
     private val tts: TextToSpeech
 
     init {
-        val rate = BridgeTtsActivity.rate(context)
+        val rate = RemoteSettings.bridgeRate
         tts = TextToSpeech(context.applicationContext, { status ->
             synchronized(this) {
                 ready = status == TextToSpeech.SUCCESS
@@ -44,7 +44,7 @@ class PhoneVoice(context: Context, private val done: (Long) -> Unit) {
                 waiting = null
                 if (next != null) speak(next.first, next.second, next.third)
             }
-        }, BridgeTtsActivity.engine(context))
+        }, RemoteSettings.bridgeEngine)
     }
 
     private fun finished(utteranceId: String?) {

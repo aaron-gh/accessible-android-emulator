@@ -41,10 +41,7 @@ object Updater {
 
     private fun prefs(context: Context) = context.getSharedPreferences("aae", Context.MODE_PRIVATE)
 
-    fun offersDevelopmentBuilds(context: Context) = prefs(context).getBoolean("dev_builds", false)
 
-    fun setOffersDevelopmentBuilds(context: Context, on: Boolean) =
-        prefs(context).edit().putBoolean("dev_builds", on).apply()
 
     /** This app's build number, which the feeds compare against. */
     fun installedBuild(context: Context): Long {
@@ -86,7 +83,7 @@ object Updater {
     /** The newest build newer than this one, or null; [done] runs on the main thread. */
     fun check(context: Context, done: (Result<Update?>) -> Unit) {
         val app = context.applicationContext
-        val dev = offersDevelopmentBuilds(app)
+        val dev = RemoteSettings.offerDevelopmentBuilds
         Thread {
             val results = listOfNotNull(read(STABLE), if (dev) read(DEV) else null)
             val installed = installedBuild(app)

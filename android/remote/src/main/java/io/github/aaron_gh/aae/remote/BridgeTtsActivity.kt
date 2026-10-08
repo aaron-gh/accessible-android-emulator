@@ -24,10 +24,10 @@ class BridgeTtsActivity : Activity() {
         val engineList = spinner("Engine", listOf("System default"))
         val rates = listOf(0f) + RATES
         val rateList = spinner("Rate", listOf("System default") + RATES.map { "${(it * 100).toInt()}%" })
-        rateList.setSelection(rates.indexOf(rate(this)).coerceAtLeast(0))
+        rateList.setSelection(rates.indexOf(RemoteSettings.bridgeRate).coerceAtLeast(0))
         ui.button("Save") {
             val engine = engines.getOrNull(engineList.selectedItemPosition - 1)?.name
-            save(this, engine, rates[rateList.selectedItemPosition])
+            RemoteSettings.setBridge(engine, rates[rateList.selectedItemPosition])
             Remote.voiceChanged()
             ui.say("Saved.")
         }
@@ -49,7 +49,7 @@ class BridgeTtsActivity : Activity() {
             engineList.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels).apply {
                 setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             }
-            engineList.setSelection(engines.indexOfFirst { it.name == engine(this) } + 1)
+            engineList.setSelection(engines.indexOfFirst { it.name == RemoteSettings.bridgeEngine } + 1)
         }
     }
 
@@ -71,22 +71,6 @@ class BridgeTtsActivity : Activity() {
     }
 
     companion object {
-        private const val PREFS = "bridge_tts"
         val RATES = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 3.5f, 4f)
-
-        /** The engine's package, or null for the system default. */
-        fun engine(context: Context): String? =
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("engine", null)
-
-        /** The rate, where 1 is normal, or 0 for the system default. */
-        fun rate(context: Context): Float =
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getFloat("rate", 0f)
-
-        fun save(context: Context, engine: String?, rate: Float) {
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString("engine", engine)
-                .putFloat("rate", rate)
-                .apply()
-        }
     }
 }

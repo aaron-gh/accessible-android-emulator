@@ -31,14 +31,14 @@ class ComputersActivity : Activity() {
         ui.button("Check for Updates") { checkForUpdates(quietly = false) }
         android.widget.CheckBox(this).apply {
             text = "Offer development builds"
-            isChecked = Updater.offersDevelopmentBuilds(this@ComputersActivity)
-            setOnCheckedChangeListener { _, on -> Updater.setOffersDevelopmentBuilds(this@ComputersActivity, on) }
+            isChecked = RemoteSettings.offerDevelopmentBuilds
+            setOnCheckedChangeListener { _, on -> RemoteSettings.setOfferDevelopmentBuilds(on) }
             ui.column.addView(this)
         }
         android.widget.CheckBox(this).apply {
             text = "Touch point drag moves the point from where it is, at half speed"
-            isChecked = TouchPoint.relativeDrag(this@ComputersActivity)
-            setOnCheckedChangeListener { _, on -> TouchPoint.setRelativeDrag(this@ComputersActivity, on) }
+            isChecked = RemoteSettings.relativeDrag
+            setOnCheckedChangeListener { _, on -> RemoteSettings.setRelativeDrag(on) }
             ui.column.addView(this)
         }
         ui.show(scroll = false)
