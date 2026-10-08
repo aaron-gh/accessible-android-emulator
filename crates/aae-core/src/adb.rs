@@ -171,7 +171,7 @@ impl Adb {
     }
 
     pub async fn is_installed(&self, package: &str) -> Result<bool> {
-        let out = self.shell(&format!("pm list packages {package}")).await?;
+        let out = self.shell(&format!("pm list packages {}", name(package)?)).await?;
         Ok(out
             .lines()
             .any(|line| line.trim() == format!("package:{package}")))
@@ -179,7 +179,7 @@ impl Adb {
 
     /// The installed version code of a package, if it is installed.
     pub async fn version_code(&self, package: &str) -> Result<Option<u64>> {
-        let dump = self.shell(&format!("dumpsys package {package}")).await?;
+        let dump = self.shell(&format!("dumpsys package {}", name(package)?)).await?;
         Ok(dump
             .lines()
             .filter_map(|line| line.trim().strip_prefix("versionCode="))
@@ -329,6 +329,23 @@ fn expand_component(component: &str) -> String {
     }
 }
 
+/// A package, permission, component or app-op name, checked before it goes
+/// into a shell command: such names have only letters, digits and `._$/:-`,
+/// so anything else, such as `;` or a space, is refused rather than run.
+pub(crate) fn name(value: &str) -> Result<&str> {
+    let ok = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._$/:-".contains(c));
+    if ok {
+        Ok(value)
+    } else {
+        Err(crate::error::Error::Message(format!(
+            "\"{value}\" isn't an Android package, permission or component name."
+        )))
+    }
+}
+
 pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
@@ -358,5 +375,16 @@ mod tests {
     #[test]
     fn quotes_for_the_shell() {
         assert_eq!(shell_quote("it's"), r"'it'\''s'");
+    }
+
+    #[test]
+    fn names_with_shell_characters_are_refused() {
+        assert!(name("com.example.app").is_ok());
+        assert!(name("com.example/.Main$Inner").is_ok());
+        assert!(name("android.permission.CAMERA").is_ok());
+        assert!(name("android.permission.CAMERA; rm -rf /sdcard").is_err());
+        assert!(name("a b").is_err());
+        assert!(name("$(reboot)").is_err());
+        assert!(name("").is_err());
     }
 }

@@ -558,7 +558,7 @@ pub async fn screen_reader_for_wipe(device: &Device, adb: Option<&Adb>) -> Optio
     }
     if let Some(adb) = adb {
         // pm path lists the app's files; the first is its main APK.
-        if let Ok(out) = adb.shell(&format!("pm path {package}")).await {
+        if let Ok(out) = adb.shell(&format!("pm path {}", crate::adb::name(&package).ok()?)).await {
             if let Some(path) = out.lines().find_map(|l| l.trim().strip_prefix("package:")) {
                 if let Some(dir) = copy.parent() {
                     let _ = std::fs::create_dir_all(dir);
@@ -705,14 +705,18 @@ pub async fn apply_choices(
             }
             (ServiceKind::InputMethod, on) => {
                 let verb = if *on { "enable" } else { "disable" };
-                adb.shell(&format!("ime {verb} {component}")).await?;
+                adb.shell(&format!("ime {verb} {}", crate::adb::name(component)?))
+                    .await?;
             }
             (ServiceKind::NotificationListener, on) => {
                 set_listed(adb, "enabled_notification_listeners", component, *on).await?;
             }
             (ServiceKind::DeviceAdmin, true) => {
                 let out = adb
-                    .shell(&format!("dpm set-active-admin --user 0 {component}"))
+                    .shell(&format!(
+                        "dpm set-active-admin --user 0 {}",
+                        crate::adb::name(component)?
+                    ))
                     .await?;
                 if !out.contains("Success") {
                     return Err(Error::Adb(format!(
@@ -724,9 +728,11 @@ pub async fn apply_choices(
             (ServiceKind::DeviceAdmin, false) => {
                 // Android only lets some administrators be removed this way;
                 // the rest are removed in the device's security settings.
-                let _ = adb
-                    .shell(&format!("dpm remove-active-admin --user 0 {component}"))
-                    .await;
+                if let Ok(component) = crate::adb::name(component) {
+                    let _ = adb
+                        .shell(&format!("dpm remove-active-admin --user 0 {component}"))
+                        .await;
+                }
             }
         }
     }

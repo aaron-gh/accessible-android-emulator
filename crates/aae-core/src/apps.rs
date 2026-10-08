@@ -5,7 +5,7 @@
 
 use serde::Deserialize;
 
-use crate::adb::{Adb, shell_quote};
+use crate::adb::{Adb, name, shell_quote};
 use crate::error::{Error, Result};
 
 const HELPER_RECEIVER: &str = "io.github.aaron_gh.aae.helper/.CommandReceiver";
@@ -123,6 +123,7 @@ pub async fn permissions(adb: &Adb, package: &str) -> Result<Vec<Permission>> {
 /// Grants or revokes one permission.
 pub async fn set_permission(adb: &Adb, package: &str, permission: &str, grant: bool) -> Result<()> {
     let verb = if grant { "grant" } else { "revoke" };
+    let (package, permission) = (name(package)?, name(permission)?);
     let out = adb
         .shell(&format!("pm {verb} {package} {permission}"))
         .await?;
@@ -147,6 +148,7 @@ pub async fn grant_all(adb: &Adb, package: &str) -> Result<usize> {
 
 /// Whether the app has a kind of special access.
 pub async fn has_access(adb: &Adb, package: &str, access: Access) -> Result<bool> {
+    let package = name(package)?;
     match access.app_op() {
         None => {
             let list = adb.shell("cmd deviceidle whitelist").await?;
@@ -161,6 +163,7 @@ pub async fn has_access(adb: &Adb, package: &str, access: Access) -> Result<bool
 
 /// Gives or takes away a kind of special access.
 pub async fn set_access(adb: &Adb, package: &str, access: Access, on: bool) -> Result<()> {
+    let package = name(package)?;
     match access.app_op() {
         None => {
             let sign = if on { '+' } else { '-' };
@@ -178,6 +181,7 @@ pub async fn set_access(adb: &Adb, package: &str, access: Access, on: bool) -> R
 
 /// Opens an app as its icon would.
 pub async fn open(adb: &Adb, package: &str) -> Result<()> {
+    let package = name(package)?;
     let found = adb
         .shell(&format!(
             "cmd package resolve-activity --brief -a android.intent.action.MAIN \
@@ -200,7 +204,7 @@ pub async fn open(adb: &Adb, package: &str) -> Result<()> {
 
 /// Opens one of an app's screens by name, such as `com.example/.Settings`.
 pub async fn open_activity(adb: &Adb, component: &str) -> Result<()> {
-    let out = adb.shell(&format!("am start -n {component}")).await?;
+    let out = adb.shell(&format!("am start -n {}", name(component)?)).await?;
     if out.contains("Error") {
         Err(Error::Adb(out.trim().to_string()))
     } else {
@@ -210,13 +214,13 @@ pub async fn open_activity(adb: &Adb, component: &str) -> Result<()> {
 
 /// Stops an app, as Force Stop in its settings does.
 pub async fn force_stop(adb: &Adb, package: &str) -> Result<()> {
-    adb.shell(&format!("am force-stop {package}")).await?;
+    adb.shell(&format!("am force-stop {}", name(package)?)).await?;
     Ok(())
 }
 
 /// Deletes an app's data, as if it had just been installed.
 pub async fn clear_data(adb: &Adb, package: &str) -> Result<()> {
-    let out = adb.shell(&format!("pm clear {package}")).await?;
+    let out = adb.shell(&format!("pm clear {}", name(package)?)).await?;
     if out.contains("Success") {
         Ok(())
     } else {
