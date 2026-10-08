@@ -38,3 +38,8 @@ roxmltree = "0.21"
 signalsmith-stretch = "0.1"
 symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "mp3", "flac", "vorbis", "ogg", "aac", "isomp4", "adpcm"] }
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
+
+# Debug builds keep file and line numbers for backtraces, without full debug
+# information, which was most of the size of target/.
+[profile.dev]
+debug = "line-tables-only"
