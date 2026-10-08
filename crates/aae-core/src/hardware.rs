@@ -112,6 +112,14 @@ pub fn write(device: &mut Device, hardware: &Hardware) -> Result<String> {
     }
     check(hardware)?;
     let before = read(device)?;
+    // The folded screen is a fixed part of the unfolded one (see device.rs).
+    if device.meta.profile == crate::device::Profile::Foldable
+        && (hardware.width != before.width || hardware.height != before.height)
+    {
+        return Err(Error::Message(
+            "A foldable's screen size can't be changed. Its density, memory, cores and storage can.".into(),
+        ));
+    }
     let config = config(device)?;
     let changes = [
         ("hw.ramSize", hardware.memory_mb.to_string()),

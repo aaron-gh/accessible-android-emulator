@@ -822,6 +822,7 @@ pub enum DeviceProfile {
     SmallPhone,
     Phone,
     Tablet,
+    Foldable,
 }
 
 impl From<DeviceProfile> for Profile {
@@ -830,6 +831,7 @@ impl From<DeviceProfile> for Profile {
             DeviceProfile::SmallPhone => Profile::SmallPhone,
             DeviceProfile::Phone => Profile::Phone,
             DeviceProfile::Tablet => Profile::Tablet,
+            DeviceProfile::Foldable => Profile::Foldable,
         }
     }
 }
@@ -2806,6 +2808,12 @@ impl Session {
     pub async fn shake(&self) -> Result<(), AaeError> {
         let controller = self.controller.clone();
         on_runtime(async move { Ok(controller.shake().await?) }).await
+    }
+
+    /// Folds or unfolds a foldable device. Returns a message.
+    pub async fn set_folded(&self, folded: bool) -> Result<String, AaeError> {
+        let adb = self.adb.clone();
+        on_runtime(async move { Ok(aae_core::fold::set_folded(&adb, folded).await?) }).await
     }
 
     /// Sets where the device thinks it is.

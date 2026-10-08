@@ -64,6 +64,8 @@ struct AAEApp: App {
                     .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])
                 Button("Rotate Right") { model.rotate(left: false) }
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
+                Button("Fold") { model.fold(true) }
+                Button("Unfold") { model.fold(false) }
                 Button("Mute Device Audio") { model.toggleMute() }
                     .keyboardShortcut("m", modifiers: [.command, .shift])
                 Button("Turn Device Audio Up") { model.stepVolume(up: true) }

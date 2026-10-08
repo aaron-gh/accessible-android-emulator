@@ -67,6 +67,8 @@ class DeviceActivity : ConnectedActivity() {
         ui.row {
             running("Rotate Left") { call("device.rotate", idParams().put("left", true)) { ui.say(it.toString()) } }
             running("Rotate Right") { call("device.rotate", idParams().put("left", false)) { ui.say(it.toString()) } }
+            running("Fold") { call("device.fold", idParams().put("folded", true)) { ui.say(it.toString()) } }
+            running("Unfold") { call("device.fold", idParams().put("folded", false)) { ui.say(it.toString()) } }
         }
         ui.row {
             microphoneButton = ui.button("Turn On Microphone") { toggleMicrophone() }

@@ -34,6 +34,9 @@ pub enum Profile {
     #[default]
     Phone,
     Tablet,
+    /// Folds in, like a Galaxy Z Fold: a narrow screen folded, a nearly
+    /// square one unfolded.
+    Foldable,
 }
 
 impl Profile {
@@ -42,6 +45,7 @@ impl Profile {
             Profile::SmallPhone => "Small phone",
             Profile::Phone => "Phone",
             Profile::Tablet => "Tablet",
+            Profile::Foldable => "Foldable",
         }
     }
 
@@ -51,9 +55,31 @@ impl Profile {
             Profile::SmallPhone => (720, 1280, 320, 2048),
             Profile::Phone => (1080, 2400, 420, 2048),
             Profile::Tablet => (2560, 1600, 320, 3072),
+            // Unfolded; folded, the left half (see FOLDABLE).
+            Profile::Foldable => (1768, 2208, 420, 3072),
         }
     }
 }
+
+/// The emulator's settings for a foldable: a hinge down the middle, and
+/// folded, only the left half of the screen, as Android Studio's 7.6-inch
+/// foldable has.
+const FOLDABLE: &[(&str, &str)] = &[
+    ("hw.sensor.hinge", "yes"),
+    ("hw.sensor.hinge.count", "1"),
+    ("hw.sensor.hinge.type", "1"),
+    ("hw.sensor.hinge.sub_type", "1"),
+    ("hw.sensor.hinge.ranges", "0-180"),
+    ("hw.sensor.hinge.defaults", "180"),
+    ("hw.sensor.hinge.areas", "884-0-1-2208"),
+    ("hw.sensor.posture_list", "1, 2, 3"),
+    ("hw.sensor.hinge_angles_posture_definitions", "0-30, 30-150, 150-180"),
+    ("hw.sensor.hinge.fold_to_displayRegion.0.1_at_posture", "1"),
+    ("hw.displayRegion.0.1.xOffset", "0"),
+    ("hw.displayRegion.0.1.yOffset", "0"),
+    ("hw.displayRegion.0.1.width", "884"),
+    ("hw.displayRegion.0.1.height", "2208"),
+];
 
 /// What AAE stores about a device, in `aae.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -488,6 +514,11 @@ fn write_config_ini(device: &Device) -> Result<()> {
     let mut text = String::new();
     for (key, value) in entries {
         text.push_str(&format!("{key}={value}\n"));
+    }
+    if meta.profile == Profile::Foldable {
+        for (key, value) in FOLDABLE {
+            text.push_str(&format!("{key}={value}\n"));
+        }
     }
     let path = device.dir.join("config.ini");
     std::fs::write(&path, text).context(|| format!("Writing {}", path.display()))

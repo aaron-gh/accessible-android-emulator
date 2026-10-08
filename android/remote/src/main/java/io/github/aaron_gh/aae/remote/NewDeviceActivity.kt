@@ -30,7 +30,7 @@ class NewDeviceActivity : ConnectedActivity() {
         profile.isEnabled = !busy
     }
     private var list = listOf<JSONObject>()
-    private val profiles = listOf("phone" to "Phone", "small-phone" to "Small phone", "tablet" to "Tablet")
+    private val profiles = listOf("phone" to "Phone", "small-phone" to "Small phone", "tablet" to "Tablet", "foldable" to "Foldable")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

@@ -39,7 +39,7 @@ pub(crate) struct CreateParam {
     /// 37.2-beta3. Downloading a version needs its licence accepted by the
     /// user, so it's done in AAE's app, not here.
     pub version: String,
-    /// "small-phone", "phone" (the default) or "tablet".
+    /// "small-phone", "phone" (the default), "tablet" or "foldable".
     pub size: Option<String>,
 }
 
@@ -339,9 +339,10 @@ impl AaeServer {
                 let profile = match p.size.as_deref().map(|s| s.to_ascii_lowercase().replace([' ', '_'], "-")) {
                     Some(ref s) if s == "small-phone" => DeviceProfile::SmallPhone,
                     Some(ref s) if s == "tablet" => DeviceProfile::Tablet,
+                    Some(ref s) if s == "foldable" => DeviceProfile::Foldable,
                     None => DeviceProfile::Phone,
                     Some(ref s) if s == "phone" => DeviceProfile::Phone,
-                    Some(other) => anyhow::bail!("\"{other}\" isn't a size. Use small-phone, phone or tablet."),
+                    Some(other) => anyhow::bail!("\"{other}\" isn't a size. Use small-phone, phone, tablet or foldable."),
                 };
                 let device = self.engine.create_device(p.name.clone(), image.sysdir.clone(), profile)?;
                 text(format!(

@@ -153,6 +153,14 @@ pub(crate) struct RecordingParam {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(crate) struct FoldParam {
+    /// The device's name. Leave it out when only one device is running.
+    pub device: Option<String>,
+    /// True to fold, to the narrow screen; false to unfold, to the wide one.
+    pub folded: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub(crate) struct FingerprintParam {
     /// The device's name. Leave it out when only one device is running.
     pub device: Option<String>,
@@ -728,6 +736,22 @@ impl AaeServer {
                 let (_, session) = self.session(p.device.as_deref()).await?;
                 session.shake().await?;
                 text("Shook the device.")
+            }
+            .await,
+        )
+    }
+
+    /// Folds or unfolds a foldable device (one created with size
+    /// "foldable"), for testing how an app handles the screen changing.
+    #[tool(annotations(destructive_hint = false, idempotent_hint = true))]
+    async fn fold(
+        &self,
+        Parameters(p): Parameters<FoldParam>,
+    ) -> Result<CallToolResult, ErrorData> {
+        respond(
+            async {
+                let (_, session) = self.session(p.device.as_deref()).await?;
+                text(session.set_folded(p.folded).await?)
             }
             .await,
         )

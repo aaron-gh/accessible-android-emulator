@@ -31,6 +31,8 @@ pub const DEVICE_VOLUME_UP: u16 = 217;
 pub const DEVICE_VOLUME_DOWN: u16 = 218;
 pub const ROTATE_LEFT: u16 = 220;
 pub const ROTATE_RIGHT: u16 = 221;
+pub const FOLD: u16 = 208;
+pub const UNFOLD: u16 = 209;
 pub const MUTE: u16 = 222;
 pub const VOLUME_UP: u16 = 223;
 pub const VOLUME_DOWN: u16 = 224;
@@ -138,6 +140,8 @@ fn menus() -> Vec<(&'static str, Vec<Item>)> {
                 SEPARATOR,
                 Item(ROTATE_LEFT, "Rotate &Left", Some((cs, VK_LEFT.0))),
                 Item(ROTATE_RIGHT, "Rotate Ri&ght", Some((cs, VK_RIGHT.0))),
+                Item(FOLD, "F&old", None),
+                Item(UNFOLD, "U&nfold", None),
                 Item(MUTE, "&Mute Device Audio", Some((cs, b'M' as u16))),
                 Item(VOLUME_UP, "Turn Device Audio &Up", Some((ca, VK_UP.0))),
                 Item(

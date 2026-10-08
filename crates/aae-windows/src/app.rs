@@ -824,6 +824,8 @@ pub fn command(id: u16, notification: u32) {
         QUICK_SETTINGS => shell_quietly("cmd statusbar expand-settings"),
         ROTATE_LEFT => rotate(true),
         ROTATE_RIGHT => rotate(false),
+        FOLD => fold(true),
+        UNFOLD => fold(false),
         MUTE => toggle_mute(),
         VOLUME_UP => step_volume(true),
         VOLUME_DOWN => step_volume(false),
@@ -1227,7 +1229,12 @@ fn new_device_form(versions: Vec<VersionInfo>, default_reader: Option<String>) {
     })
     .field(Field::Choice {
         label: "&Size".into(),
-        items: vec!["Small phone".into(), "Phone".into(), "Tablet".into()],
+        items: vec![
+            "Small phone".into(),
+            "Phone".into(),
+            "Tablet".into(),
+            "Foldable".into(),
+        ],
         selected: 1,
     })
     .text(&initial_reader)
@@ -1256,6 +1263,7 @@ fn new_device_form(versions: Vec<VersionInfo>, default_reader: Option<String>) {
     let profile = match answer.values[3].choice() {
         Some(0) => DeviceProfile::SmallPhone,
         Some(2) => DeviceProfile::Tablet,
+        Some(3) => DeviceProfile::Foldable,
         _ => DeviceProfile::Phone,
     };
     let volume_boost = answer.values[5].checked();
@@ -2146,6 +2154,15 @@ fn press(key: &'static str) {
 
 fn shell_quietly(command: &'static str) {
     with_session(move |s| async move { s.shell(command.into()).await.map(|_| ()) });
+}
+
+/// Folds or unfolds the selected device, if it's foldable.
+fn fold(folded: bool) {
+    with_session(move |s| async move {
+        let said = s.set_folded(folded).await?;
+        say(said, Tone::Info);
+        Ok(())
+    });
 }
 
 fn rotate(left: bool) {

@@ -488,6 +488,10 @@ enum Command {
     },
     /// Shake the device, as for apps that act on a shake.
     Shake { device: String },
+    /// Fold a foldable device, to its narrow screen.
+    Fold { device: String },
+    /// Unfold a foldable device, to its wide screen.
+    Unfold { device: String },
     /// Speech bridge: on, off, or listen (prints utterances, no audio).
     SpeechBridge {
         device: String,
@@ -648,6 +652,7 @@ enum ProfileArg {
     SmallPhone,
     Phone,
     Tablet,
+    Foldable,
 }
 
 impl From<ProfileArg> for Profile {
@@ -656,6 +661,7 @@ impl From<ProfileArg> for Profile {
             ProfileArg::SmallPhone => Profile::SmallPhone,
             ProfileArg::Phone => Profile::Phone,
             ProfileArg::Tablet => Profile::Tablet,
+            ProfileArg::Foldable => Profile::Foldable,
         }
     }
 }
@@ -2505,6 +2511,8 @@ async fn run(cli: Cli) -> Result<()> {
             println!("Shook the device.");
             Ok(())
         }
+        Command::Fold { device } => fold(&ctx, &device, true).await,
+        Command::Unfold { device } => fold(&ctx, &device, false).await,
         Command::Location {
             device,
             latitude,
@@ -2716,6 +2724,13 @@ async fn start(
     if device.meta.screen_reader.is_none() && !device.meta.screen_reader_declined {
         offer_screen_reader(ctx, device, &adb).await?;
     }
+    Ok(())
+}
+
+/// Folds or unfolds a foldable device.
+async fn fold(ctx: &Ctx, device: &str, folded: bool) -> Result<()> {
+    let (_, _, adb) = ctx.connect(device).await?;
+    println!("{}", aae_core::fold::set_folded(&adb, folded).await?);
     Ok(())
 }
 

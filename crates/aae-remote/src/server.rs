@@ -661,6 +661,7 @@ async fn call(
             let profile = match params["profile"].as_str().unwrap_or("phone") {
                 "small-phone" => DeviceProfile::SmallPhone,
                 "tablet" => DeviceProfile::Tablet,
+                "foldable" => DeviceProfile::Foldable,
                 _ => DeviceProfile::Phone,
             };
             json::device(&engine.create_device(
@@ -851,6 +852,13 @@ async fn call(
             }
             json!(parts.join(" "))
         }
+        "device.fold" => json!(
+            server
+                .session(&id()?)
+                .await?
+                .set_folded(params["folded"].as_bool().unwrap_or(true))
+                .await?
+        ),
         "device.rotate" => json!(
             server
                 .session(&id()?)

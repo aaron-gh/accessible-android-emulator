@@ -1310,6 +1310,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Folds or unfolds the selected device, if it's foldable.
+    func fold(_ folded: Bool) {
+        withSession { [weak self] session in
+            let said = try await session.setFolded(folded: folded)
+            self?.announce(said)
+        }
+    }
+
     /// Sets how loud AAE plays the selected device on the Mac, from 0 to 1,
     /// remembered for the device.
     func setVolume(_ volume: Float, announce say: Bool = false) {

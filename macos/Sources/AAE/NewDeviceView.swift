@@ -17,6 +17,7 @@ struct NewDeviceView: View {
         ("Small phone", .smallPhone),
         ("Phone", .phone),
         ("Tablet", .tablet),
+        ("Foldable", .foldable),
     ]
 
     var body: some View {

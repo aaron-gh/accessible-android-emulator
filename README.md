@@ -40,7 +40,7 @@ Below these, Android starts but is too slow to use with a screen reader. Setup a
 
 ### Devices
 
-- Create, copy, rename, wipe and delete. Wipe resets to first setup and keeps name, hardware and volume.
+- Create, copy, rename, wipe and delete. Sizes: small phone, phone, tablet, and foldable (folds in, 337 dp wide folded and 674 dp unfolded). Wipe resets to first setup and keeps name, hardware and volume.
 - Hardware (stopped devices): memory, cores, storage, screen size and density, from next start. `aae hardware <device> memory 4096 cores 6 storage 16G screen 1440x3120 density 560`; `cores auto` reverts to AAE's choice. Reducing storage needs a wipe.
 - Export and Import: one `.aaedevice` file with apps, data, settings and named snapshots, between computers with the same processor architecture. The Android version must be installed on the target. `aae export`, `aae import`.
 - No emulator window.
@@ -88,12 +88,13 @@ Below these, Android starts but is too slow to use with a screen reader. Setup a
 - Battery level, charging and health (good, failed, dead, over voltage, overheated).
 - Fingerprint touches, fingers 1 to 10. Enroll them in Android's security settings.
 - Shake.
+- Fold and unfold a foldable device.
 - Location from coordinates, a place or an address (looked up on OpenStreetMap; only the typed text is sent).
 - Play GPX Route: moves the location once a second along the file's track, route or waypoints, at the file's pace or 30 km/h, with a speed multiplier. Choose again to stop.
 - Text messages to the device; incoming calls, and answer, busy or hang up for outgoing calls.
 - Network: airplane mode, Wi-Fi, mobile data, and speed (full, LTE, 3G, slow 3G, EDGE, GPRS).
 
-CLI: `battery`, `fingerprint`, `shake`, `location`, `route`, `sms`, `call`, `network`.
+CLI: `battery`, `fingerprint`, `shake`, `fold`, `unfold`, `location`, `route`, `sms`, `call`, `network`.
 
 ### Display and Language
 
@@ -115,7 +116,7 @@ Language, font size, display size, dark theme (Android 10+), bold text (Android 
 - File: New Device (Command-N), Import Device, Android Versions (Option-Command-A), Serve Devices to Phones.
 - Device:
   - Start (Command-Shift-S), Stop (Command-Shift-.), Restart (Command-Shift-R), Cold Boot, Use Android Keyboard (Command-Shift-E), Use Gestures (Command-Shift-G), Open in Own Window (Option-Command-O), Speak Status (Command-Shift-I).
-  - Android buttons including Power and Assistant, rotation, Hardware, Export, rename, copy, wipe, delete.
+  - Android buttons including Power and Assistant, rotation, Fold and Unfold, Hardware, Export, rename, copy, wipe, delete.
   - Accessibility Inspector (Option-Command-I), Speech Log (Option-Command-L), Device Log (Option-Command-J), Shell (Option-Command-T), Apps (Option-Command-P), Accessibility Services (Option-Command-U), Snapshots (Option-Command-S), Battery, Location, Phone and Network (Option-Command-B), Display and Language (Option-Command-Comma).
   - Mute (Command-Shift-M), volume (Option-Command-Up and Down), Check Audio (Option-Command-K), Turn On Microphone (Command-Shift-U), Turn On Speech Bridge.
   - Clipboard: device to Mac (Command-Shift-C), Mac to device (Command-Shift-V), type the Mac clipboard (Option-Command-V).
@@ -147,7 +148,7 @@ Android app (`android/remote`; server `crates/aae-remote`) for the devices on a 
 - **At login:** Serve at login, without AAE open (in Serve Devices to Phones) or `aae daemon install|uninstall|status`: a LaunchAgent, a Windows Run entry or a systemd user service. `aae pair` makes a pairing code for it. Logs to `serve.log`.
 - **Pairing:** Pair with a Computer: choose a computer on the network or type an address, then enter its 12-character code (single use, 10 minutes). TLS with the certificate pinned. `aae phones`, `aae phones --unpair <id>`.
 - **Managing:** devices (create, start, stop, restart, wipe, copy, rename, delete), Android versions (download after accepting the licence on the phone, delete), tool setup and updates.
-- **Device screen:** Android buttons, Speak Status, rotation, Restart, Cold Boot. Testing Tools: speech log, device log, inspector, apps, services, snapshots, Battery, Location, Phone and Network (including GPX upload), Display and Language, links and intents, clipboard, APK install.
+- **Device screen:** Android buttons, Speak Status, rotation, Fold and Unfold, Restart, Cold Boot. Testing Tools: speech log, device log, inspector, apps, services, snapshots, Battery, Location, Phone and Network (including GPX upload), Display and Language, links and intents, clipboard, APK install.
 - **Microphone:** sends the phone's microphone while an app on the device records (voice communication source, echo cancelled). Foreground only. Testing Tools uploads an audio file to play into it.
 - **Speech bridge:** sends the device's speech to the phone's text-to-speech. Engine and rate: Bridge Text-to-Speech Settings (default: system). Takes priority over a desktop app while the phone is attached.
 - **Tablets and unfolded phones:** on a window at least 600 dp wide, a screen opens beside the one it was opened from, such as a device's controls beside the device list. Gesture and keyboard mode take the whole window. Android 12L or later.
@@ -174,7 +175,7 @@ aae stop "Android 16 test"
 - Keyboard, audio and speech: `attach`, `listen`, `playback-volume`, `audio-output`, `volume`, `key`, `type`, `gesture`, `keytest`, `latency`, `sound-check`, `audio-check`, `mic`, `speech`, `speech-bridge`.
 - Screen readers and apps: `screen-reader`, `services`, `install`, `apps`, `app`, `watch`, `link`, `intent`.
 - Testing: `inspect`, `check`, `speech-log`, `logs`, `shell`, `screenshot`, `record`.
-- Conditions: `rotate`, `battery`, `fingerprint`, `shake`, `location`, `route`, `network`, `settings`, `sms`, `call`, `clipboard`.
+- Conditions: `rotate`, `battery`, `fingerprint`, `shake`, `fold`, `unfold`, `location`, `route`, `network`, `settings`, `sms`, `call`, `clipboard`.
 - AAE Remote: `serve`, `pair`, `phones`, `daemon`.
 - AI agents: `mcp`.
 
@@ -183,7 +184,7 @@ aae stop "Android 16 test"
 `aae mcp` is an MCP server for running, using and inspecting devices. The speech log gives agents what the screen reader announced, not only what's drawn.
 
 - Observe: `screenshot`, `inspect`, `check_accessibility`, `touch_targets`, `speech_log`, `device_log`.
-- Act: `gesture`, `tap_target`, `activate_target`, `type_text`, `press_key`, `open_app`, `open_link`, `send_intent`, notifications, quick settings, `rotate`, `device_settings`, battery, `touch_fingerprint`, `shake`, location, `play_route`, `stop_route`, network, SMS, calls, clipboard, `play_into_microphone`, `start_recording`, `stop_recording`.
+- Act: `gesture`, `tap_target`, `activate_target`, `type_text`, `press_key`, `open_app`, `open_link`, `send_intent`, notifications, quick settings, `rotate`, `device_settings`, battery, `touch_fingerprint`, `shake`, `fold`, location, `play_route`, `stop_route`, network, SMS, calls, clipboard, `play_into_microphone`, `start_recording`, `stop_recording`.
 - Wait: `wait_for` text on screen or in speech, or its absence; `pause`.
 - Set up: devices, `install_app`, apps, permissions, accessibility services, snapshots. No Android version downloads (the user accepts Google's licence in the app).
 - Wipe, delete, delete snapshot, uninstall, clear data and shell need `aae mcp --allow-destructive`. Loading a snapshot is marked destructive.

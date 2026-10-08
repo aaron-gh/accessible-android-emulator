@@ -16,6 +16,7 @@ pub mod device_settings;
 pub mod diagnostics;
 pub mod emulator;
 pub mod error;
+pub mod fold;
 pub mod geocode;
 pub mod gestures;
 pub mod hardware;
