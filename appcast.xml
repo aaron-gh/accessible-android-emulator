@@ -5,6 +5,18 @@
         <description>Updates for AAE, the Accessible Android Emulator.</description>
         <language>en</language>
         <item>
+            <title>Version 0.6.0</title>
+            <pubDate>Thu, 08 Oct 2026 19:26:23 -0000</pubDate>
+            <sparkle:version>130</sparkle:version>
+            <sparkle:shortVersionString>0.6.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<ul>
+<li>Googlebook devices, on Macs with Apple silicon: Googlebook OS (Android 17, desktop) in a QEMU virtual machine. New Device, "Googlebook OS (Android 17), virtual machine". First use downloads about 9 GB; the disk takes about 20 GB.</li>
+</ul>
+]]></description>
+            <enclosure url="https://github.com/aaron-gh/accessible-android-emulator/releases/download/v0.6.0/AAE-0.6.0.dmg" sparkle:edSignature="9T2HpDRXt3TSmuBraddoWxpNUdl/vpU2VhUZbOHBJCW8k61EdkL3iLs56yA1hI1/byeDcExvVpxYSB3flQ2cAw==" length="37321811" type="application/octet-stream" />
+        </item>
+        <item>
             <title>Version 0.5.1</title>
             <pubDate>Thu, 08 Oct 2026 13:15:22 -0000</pubDate>
             <sparkle:version>125</sparkle:version>
