@@ -59,15 +59,25 @@ impl Identity {
     }
 }
 
-/// Writes a file only this account can read, where the system allows.
+/// Writes a file only this account can read, where the system allows. A new
+/// file is created that way, so it's never readable by others, even briefly.
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        // A file from before keeps its old permissions until set.
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        file.write_all(bytes)
     }
-    Ok(())
+    #[cfg(not(unix))]
+    std::fs::write(path, bytes)
 }
 
 /// A phone paired with this computer.
