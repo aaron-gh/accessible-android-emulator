@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- On a window at least 600 dp wide, such as a tablet or an unfolded phone,
+     a screen opened from another opens beside it: the list on the left, what
+     was chosen on the right. Gesture and keyboard mode take the whole window. -->
+<resources xmlns:window="http://schemas.android.com/apk/res-auto">
+    <SplitPairRule
+        window:splitRatio="0.35"
+        window:splitMinWidthDp="600"
+        window:splitMinSmallestWidthDp="600"
+        window:splitMaxAspectRatioInPortrait="0"
+        window:finishPrimaryWithSecondary="never"
+        window:finishSecondaryWithPrimary="always"
+        window:clearTop="true">
+        <SplitPairFilter window:primaryActivityName=".ComputersActivity" window:secondaryActivityName=".DevicesActivity" />
+        <SplitPairFilter window:primaryActivityName=".ComputersActivity" window:secondaryActivityName=".BridgeTtsActivity" />
+    </SplitPairRule>
+    <SplitPairRule
+        window:splitRatio="0.35"
+        window:splitMinWidthDp="600"
+        window:splitMinSmallestWidthDp="600"
+        window:splitMaxAspectRatioInPortrait="0"
+        window:finishPrimaryWithSecondary="never"
+        window:finishSecondaryWithPrimary="always"
+        window:clearTop="true">
+        <SplitPairFilter window:primaryActivityName=".DevicesActivity" window:secondaryActivityName=".DeviceActivity" />
+        <SplitPairFilter window:primaryActivityName=".DevicesActivity" window:secondaryActivityName=".NewDeviceActivity" />
+        <SplitPairFilter window:primaryActivityName=".DevicesActivity" window:secondaryActivityName=".VersionsActivity" />
+        <SplitPairFilter window:primaryActivityName=".DevicesActivity" window:secondaryActivityName=".SetupActivity" />
+    </SplitPairRule>
+    <SplitPairRule
+        window:splitRatio="0.5"
+        window:splitMinWidthDp="600"
+        window:splitMinSmallestWidthDp="600"
+        window:splitMaxAspectRatioInPortrait="0"
+        window:finishPrimaryWithSecondary="never"
+        window:finishSecondaryWithPrimary="always"
+        window:clearTop="true">
+        <SplitPairFilter window:primaryActivityName=".DeviceActivity" window:secondaryActivityName=".ToolsActivity" />
+    </SplitPairRule>
+    <SplitPairRule
+        window:splitRatio="0.35"
+        window:splitMinWidthDp="600"
+        window:splitMinSmallestWidthDp="600"
+        window:splitMaxAspectRatioInPortrait="0"
+        window:finishPrimaryWithSecondary="never"
+        window:finishSecondaryWithPrimary="always"
+        window:clearTop="true">
+        <SplitPairFilter window:primaryActivityName=".ToolsActivity" window:secondaryActivityName=".SpeechLogActivity" />
+        <SplitPairFilter window:primaryActivityName=".ToolsActivity" window:secondaryActivityName=".LogActivity" />
+        <SplitPairFilter window:primaryActivityName=".ToolsActivity" window:secondaryActivityName=".InspectorActivity" />
+        <SplitPairFilter window:primaryActivityName=".ToolsActivity" window:secondaryActivityName=".AppsActivity" />
+        <SplitPairFilter window:primaryActivityName=".ToolsActivity" window:secondaryActivityName=".ServicesActivity" />
+        <SplitPairFilter window:primaryActivityName=".ToolsActivity" window:secondaryActivityName=".SnapshotsActivity" />
+        <SplitPairFilter window:primaryActivityName=".ToolsActivity" window:secondaryActivityName=".ConditionsActivity" />
+        <SplitPairFilter window:primaryActivityName=".ToolsActivity" window:secondaryActivityName=".DeviceSettingsActivity" />
+        <SplitPairFilter window:primaryActivityName=".ToolsActivity" window:secondaryActivityName=".LinkActivity" />
+    </SplitPairRule>
+    <ActivityRule window:alwaysExpand="true">
+        <ActivityFilter window:activityName=".GestureActivity" />
+        <ActivityFilter window:activityName=".KeyboardActivity" />
+    </ActivityRule>
+</resources>

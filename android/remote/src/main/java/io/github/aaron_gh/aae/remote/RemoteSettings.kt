@@ -76,10 +76,13 @@ object RemoteSettings {
     }
 }
 
-/** Loads the settings before anything reads them. */
+/** Loads the settings before anything reads them, and the rules for showing
+ *  two screens side by side on wide windows. */
 class RemoteApp : Application() {
     override fun onCreate() {
         super.onCreate()
         RemoteSettings.load(this)
+        val rules = androidx.window.embedding.RuleController
+        rules.getInstance(this).setRules(rules.parseRules(this, R.xml.split_rules))
     }
 }

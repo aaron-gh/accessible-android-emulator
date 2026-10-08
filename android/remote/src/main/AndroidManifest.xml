@@ -32,6 +32,10 @@
         android:label="@string/app_name"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar"
         android:supportsRtl="true">
+        <!-- Two screens side by side on wide windows (res/xml/split_rules.xml). -->
+        <property
+            android:name="android.window.PROPERTY_ACTIVITY_EMBEDDING_SPLITS_ENABLED"
+            android:value="true" />
 
         <activity
             android:name=".ComputersActivity"

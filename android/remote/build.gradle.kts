@@ -52,4 +52,6 @@ android {
 
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
+    // Activity embedding: two screens side by side on tablets and unfolded phones.
+    implementation("androidx.window:window:1.4.0")
 }
