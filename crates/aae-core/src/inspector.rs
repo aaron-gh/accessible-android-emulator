@@ -197,7 +197,9 @@ impl Node {
         if self.heading {
             parts.push("heading".into());
         }
-        if self.has("checkable") {
+        // Android 11 and later say it in the state description too.
+        let state_says_checked = self.state.as_deref().is_some_and(|s| s.contains("checked"));
+        if self.has("checkable") && !state_says_checked {
             parts.push(
                 if self.has("checked") {
                     "checked"

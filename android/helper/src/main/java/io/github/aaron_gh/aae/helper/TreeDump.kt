@@ -108,8 +108,16 @@ object TreeDump {
         }
         json.put("actions", actions)
 
-        info.collectionInfo?.let {
-            json.put("collection", if (it.columnCount <= 1) "${it.rowCount} items" else "${it.rowCount} rows, ${it.columnCount} columns")
+        // A negative count is an unknown one, as a ListView gives.
+        info.collectionInfo?.takeIf { it.rowCount >= 0 }?.let {
+            json.put(
+                "collection",
+                when {
+                    it.columnCount > 1 -> "${it.rowCount} rows, ${it.columnCount} columns"
+                    it.rowCount == 1 -> "1 item"
+                    else -> "${it.rowCount} items"
+                },
+            )
         }
         info.collectionItemInfo?.let {
             json.put("item", if (it.columnIndex <= 0 && it.columnSpan <= 1) "item ${it.rowIndex + 1}" else "row ${it.rowIndex + 1}, column ${it.columnIndex + 1}")
