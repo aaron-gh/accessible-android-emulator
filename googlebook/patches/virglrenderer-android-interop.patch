@@ -1,0 +1,593 @@
+diff --git a/src/proxy/proxy_context.c b/src/proxy/proxy_context.c
+index c5417db..1461895 100644
+--- a/src/proxy/proxy_context.c
++++ b/src/proxy/proxy_context.c
+@@ -576,9 +576,10 @@ proxy_context_attach_resource(struct virgl_context *base, struct virgl_resource
+    uint64_t res_size = res->map_size;
+    bool close_res_fd = false;
+    if (res_fd_type == VIRGL_RESOURCE_FD_INVALID) {
+-      /* importable pipe resouce can only export as dma-buf */
++      /* Metal-backed pipe resources export shared memory instead of dma-buf. */
+       res_fd_type = virgl_resource_export_fd(res, &res_fd);
+-      if (res_fd_type != VIRGL_RESOURCE_FD_DMABUF) {
++      if (res_fd_type != VIRGL_RESOURCE_FD_DMABUF &&
++          res_fd_type != VIRGL_RESOURCE_FD_SHM) {
+          /* close fd for unexpected fd type from succeeded export */
+          if (res_fd_type != VIRGL_RESOURCE_FD_INVALID)
+             close(res_fd);
+@@ -590,7 +591,16 @@ proxy_context_attach_resource(struct virgl_context *base, struct virgl_resource
+        * - pipe resource created by vrend has a zero map_size
+        * - blob resource created by vrend can have non-zero fake map_size
+        */
+-      res_size = lseek(res_fd, 0, SEEK_END);
++      struct stat st;
++      const off_t end = res_fd_type == VIRGL_RESOURCE_FD_SHM
++         ? (fstat(res_fd, &st) == 0 ? st.st_size : -1)
++         : lseek(res_fd, 0, SEEK_END);
++      if (end <= 0) {
++         close(res_fd);
++         proxy_log("failed to size exported resource %d", res_id);
++         return;
++      }
++      res_size = end;
+ 
+       close_res_fd = true;
+    }
+diff --git a/src/venus/vkr_context.c b/src/venus/vkr_context.c
+index 2ea5898..6038a61 100644
+--- a/src/venus/vkr_context.c
++++ b/src/venus/vkr_context.c
+@@ -193,6 +193,8 @@ vkr_context_free_resource(struct hash_entry *entry)
+       munmap(res->u.data, res->size);
+    else if (res->u.fd >= 0)
+       close(res->u.fd);
++   if (res->shm_fd >= 0)
++      close(res->shm_fd);
+    free(res);
+ }
+ 
+@@ -237,9 +239,10 @@ vkr_context_import_resource_internal(struct vkr_context *ctx,
+    res->res_id = res_id;
+    res->fd_type = fd_type;
+    res->size = blob_size;
++   res->shm_fd = fd_type == VIRGL_RESOURCE_FD_SHM ? fd : -1;
+ 
+-   /* fd and mmap_ptr cannot be valid at the same time, but allowed to be -1 and NULL */
+-   assert(fd < 0 || !mmap_ptr);
++   /* SHM can retain both its mapping and an owned fd for independent imports. */
++   assert(fd_type == VIRGL_RESOURCE_FD_SHM || fd < 0 || !mmap_ptr);
+    if (mmap_ptr)
+       res->u.data = mmap_ptr;
+    else
+@@ -266,7 +269,7 @@ vkr_context_import_resource_from_shm(struct vkr_context *ctx,
+       return false;
+ 
+    if (!vkr_context_import_resource_internal(ctx, res_id, blob_size,
+-                                             VIRGL_RESOURCE_FD_SHM, -1, mmap_ptr)) {
++                                             VIRGL_RESOURCE_FD_SHM, fd, mmap_ptr)) {
+       munmap(mmap_ptr, blob_size);
+       return false;
+    }
+@@ -332,6 +335,18 @@ vkr_context_create_resource_from_device_memory(struct vkr_context *ctx,
+    if (!vkr_device_memory_export_blob(mem, blob_size, blob_flags, &blob))
+       return false;
+ 
++   if (blob.type == VIRGL_RESOURCE_FD_SHM) {
++      int fd = os_dupfd_cloexec(blob.u.fd);
++      if (fd < 0 || !vkr_context_import_resource_from_shm(ctx, res_id, blob_size, fd)) {
++         if (fd >= 0)
++            close(fd);
++         close(blob.u.fd);
++         return false;
++      }
++      *out_blob = blob;
++      return true;
++   }
++
+    /* If memory might get exported, store a dup'ed fd in vkr_resource for:
+     * - vkAllocateMemory for dma_buf import
+     * - vkGetMemoryFdPropertiesKHR for dma_buf fd properties query
+diff --git a/src/venus/vkr_context.h b/src/venus/vkr_context.h
+index 12541a7..b36b347 100644
+--- a/src/venus/vkr_context.h
++++ b/src/venus/vkr_context.h
+@@ -32,6 +32,8 @@ struct vkr_resource {
+    } u;
+ 
+    size_t size;
++   /* Owned descriptor for independently-lived SHM memory imports, or -1. */
++   int shm_fd;
+ };
+ 
+ enum vkr_context_validate_level {
+diff --git a/src/venus/vkr_device.c b/src/venus/vkr_device.c
+index 81c694c..9727210 100644
+--- a/src/venus/vkr_device.c
++++ b/src/venus/vkr_device.c
+@@ -132,7 +132,14 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
+     */
+    const bool drop_emulated =
+       physical_dev->is_dma_buf_emulated || !physical_dev->EXT_image_drm_format_modifier ||
+-      !physical_dev->EXT_queue_family_foreign;
++      !physical_dev->EXT_queue_family_foreign || !physical_dev->EXT_provoking_vertex;
++
++   if (!physical_dev->EXT_provoking_vertex) {
++      VkBaseInStructure *prev = vkr_find_prev_struct(
++         args->pCreateInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT);
++      if (prev)
++         prev->pNext = prev->pNext->pNext;
++   }
+ 
+    /* append extensions for our own use */
+    const char **exts = NULL;
+@@ -166,6 +173,9 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
+          if (!physical_dev->EXT_queue_family_foreign &&
+              !strcmp(name, VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME))
+             continue;
++         if (!physical_dev->EXT_provoking_vertex &&
++             !strcmp(name, VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME))
++            continue;
+ 
+          exts[ext_count++] = name;
+       }
+diff --git a/src/venus/vkr_device_memory.c b/src/venus/vkr_device_memory.c
+index 1c460fd..ad9589c 100644
+--- a/src/venus/vkr_device_memory.c
++++ b/src/venus/vkr_device_memory.c
+@@ -285,6 +285,30 @@ vkr_shm_free(struct vkr_shm *shm)
+    free(shm);
+ }
+ 
++static struct vkr_shm *
++vkr_shm_import(const struct vkr_resource *res, uint64_t requested_size)
++{
++   if (res->shm_fd < 0 || !res->size || requested_size > res->size ||
++       res->size % getpagesize())
++      return NULL;
++   struct vkr_shm *shm = calloc(1, sizeof(*shm));
++   if (!shm)
++      return NULL;
++   shm->fd = os_dupfd_cloexec(res->shm_fd);
++   if (shm->fd < 0) {
++      free(shm);
++      return NULL;
++   }
++   shm->size = res->size;
++   shm->ptr = mmap(NULL, shm->size, PROT_READ | PROT_WRITE, MAP_SHARED, shm->fd, 0);
++   if (shm->ptr == MAP_FAILED) {
++      close(shm->fd);
++      free(shm);
++      return NULL;
++   }
++   return shm;
++}
++
+ static void
+ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+                               struct vn_command_vkAllocateMemory *args)
+@@ -304,16 +328,22 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+    /* translate VkImportMemoryResourceInfoMESA into VkImportMemoryFdInfoKHR in place */
+    VkImportMemoryFdInfoKHR local_import_info = { .fd = -1 };
+    VkImportMemoryResourceInfoMESA *res_info = NULL;
++   struct vkr_resource *shm_resource = NULL;
+    VkBaseInStructure *prev_of_res_info = vkr_find_prev_struct(
+       alloc_info, VK_STRUCTURE_TYPE_IMPORT_MEMORY_RESOURCE_INFO_MESA);
+    if (prev_of_res_info) {
+       res_info = (VkImportMemoryResourceInfoMESA *)prev_of_res_info->pNext;
+-      if (!vkr_get_fd_info_from_resource_info(ctx, res_info, &local_import_info)) {
++      struct vkr_resource *res = vkr_context_get_resource(ctx, res_info->resourceId);
++      if (res && res->fd_type == VIRGL_RESOURCE_FD_SHM &&
++          physical_dev->is_dma_buf_emulated) {
++         shm_resource = res;
++         prev_of_res_info->pNext = res_info->pNext;
++      } else if (!vkr_get_fd_info_from_resource_info(ctx, res_info, &local_import_info)) {
+          args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+          return;
++      } else {
++         prev_of_res_info->pNext = (const struct VkBaseInStructure *)&local_import_info;
+       }
+-
+-      prev_of_res_info->pNext = (const struct VkBaseInStructure *)&local_import_info;
+    }
+ 
+    VkExportMemoryAllocateInfo *export_info =
+@@ -350,11 +380,20 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+     * and is otherwise left to fall through to a host that supports no fd handle
+     * type at all.
+     */
+-   const bool force_shm_import = physical_dev->is_dma_buf_emulated && !res_info &&
++   const bool force_shm_import = shm_resource ||
++                                (physical_dev->is_dma_buf_emulated && !res_info &&
+                                  ((property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ||
+-                                  might_export);
++                                  might_export));
+ 
+    if (force_shm_import) {
++      /* Dedicated Android image imports become host-pointer imports, for which
++       * Vulkan forbids a non-null dedicated image/buffer (VUID 02806). */
++      if (shm_resource) {
++         VkBaseInStructure *prev = vkr_find_prev_struct(
++            alloc_info, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
++         if (prev)
++            prev->pNext = prev->pNext->pNext;
++      }
+       if (export_info) {
+          /* Strip export info since valid_fd_types can only be shm here.  The
+           * guest asks for a dma_buf export when dma_buf is emulated, which
+@@ -368,9 +407,11 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+       }
+ 
+       /* Allocate shm and import it as host memory. */
+-      shm = vkr_shm_alloc(alloc_info->allocationSize);
++      shm = shm_resource ? vkr_shm_import(shm_resource, alloc_info->allocationSize)
++                         : vkr_shm_alloc(alloc_info->allocationSize);
+       if (!shm) {
+-         args->ret = VK_ERROR_OUT_OF_HOST_MEMORY;
++         args->ret = shm_resource ? VK_ERROR_INVALID_EXTERNAL_HANDLE
++                                  : VK_ERROR_OUT_OF_HOST_MEMORY;
+          return;
+       }
+ 
+@@ -502,6 +543,9 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+    mem->shm = shm;
+    mem->allocation_size = alloc_info->allocationSize;
+    mem->memory_type_index = mem_type_index;
++   if (shm_resource)
++      vkr_log("interop: imported shared resource %u (%zu bytes)",
++              shm_resource->res_id, shm->size);
+ }
+ 
+ static void
+@@ -564,6 +608,26 @@ vkr_dispatch_vkGetMemoryResourcePropertiesMESA(
+       return;
+    }
+ 
++   if (res->fd_type == VIRGL_RESOURCE_FD_SHM &&
++       dev->physical_device->is_dma_buf_emulated && res->shm_fd >= 0) {
++      VkMemoryHostPointerPropertiesEXT props = {
++         .sType = VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT,
++      };
++      args->ret = dev->GetMemoryHostPointerPropertiesEXT(
++         dev->base.handle.device, VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
++         res->u.data, &props);
++      if (args->ret != VK_SUCCESS)
++         return;
++      args->pMemoryResourceProperties->memoryTypeBits = props.memoryTypeBits;
++      VkMemoryResourceAllocationSizePropertiesMESA *size_props =
++         vkr_find_struct(args->pMemoryResourceProperties->pNext,
++                         VK_STRUCTURE_TYPE_MEMORY_RESOURCE_ALLOCATION_SIZE_PROPERTIES_MESA);
++      if (size_props)
++         size_props->allocationSize = res->size;
++      vkr_log("interop: queried shared resource %u (%zu bytes, types %x)",
++              res->res_id, res->size, props.memoryTypeBits);
++      return;
++   }
+    if (res->fd_type != VIRGL_RESOURCE_FD_DMABUF) {
+       args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+       return;
+diff --git a/src/venus/vkr_image.c b/src/venus/vkr_image.c
+index c9d9964..0babef8 100644
+--- a/src/venus/vkr_image.c
++++ b/src/venus/vkr_image.c
+@@ -17,8 +17,11 @@ vkr_image_fix_create_info(struct vkr_device *dev, VkImageCreateInfo *pCreateInfo
+ 
+    VkExternalMemoryImageCreateInfo *ext_create_info =
+       vkr_find_struct(pCreateInfo, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO);
+-   if (ext_create_info)
++   if (ext_create_info &&
++       (ext_create_info->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT)) {
+       ext_create_info->handleTypes &= ~VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
++      ext_create_info->handleTypes |= VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
++   }
+ }
+ 
+ static VkResult
+@@ -47,6 +50,15 @@ vkr_image_fix_drm_format(struct vkr_device *dev,
+    }
+ 
+    vkr_log("only DRM_FORMAT_MOD_LINEAR is supported");
++   if (drm_format_info)
++      vkr_log("interop: rejected modifier 0x%llx planes %u format %u %ux%u pitch %llu offset %llu",
++              (unsigned long long)drm_format_info->drmFormatModifier,
++              drm_format_info->drmFormatModifierPlaneCount, pCreateInfo->format,
++              pCreateInfo->extent.width, pCreateInfo->extent.height,
++              drm_format_info->drmFormatModifierPlaneCount ?
++                 (unsigned long long)drm_format_info->pPlaneLayouts[0].rowPitch : 0,
++              drm_format_info->drmFormatModifierPlaneCount ?
++                 (unsigned long long)drm_format_info->pPlaneLayouts[0].offset : 0);
+    return VK_ERROR_FORMAT_NOT_SUPPORTED;
+ }
+ 
+@@ -93,7 +105,41 @@ vkr_dispatch_vkCreateImage(struct vn_dispatch_context *dispatch,
+     * situation because the app does not consider the memory external.
+     */
+ 
+-   vkr_image_create_and_add(dispatch->data, args);
++   const VkImageDrmFormatModifierExplicitCreateInfoEXT *explicit_layout =
++      vkr_find_struct(args->pCreateInfo,
++                       VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT);
++   const bool validate_layout = explicit_layout && dev->physical_device->is_dma_buf_emulated;
++   if (validate_layout && explicit_layout->drmFormatModifierPlaneCount != 1) {
++      args->ret = VK_ERROR_FORMAT_NOT_SUPPORTED;
++      return;
++   }
++   struct vkr_image *image = vkr_image_create(dispatch->data, args);
++   if (!image)
++      return;
++   if (validate_layout) {
++      const VkImageSubresource sub = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT };
++      VkSubresourceLayout actual;
++      dev->proc_table.GetImageSubresourceLayout(dev->base.handle.device,
++         image->base.handle.image, &sub, &actual);
++      const VkSubresourceLayout *expected = &explicit_layout->pPlaneLayouts[0];
++      /* The shared memory is host-only (the guest reaches pixels through
++       * transfers), so the host pitch may exceed the guest-declared one. */
++      if (actual.rowPitch != expected->rowPitch)
++         vkr_log("interop: host pitch %llu replaces guest pitch %llu for %ux%u",
++                 (unsigned long long)actual.rowPitch,
++                 (unsigned long long)expected->rowPitch,
++                 args->pCreateInfo->extent.width, args->pCreateInfo->extent.height);
++      if (actual.offset != expected->offset || actual.rowPitch < expected->rowPitch) {
++         vkr_log("interop: incompatible image pitch/offset: host %llu/%llu guest %llu/%llu",
++                 (unsigned long long)actual.rowPitch, (unsigned long long)actual.offset,
++                 (unsigned long long)expected->rowPitch, (unsigned long long)expected->offset);
++         dev->proc_table.DestroyImage(dev->base.handle.device, image->base.handle.image, NULL);
++         free(image);
++         args->ret = VK_ERROR_FORMAT_NOT_SUPPORTED;
++         return;
++      }
++   }
++   vkr_device_add_object(dispatch->data, dev, &image->base);
+ }
+ 
+ static void
+diff --git a/src/venus/vkr_physical_device.c b/src/venus/vkr_physical_device.c
+index 774705e..4c6b423 100644
+--- a/src/venus/vkr_physical_device.c
++++ b/src/venus/vkr_physical_device.c
+@@ -288,6 +288,8 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
+          physical_dev->EXT_queue_family_foreign = true;
+       else if (!strcmp(props->extensionName, "VK_EXT_external_memory_host"))
+          physical_dev->EXT_external_memory_host = true;
++      else if (!strcmp(props->extensionName, "VK_EXT_provoking_vertex"))
++         physical_dev->EXT_provoking_vertex = true;
+       else if (!strcmp(props->extensionName, "VK_KHR_portability_subset"))
+          physical_dev->KHR_portability_subset = true;
+ 
+@@ -315,6 +317,7 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
+    emulated_count += 2 * physical_dev->is_dma_buf_emulated;
+    emulated_count += !physical_dev->EXT_image_drm_format_modifier;
+    emulated_count += !physical_dev->EXT_queue_family_foreign;
++   emulated_count += !physical_dev->EXT_provoking_vertex;
+    exts = realloc(exts, sizeof(*exts) * (advertised_count + emulated_count));
+    if (physical_dev->is_dma_buf_emulated) {
+       strcpy(prop.extensionName, VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
+@@ -336,6 +339,12 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
+       exts[advertised_count++] = prop;
+    }
+ 
++   if (!physical_dev->EXT_provoking_vertex) {
++      strcpy(prop.extensionName, VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME);
++      prop.specVersion = vkr_extension_get_spec_version(prop.extensionName);
++      exts[advertised_count++] = prop;
++   }
++
+    if (physical_dev->KHR_external_fence_fd) {
+       const VkPhysicalDeviceExternalFenceInfo fence_info = {
+          .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_FENCE_INFO,
+@@ -705,6 +714,15 @@ vkr_dispatch_vkGetPhysicalDeviceFeatures2(
+ 
+    vn_replace_vkGetPhysicalDeviceFeatures2_args_handle(args);
+    vk->GetPhysicalDeviceFeatures2(args->physicalDevice, args->pFeatures);
++   if (!physical_dev->EXT_provoking_vertex) {
++      VkPhysicalDeviceProvokingVertexFeaturesEXT *pv = vkr_find_struct(
++         args->pFeatures->pNext,
++         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT);
++      if (pv) {
++         pv->provokingVertexLast = VK_TRUE;
++         pv->transformFeedbackPreservesProvokingVertex = VK_FALSE;
++      }
++   }
+ }
+ 
+ static void
+@@ -718,6 +736,15 @@ vkr_dispatch_vkGetPhysicalDeviceProperties2(
+ 
+    vn_replace_vkGetPhysicalDeviceProperties2_args_handle(args);
+    vk->GetPhysicalDeviceProperties2(args->physicalDevice, args->pProperties);
++   if (!physical_dev->EXT_provoking_vertex) {
++      VkPhysicalDeviceProvokingVertexPropertiesEXT *pv = vkr_find_struct(
++         args->pProperties->pNext,
++         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_PROPERTIES_EXT);
++      if (pv) {
++         pv->provokingVertexModePerPipeline = VK_TRUE;
++         pv->transformFeedbackPreservesTriangleFanProvokingVertex = VK_FALSE;
++      }
++   }
+ }
+ 
+ static void
+diff --git a/src/venus/vkr_physical_device.h b/src/venus/vkr_physical_device.h
+index d51c9f4..554db3e 100644
+--- a/src/venus/vkr_physical_device.h
++++ b/src/venus/vkr_physical_device.h
+@@ -26,6 +26,9 @@ struct vkr_physical_device {
+    bool KHR_portability_subset;
+    bool EXT_image_drm_format_modifier;
+    bool EXT_queue_family_foreign;
++   /* Host lacks it (Metal is first-vertex only); advertised so GLES 3 clients
++    * such as ANGLE start.  Flat shading keeps the host convention. */
++   bool EXT_provoking_vertex;
+ 
+    bool KHR_external_fence_fd;
+ 
+diff --git a/src/venus/vkr_renderer.c b/src/venus/vkr_renderer.c
+index 0b3a7e6..2c0afec 100644
+--- a/src/venus/vkr_renderer.c
++++ b/src/venus/vkr_renderer.c
+@@ -226,7 +226,8 @@ vkr_renderer_import_resource(uint32_t ctx_id,
+    TRACE_FUNC();
+ 
+    assert(res_id);
+-   assert(fd_type == VIRGL_RESOURCE_FD_DMABUF || fd_type == VIRGL_RESOURCE_FD_OPAQUE);
++   assert(fd_type == VIRGL_RESOURCE_FD_DMABUF || fd_type == VIRGL_RESOURCE_FD_OPAQUE ||
++          fd_type == VIRGL_RESOURCE_FD_SHM);
+    assert(fd >= 0);
+    assert(size);
+ 
+diff --git a/src/vrend/vrend_metal.h b/src/vrend/vrend_metal.h
+index f56a05e..21647e8 100644
+--- a/src/vrend/vrend_metal.h
++++ b/src/vrend/vrend_metal.h
+@@ -20,6 +20,7 @@ struct vrend_metal_texture_description {
+    unsigned bind;
+    unsigned usage;
+    uint32_t format;
++   bool strict_stride;
+ };
+ 
+ bool virgl_metal_create_texture(MTLDevice_id device,
+diff --git a/src/vrend/vrend_metal.m b/src/vrend/vrend_metal.m
+index e8ded74..ef13676 100644
+--- a/src/vrend/vrend_metal.m
++++ b/src/vrend/vrend_metal.m
+@@ -140,6 +140,15 @@ bool virgl_metal_create_texture_from_shm(MTLDevice_id device,
+    descriptor.resourceOptions = MTLResourceStorageModeShared;
+    deviceAlignment = [mtl_device minimumLinearTextureAlignmentForPixelFormat:descriptor.pixelFormat];
+    bytesPerRow = align(desc->stride, deviceAlignment);
++   if (desc->strict_stride &&
++       (desc->offset > size ||
++        !desc->height || bytesPerRow > (size - desc->offset) / desc->height)) {
++      fprintf(stderr, "interop: Metal layout rejected %ux%u pitch=%u required=%lu alignment=%lu size=%zu\n",
++              desc->width, desc->height, desc->stride,
++              (unsigned long)bytesPerRow, (unsigned long)deviceAlignment, size);
++      [descriptor release];
++      return false;
++   }
+ 
+    /* newBufferWithBytesNoCopy requires a page-aligned pointer and length */
+    const size_t page_size = getpagesize();
+diff --git a/src/vrend/vrend_renderer.c b/src/vrend/vrend_renderer.c
+index e6ae007..8035998 100644
+--- a/src/vrend/vrend_renderer.c
++++ b/src/vrend/vrend_renderer.c
+@@ -40,6 +40,8 @@
+ #include "util/u_dual_blend.h"
+ #include "util/hash_table.h"
+ #include "util/ralloc.h"
++#include "util/anon_file.h"
++#include "util/os_file.h"
+ 
+ #include "util/u_thread.h"
+ #include "util/u_format.h"
+@@ -7635,6 +7637,16 @@ static enum virgl_resource_fd_type vrend_pipe_resource_export_fd(UNUSED struct p
+                                                                  UNUSED int *fd,
+                                                                  UNUSED void *data)
+ {
++#ifdef ENABLE_METAL
++   struct vrend_resource *metal_res = (struct vrend_resource *)pres;
++   if (metal_res->metal_shm_fd_plus_one) {
++      *fd = os_dupfd_cloexec(metal_res->metal_shm_fd_plus_one - 1);
++      return *fd >= 0 ? VIRGL_RESOURCE_FD_SHM : VIRGL_RESOURCE_FD_INVALID;
++   }
++   virgl_warn("interop: unexportable format=%u size=%ux%u bind=%x target=%u samples=%u layers=%u\n",
++              pres->format, pres->width0, pres->height0, pres->bind,
++              pres->target, pres->nr_samples, pres->array_size);
++#endif
+ #if defined(HAVE_EPOXY_EGL_H) && defined(ENABLE_GBM_ALLOCATION)
+    struct vrend_resource *res = (struct vrend_resource *)pres;
+ 
+@@ -8760,25 +8772,60 @@ static void vrend_resource_metal_init(UNUSED struct vrend_resource *gr, UNUSED u
+ {
+ #if defined(ENABLE_METAL) && defined(HAVE_EPOXY_EGL_H)
+    MTLTexture_id tex = NULL;
++   int shm_fd = -1;
+ 
+    if (!vrend_state.native_share_texture)
+       return;
+ 
+-   if ((gr->base.bind & VIRGL_RES_BIND_SCANOUT) == 0)
++   const bool share_linear = (gr->base.bind & VIRGL_BIND_SHARED) &&
++      gr->base.target == PIPE_TEXTURE_2D && gr->base.array_size == 1 &&
++      (format == VIRGL_FORMAT_R8G8B8A8_UNORM ||
++       format == VIRGL_FORMAT_R8G8B8X8_UNORM ||
++       format == VIRGL_FORMAT_B8G8R8A8_UNORM ||
++       format == VIRGL_FORMAT_B8G8R8X8_UNORM ||
++       format == VIRGL_FORMAT_R16G16B16A16_FLOAT ||
++       format == VIRGL_FORMAT_R16G16B16X16_FLOAT ||
++       format == VIRGL_FORMAT_R10G10B10A2_UNORM ||
++       format == VIRGL_FORMAT_R10G10B10X2_UNORM);
++   if (!share_linear && (gr->base.bind & VIRGL_RES_BIND_SCANOUT) == 0)
+       return;
+ 
+    if (gr->base.depth0 != 1 || gr->base.last_level != 0 || gr->base.nr_samples > 1)
+       return;
+ 
+-   if (!virgl_egl_metal_create_texture(egl, &gr->base, format, &tex))
++   if (share_linear) {
++      const uint64_t stride = (uint64_t)gr->base.width0 * util_format_get_blocksize(format);
++      /* The guest never maps this memory: only Metal and MoltenVK do, and both
++       * pick the device-aligned row pitch.  Reserve room for that padding. */
++      const uint64_t bytes = ((stride + 255) & ~(uint64_t)255) * gr->base.height0;
++      const uint64_t page = getpagesize();
++      if (!bytes || stride > UINT32_MAX || bytes > INT64_MAX - page)
++         return;
++      const uint64_t size = (bytes + page - 1) & ~(page - 1);
++      shm_fd = os_create_anonymous_file(size, "vrend-window");
++      if (shm_fd < 0)
++         goto fail;
++      const struct vrend_metal_texture_description desc = {
++         .width = gr->base.width0, .height = gr->base.height0,
++         .stride = stride, .bind = gr->base.bind, .usage = gr->base.usage,
++         .format = format, .strict_stride = true,
++      };
++      if (!virgl_egl_metal_create_texture_from_shm(egl, shm_fd, size, &desc, &tex))
++         goto fail;
++   } else if (!virgl_egl_metal_create_texture(egl, &gr->base, format, &tex)) {
+       goto fail;
++   }
+ 
+    gr->egl_image = virgl_egl_metal_image_from_texture(egl, tex);
+    if (!gr->egl_image)
+       goto fail;
+ 
+    gr->metal_texture = tex;
++   gr->metal_shm_fd_plus_one = shm_fd + 1;
+    gr->metal_native = true;
++   if (shm_fd >= 0)
++      virgl_info("interop: shared color buffer %ux%u format %u\n",
++                 gr->base.width0, gr->base.height0, format);
+ 
+    gr->storage_bits |= VREND_STORAGE_NATIVE_TEXTURE;
+    gr->storage_bits |= VREND_STORAGE_EGL_IMAGE;
+@@ -8787,6 +8834,8 @@ static void vrend_resource_metal_init(UNUSED struct vrend_resource *gr, UNUSED u
+ fail:
+    if (tex)
+       virgl_metal_release_texture(tex);
++   if (shm_fd >= 0)
++      close(shm_fd);
+    gr->metal_texture = NULL;
+ #endif
+ }
+@@ -9168,6 +9217,8 @@ void vrend_renderer_resource_destroy(struct vrend_resource *res)
+ #ifdef ENABLE_METAL
+    if (res->metal_texture)
+       virgl_metal_release_texture(res->metal_texture);
++   if (res->metal_shm_fd_plus_one)
++      close(res->metal_shm_fd_plus_one - 1);
+ #endif
+    free(res);
+ }
+diff --git a/src/vrend/vrend_renderer.h b/src/vrend/vrend_renderer.h
+index 814eb7e..63eedda 100644
+--- a/src/vrend/vrend_renderer.h
++++ b/src/vrend/vrend_renderer.h
+@@ -112,6 +112,8 @@ struct vrend_resource {
+ #endif
+ #ifdef ENABLE_METAL
+    MTLTexture_id metal_texture;
++   /* Zero for ordinary resources; otherwise owns (fd + 1). */
++   int metal_shm_fd_plus_one;
+    /* Backed by a Metal texture whose MTLPixelFormat already matches the virgl
+     * format (e.g. BGRA -> MTLPixelFormatBGRA8Unorm). Such resources are sampled
+     * in the correct channel order, so the red/blue compensation swizzle that

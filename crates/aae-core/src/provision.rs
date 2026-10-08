@@ -412,15 +412,13 @@ async fn measure_audio_inner(device: &mut Device, adb: &Adb) {
     let Ok(info) = crate::emulator::running(device) else {
         return;
     };
-    let token = crate::emulator::grpc_token(&info);
-    let controller =
-        match crate::control::Controller::connect(info.grpc_port, token.as_deref()).await {
-            Ok(controller) => controller,
-            Err(e) => {
-                tracing::warn!("couldn't measure the device's audio: {e}");
-                return;
-            }
-        };
+    let controller = match crate::control::Controller::for_runtime(&info, adb.clone()).await {
+        Ok(controller) => controller,
+        Err(e) => {
+            tracing::warn!("couldn't measure the device's audio: {e}");
+            return;
+        }
+    };
     match crate::audio::measure_speed(&controller, adb).await {
         Ok(speed) => {
             if (speed - 1.0).abs() > 0.01 {

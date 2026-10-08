@@ -55,6 +55,20 @@ Below these, Android starts but is too slow to use with a screen reader. Setup a
 - Apps: open, force stop, clear, uninstall; permissions and special access (battery, overlay, usage access, system settings) as switches, with Grant All.
 - Links and intents, keys and text, rotation, clipboard both ways, screenshots, named snapshots with notes.
 
+### Googlebook devices
+
+Mac with Apple silicon only.
+
+- Googlebook OS (Android 17, desktop) in a QEMU virtual machine. New Device lists it as "Googlebook OS (Android 17), virtual machine"; `aae create <name> --googlebook`.
+- Installed on first use, into AAE's data folder: AAE's Googlebook components (8 MB), UTM 5.0.6 for its QEMU (300 MB), Google's Cuttlefish image (1.1 GB), from which AAE extracts virtual-device services and kernel modules, and Google's recovery image for the Dell Googlebook (7.6 GB), each checked against a pinned SHA-256; downloads resume. AAE assembles the disk itself, about 20 GB. Google's image is never changed; the disk is a copy-on-write clone of it.
+- Each device's disk is a clone of the assembled one. Display 1920 by 1200, 4 GB of memory.
+- The same device logic as emulator devices: setup, screen reader, AAE's helper, speech log, speech bridge, inspector, apps, keys and gestures. The VM has a USB keyboard and a virtio touchscreen; adb reaches Android through a port forwarded on 127.0.0.1, authorised with AAE's adb key; sound comes to AAE over SPICE, so volume, mute and audio output work.
+- Back, Home, App Switch, Power and the media keys go through `input keyevent`: a USB keyboard has no such keys.
+- AAE switches to the desktop user after every start (Googlebook OS starts on a user picker) and sets Android's time zone to the computer's.
+- Stop shuts Android down; there is no quick-boot snapshot. Start takes about 45 seconds.
+- Not available: snapshots, rotation, folding, battery, location, phone and text messages, fingerprint, shake, microphone, clipboard, hardware changes, export.
+- `googlebook/build.sh` builds the component bundle (virglrenderer with a macOS buffer-sharing patch, Mesa for Android, and the image tools) and an archive of the source of its GPL and LGPL programs; `googlebook/release.sh` builds both for release `googlebook-components-<version>` and pins the bundle in AAE. Based on gbos-vm; see `googlebook/NOTICE.md`.
+
 ### Audio and speech
 
 - Device audio is played by AAE from the emulator's gRPC stream; the emulator's own output is off. Per-device volume, mute and audio output. With several devices running, only the one in use plays (Settings).

@@ -65,6 +65,28 @@ impl Adb {
         Ok(stdout)
     }
 
+    /// A screenshot of the device's display as PNG bytes.
+    pub async fn screenshot_png(&self) -> Result<Vec<u8>> {
+        let run = Command::new(&self.bin)
+            .no_console()
+            .arg("-s")
+            .arg(&self.serial)
+            .args(["exec-out", "screencap", "-p"])
+            .kill_on_drop(true)
+            .output();
+        let out = tokio::time::timeout(Duration::from_secs(30), run)
+            .await
+            .map_err(|_| Error::Adb("the screenshot took over 30 seconds".into()))?
+            .map_err(|e| Error::Adb(format!("adb could not run: {e}")))?;
+        if !out.status.success() || !out.stdout.starts_with(b"\x89PNG") {
+            return Err(Error::Adb(format!(
+                "no screenshot ({})",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+        Ok(out.stdout)
+    }
+
     /// Runs a shell command on the device and returns what it printed.
     pub async fn shell(&self, command: &str) -> Result<String> {
         Ok(self.raw(&["shell", command]).await?.trim_end().to_string())
@@ -292,14 +314,31 @@ impl Adb {
     }
 }
 
-/// Reads the `Enabled services:{{a/b}, {c/d}}` line of `dumpsys accessibility`.
+/// Reads the `Enabled services:{{a/b}, {c/d}}` line of `dumpsys accessibility`,
+/// for the user in the foreground. With more than one user, as on Googlebook
+/// OS, whose desktop user isn't the system user, each has its own list.
 fn parse_running_services(dump: &str) -> Vec<String> {
-    let Some(line) = dump
+    let current = dump
         .lines()
-        .find_map(|l| l.trim().strip_prefix("Enabled services:"))
-    else {
-        return Vec::new();
-    };
+        .find_map(|l| l.trim().strip_prefix("currentUserId="))
+        .map(str::trim);
+    let mut user: Option<&str> = None;
+    let mut first = None;
+    for line in dump.lines().map(str::trim) {
+        if let Some(rest) = line.strip_prefix("attributes:{id=") {
+            user = rest.split(',').next();
+        }
+        if let Some(list) = line.strip_prefix("Enabled services:") {
+            if current.is_none() || user == current {
+                return parse_service_list(list);
+            }
+            first.get_or_insert(list);
+        }
+    }
+    first.map(parse_service_list).unwrap_or_default()
+}
+
+fn parse_service_list(line: &str) -> Vec<String> {
     line.split(['{', '}', ','])
         .map(str::trim)
         .filter(|part| part.contains('/'))
@@ -365,6 +404,12 @@ mod tests {
         let dump = "User state[\n     Bound services:{Service[label=X]}\n     Enabled services:{{a.b/a.b.S}, {c/.D}}\n";
         assert_eq!(parse_running_services(dump), vec!["a.b/a.b.S", "c/.D"]);
         assert!(parse_running_services("Enabled services:{}").is_empty());
+    }
+
+    #[test]
+    fn reads_running_services_of_the_current_user() {
+        let dump = "currentUserId=10\nUser state[\n     attributes:{id=0, x=1}\n     Enabled services:{}\nUser state[\n     attributes:{id=10, x=1}\n     Enabled services:{{a.b/a.b.S}}\n";
+        assert_eq!(parse_running_services(dump), vec!["a.b/a.b.S"]);
     }
 
     #[test]

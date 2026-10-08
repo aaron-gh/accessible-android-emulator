@@ -185,6 +185,11 @@ enum Command {
         /// The screen reader APK to install, such as a Backtalk build.
         #[arg(long)]
         screen_reader: Option<PathBuf>,
+        /// Googlebook OS in a virtual machine instead of an Android version.
+        /// Installs it first if needed (about 8 GB to download). Apple silicon
+        /// Macs only.
+        #[arg(long, conflicts_with_all = ["api", "kind"])]
+        googlebook: bool,
         /// If the Android image has no screen reader, download and install Backtalk.
         #[arg(long)]
         backtalk: bool,
@@ -1197,6 +1202,7 @@ async fn run(cli: Cli) -> Result<()> {
             kind,
             profile,
             screen_reader,
+            googlebook,
             backtalk,
             no_animations,
             no_volume_boost,
@@ -1204,13 +1210,20 @@ async fn run(cli: Cli) -> Result<()> {
             accept_licence,
             attach,
         } => {
-            let image = match (pick_image(&ctx.sdk, api.as_deref(), kind), api.as_deref()) {
-                (Ok(image), _) => image,
-                // Not installed: download it.
-                (Err(_), Some(api)) => download_image(&ctx, api, kind, accept_licence).await?,
-                (Err(e), None) => return Err(e),
+            let mut device = if googlebook {
+                if !aae_core::googlebook::install::installed() {
+                    install_googlebook().await?;
+                }
+                ctx.store.create_googlebook(&name)?
+            } else {
+                let image = match (pick_image(&ctx.sdk, api.as_deref(), kind), api.as_deref()) {
+                    (Ok(image), _) => image,
+                    // Not installed: download it.
+                    (Err(_), Some(api)) => download_image(&ctx, api, kind, accept_licence).await?,
+                    (Err(e), None) => return Err(e),
+                };
+                ctx.store.create(&name, &image, profile.into())?
             };
-            let mut device = ctx.store.create(&name, &image, profile.into())?;
             println!("Created {}.", device.describe());
             if no_start {
                 return Ok(());
@@ -3009,6 +3022,31 @@ async fn latency(ctx: &Ctx, name: &str, names: &str, trials: usize) -> Result<()
     Ok(())
 }
 
+/// Installs Googlebook OS, saying how it goes.
+async fn install_googlebook() -> Result<()> {
+    use aae_core::googlebook::install::{self, Progress};
+    println!(
+        "Installing Googlebook OS: about {} to download, {} on disk.",
+        aae_core::device::human_size(install::DOWNLOAD_BYTES),
+        aae_core::device::human_size(install::DISK_BYTES)
+    );
+    tokio::task::spawn_blocking(|| {
+        let mut last = (String::new(), u64::MAX);
+        install::install(&mut |p| match p {
+            Progress::Step(step) => println!("{step}"),
+            Progress::Downloading { what, done, total } => {
+                let tenth = done * 10 / total.max(1);
+                if last.0 != what || last.1 != tenth {
+                    last = (what.to_string(), tenth);
+                    println!("Downloading {what}: {}%.", tenth * 10);
+                }
+            }
+        })
+    })
+    .await??;
+    Ok(())
+}
+
 async fn status(ctx: &Ctx, name: &str) -> Result<()> {
     let device = ctx.device(name)?;
     println!("{}.", device.describe());
@@ -3016,9 +3054,8 @@ async fn status(ctx: &Ctx, name: &str) -> Result<()> {
         println!("It is stopped.");
         return Ok(());
     };
-    let controller =
-        Controller::connect(info.grpc_port, emulator::grpc_token(&info).as_deref()).await?;
-    let adb = Adb::new(ctx.sdk.adb_bin()?, info.serial());
+    let adb = emulator::adb_for(&ctx.sdk, &info).await?;
+    let controller = Controller::for_runtime(&info, adb.clone()).await?;
     let booted = adb.boot_completed().await;
     println!(
         "It is running{}.",

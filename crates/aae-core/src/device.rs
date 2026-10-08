@@ -81,11 +81,31 @@ const FOLDABLE: &[(&str, &str)] = &[
     ("hw.displayRegion.0.1.height", "2208"),
 ];
 
+/// What runs a device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeviceKind {
+    /// Google's Android emulator, from an SDK system image.
+    #[default]
+    Emulator,
+    /// Googlebook OS in a QEMU virtual machine, from a gbos-vm build (see
+    /// [`crate::googlebook`]). Apple silicon Macs only.
+    Googlebook,
+}
+
+impl DeviceKind {
+    pub fn is_emulator(&self) -> bool {
+        *self == DeviceKind::Emulator
+    }
+}
+
 /// What AAE stores about a device, in `aae.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceMeta {
     /// The name the user chose, such as "Pixel 15 clean".
     pub name: String,
+    #[serde(default, skip_serializing_if = "DeviceKind::is_emulator")]
+    pub kind: DeviceKind,
     pub api: u32,
     /// The exact release, such as "Android 16 (API 36.1)" or "Android 17
     /// Beta 3 preview, 16 KB pages". Missing for devices made before AAE
@@ -186,12 +206,31 @@ pub struct RuntimeInfo {
     pub adb_port: u16,
     pub grpc_port: u16,
     pub log: PathBuf,
+    /// For a Googlebook device, its virtual machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm: Option<VmRuntime>,
+}
+
+/// A running Googlebook device's virtual machine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VmRuntime {
+    /// Where QEMU's sockets are: control (`qmp.sock`), sound (`spice.sock`)
+    /// and serial console (`serial.sock`). Short, as socket paths must be.
+    pub run_dir: PathBuf,
+    /// The display's size in pixels.
+    pub width: u32,
+    pub height: u32,
 }
 
 impl RuntimeInfo {
-    /// The adb serial number, such as `emulator-5554`.
+    /// The adb serial number, such as `emulator-5554`, or for a Googlebook
+    /// device, the address adb connects to, such as `127.0.0.1:6520`.
     pub fn serial(&self) -> String {
-        format!("emulator-{}", self.console_port)
+        if self.vm.is_some() {
+            format!("127.0.0.1:{}", self.adb_port)
+        } else {
+            format!("emulator-{}", self.console_port)
+        }
     }
 }
 
@@ -212,6 +251,9 @@ impl Device {
     }
 
     pub fn describe(&self) -> String {
+        if self.meta.kind == DeviceKind::Googlebook {
+            return format!("{}: {}, virtual machine", self.meta.name, self.android());
+        }
         format!(
             "{}: {}, {}, {}",
             self.meta.name,
@@ -311,6 +353,7 @@ impl DeviceStore {
         std::fs::create_dir_all(&dir).context(|| format!("Creating {}", dir.display()))?;
         let meta = DeviceMeta {
             name: name.trim().to_string(),
+            kind: DeviceKind::Emulator,
             api: image.api,
             release: Some(if image.release.page_16k {
                 format!("{}, 16 KB pages", image.release.describe())
@@ -361,7 +404,52 @@ impl DeviceStore {
         meta.created = now();
         let device = Device { id, dir, meta };
         device.save_meta()?;
-        write_avd_ini(&device)?;
+        if device.meta.kind.is_emulator() {
+            write_avd_ini(&device)?;
+        }
+        Ok(device)
+    }
+
+    /// Creates a Googlebook device. Googlebook OS must be installed (see
+    /// [`crate::googlebook::install`]). Its disk is a copy-on-write clone of
+    /// the installed one.
+    pub fn create_googlebook(&self, name: &str) -> Result<Device> {
+        let (id, dir) = self.reserve(name)?;
+        std::fs::create_dir_all(&dir).context(|| format!("Creating {}", dir.display()))?;
+        if let Err(e) = crate::googlebook::copy_image(&dir) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(e);
+        }
+        let meta = DeviceMeta {
+            name: name.trim().to_string(),
+            kind: DeviceKind::Googlebook,
+            api: crate::googlebook::API,
+            release: Some(crate::googlebook::RELEASE.to_string()),
+            tag: crate::googlebook::TAG.to_string(),
+            abi: "arm64-v8a".to_string(),
+            sysdir: String::new(),
+            profile: Profile::Tablet,
+            created: now(),
+            notes: String::new(),
+            provisioned: false,
+            screen_reader: None,
+            screen_reader_declined: false,
+            pending_screen_reader: None,
+            audio_speed: Some(1.0),
+            speech_log_engine: None,
+            playback_volume: None,
+            software_graphics: false,
+            audio_output: None,
+            keyboard_layout: None,
+            cores: None,
+            speech_bridge: false,
+            speech_log: None,
+            relay_verified: None,
+            keep_enabled: Vec::new(),
+            app_choices: Default::default(),
+        };
+        let device = Device { id, dir, meta };
+        device.save_meta()?;
         Ok(device)
     }
 
@@ -434,8 +522,8 @@ impl DeviceStore {
 
     /// Rewrites each device's `<id>.ini` pointer, in case the store was moved.
     pub fn repair_pointers(&self) -> Result<()> {
-        for device in self.list()? {
-            write_avd_ini(&device)?;
+        for device in self.list()?.iter().filter(|d| d.meta.kind.is_emulator()) {
+            write_avd_ini(device)?;
         }
         Ok(())
     }

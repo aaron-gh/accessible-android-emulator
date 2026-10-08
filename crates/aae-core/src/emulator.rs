@@ -49,6 +49,9 @@ pub fn start(
         }
         device.set_runtime(None)?;
     }
+    if device.meta.kind == crate::device::DeviceKind::Googlebook {
+        return crate::googlebook::start(sdk, store, device);
+    }
     store.repair_pointers()?;
 
     let used: Vec<RuntimeInfo> = store.list()?.iter().filter_map(Device::runtime).collect();
@@ -140,6 +143,7 @@ pub fn start(
         adb_port: console_port + 1,
         grpc_port,
         log,
+        vm: None,
     };
     device.set_runtime(Some(&info))?;
     // Reap the process when it exits, so it doesn't linger as a zombie while
@@ -177,6 +181,9 @@ pub async fn wait_until_ready(
     timeout: Duration,
     mut progress: impl FnMut(BootStage),
 ) -> Result<(Controller, Adb)> {
+    if info.vm.is_some() {
+        return crate::googlebook::wait_until_ready(sdk, info, timeout, progress).await;
+    }
     let started = tokio::time::Instant::now();
     let deadline = started + timeout;
     let adb = Adb::new(sdk.adb_bin()?, info.serial());
@@ -245,15 +252,39 @@ pub async fn wait_until_ready(
 /// Connects to a device that is already running.
 pub async fn attach(sdk: &Sdk, device: &Device) -> Result<(RuntimeInfo, Controller, Adb)> {
     let info = running(device)?;
-    let controller = Controller::connect(info.grpc_port, grpc_token(&info).as_deref()).await?;
-    let adb = Adb::new(sdk.adb_bin()?, info.serial());
+    let adb = adb_for(sdk, &info).await?;
+    let controller = Controller::for_runtime(&info, adb.clone()).await?;
     Ok((info, controller, adb))
+}
+
+/// adb for a running device. For a Googlebook device, adb is connected to it first.
+pub async fn adb_for(sdk: &Sdk, info: &RuntimeInfo) -> Result<Adb> {
+    let adb = Adb::new(sdk.adb_bin()?, info.serial());
+    if info.vm.is_some() {
+        crate::googlebook::connect_adb(&adb).await;
+    }
+    Ok(adb)
 }
 
 /// Restarts Android inside a running device and waits until it is back. Unlike
 /// stopping and cold booting, this keeps everything on the device's disk.
 pub async fn reboot(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
     let info = running(device)?;
+    if info.vm.is_some() {
+        // QEMU exits when Android restarts, so the VM is started again.
+        let adb = Adb::new(sdk.adb_bin()?, info.serial());
+        crate::googlebook::stop(device, &info, Some(&adb), timeout).await?;
+        let store = crate::device::DeviceStore::open(
+            device
+                .dir
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default(),
+        )?;
+        let info = crate::googlebook::start(sdk, &store, device)?;
+        crate::googlebook::wait_until_ready(sdk, &info, timeout, |_| {}).await?;
+        return Ok(());
+    }
     let adb = Adb::new(sdk.adb_bin()?, info.serial());
     let _ = adb.shell("sync").await;
     // The connection drops as Android goes down, so the result doesn't matter.
@@ -282,6 +313,11 @@ pub fn running(device: &Device) -> Result<RuntimeInfo> {
 /// hasn't exited after `timeout`.
 pub async fn stop(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
     let info = running(device)?;
+    if info.vm.is_some() {
+        // A VM has no quick-boot snapshot: Android shuts down.
+        let adb = Adb::new(sdk.adb_bin()?, info.serial());
+        return crate::googlebook::stop(device, &info, Some(&adb), timeout).await;
+    }
     let adb = Adb::new(sdk.adb_bin()?, info.serial());
     // Flush Android's disk writes first. "emu kill" saves memory in the
     // quick-boot snapshot, and writes still in memory would be missing from
@@ -305,6 +341,9 @@ pub async fn stop(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
 /// Android isn't running. Start it next with `cold_boot`, as any state the
 /// emulator saves on the way out is of that Android.
 pub async fn force_stop(device: &Device, info: &RuntimeInfo) -> Result<()> {
+    if info.vm.is_some() {
+        return crate::googlebook::stop(device, info, None, Duration::from_secs(1)).await;
+    }
     terminate(info.pid);
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     while is_alive(info.pid) && tokio::time::Instant::now() < deadline {
@@ -510,6 +549,7 @@ mod discovery_tests {
             adb_port: 5557,
             grpc_port: 8556,
             log: "emulator.log".into(),
+            vm: None,
         }
     }
 

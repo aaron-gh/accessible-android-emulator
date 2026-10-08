@@ -96,12 +96,16 @@ pub async fn wipe_device(
     mut report: impl FnMut(Progress),
 ) -> Result<(Controller, Adb)> {
     let adb = match emulator::running(device) {
-        Ok(info) => Some(Adb::new(sdk.adb_bin()?, info.serial())),
+        Ok(info) => Some(emulator::adb_for(sdk, &info).await?),
         Err(_) => None,
     };
     let screen_reader = provision::screen_reader_for_wipe(device, adb.as_ref()).await;
     if adb.is_some() {
         emulator::stop(sdk, device, Duration::from_secs(60)).await?;
+    }
+    // A Googlebook device's disk is replaced with a new copy of the installed one.
+    if device.meta.kind == crate::device::DeviceKind::Googlebook {
+        crate::googlebook::copy_image(&device.dir)?;
     }
     // Snapshots hold the old data, so they go too, the quick-boot one included.
     let snapshots = device.dir.join("snapshots");

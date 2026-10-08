@@ -48,9 +48,12 @@ struct NewDeviceView: View {
 
                 Toggle("Include previews of upcoming Android releases", isOn: $model.includePreviews)
 
-                Picker("Size", selection: $profile) {
-                    ForEach(profiles.indices, id: \.self) { index in
-                        Text(profiles[index].0).tag(index)
+                // A Googlebook device has one size, a 1920 by 1200 laptop screen.
+                if !isGooglebook {
+                    Picker("Size", selection: $profile) {
+                        ForEach(profiles.indices, id: \.self) { index in
+                            Text(profiles[index].0).tag(index)
+                        }
                     }
                 }
 
@@ -80,6 +83,10 @@ struct NewDeviceView: View {
             versionIndex = model.versions.firstIndex(where: \.installed) ?? 0
             model.loadVersions()
         }
+    }
+
+    private var isGooglebook: Bool {
+        model.versions.indices.contains(versionIndex) && model.versions[versionIndex].tag == "googlebook"
     }
 
     private func versionLabel(_ version: VersionInfo) -> String {

@@ -764,14 +764,14 @@ fn goertzel(samples: &[f32], hz: f64, rate: f64) -> f64 {
 
 /// Linear-interpolation resampler for interleaved stereo, used only when the
 /// host output runs faster than the emulator can produce.
-struct Resampler {
+pub(crate) struct Resampler {
     step: f64,
     position: f64,
     previous: (i16, i16),
 }
 
 impl Resampler {
-    fn new(from: u32, to: u32) -> Self {
+    pub(crate) fn new(from: u32, to: u32) -> Self {
         Resampler {
             step: from as f64 / to as f64,
             position: 0.0,
@@ -779,7 +779,7 @@ impl Resampler {
         }
     }
 
-    fn push(&mut self, left: i16, right: i16, out: &mut Vec<i16>) {
+    pub(crate) fn push(&mut self, left: i16, right: i16, out: &mut Vec<i16>) {
         if self.step == 1.0 {
             out.push(left);
             out.push(right);

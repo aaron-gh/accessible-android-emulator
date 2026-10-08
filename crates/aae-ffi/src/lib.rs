@@ -129,7 +129,11 @@ impl DeviceInfo {
             name: device.meta.name.clone(),
             android: device.android(),
             kind: image_kind(&device.meta.tag).to_string(),
-            profile: device.meta.profile.describe().to_string(),
+            profile: if device.meta.kind == aae_core::device::DeviceKind::Googlebook {
+                "Laptop".to_string()
+            } else {
+                device.meta.profile.describe().to_string()
+            },
             running: emulator::running(device).is_ok(),
             instance: emulator::running(device).ok().map(|r| instance(&r)),
             screen_reader: device
@@ -1127,7 +1131,30 @@ impl Engine {
                 }
             }
             versions.sort_by(|a, b| a.0.cmp(&b.0));
-            Ok(versions.into_iter().map(|(_, v)| v).collect())
+            let mut versions: Vec<VersionInfo> = versions.into_iter().map(|(_, v)| v).collect();
+            // Last, so the newest emulator version stays the one chosen first.
+            if aae_core::googlebook::supported() {
+                let installed = aae_core::googlebook::install::installed();
+                versions.push(VersionInfo {
+                    id: aae_core::googlebook::TAG.to_string(),
+                    api: aae_core::googlebook::API,
+                    preview: false,
+                    tag: aae_core::googlebook::TAG.to_string(),
+                    description: format!("{}, virtual machine", aae_core::googlebook::RELEASE),
+                    installed,
+                    size: if installed {
+                        String::new()
+                    } else {
+                        human_size(aae_core::googlebook::install::DOWNLOAD_BYTES)
+                    },
+                    sysdir: if installed {
+                        aae_core::googlebook::TAG.to_string()
+                    } else {
+                        String::new()
+                    },
+                });
+            }
+            Ok(versions)
         })
         .await
     }
@@ -1174,6 +1201,37 @@ impl Engine {
         id: String,
         listener: Arc<dyn DownloadListener>,
     ) -> Result<ImageInfo, AaeError> {
+        if id == aae_core::googlebook::TAG {
+            return on_runtime(async move {
+                tokio::task::spawn_blocking(move || {
+                    let mut last = u32::MAX;
+                    aae_core::googlebook::install::install(&mut |p| match p {
+                        aae_core::googlebook::install::Progress::Step(step) => {
+                            last = u32::MAX;
+                            listener.stage(step)
+                        }
+                        aae_core::googlebook::install::Progress::Downloading { done, total, .. } => {
+                            let percent = (done * 100 / total.max(1)).min(100) as u32;
+                            if percent != last {
+                                last = percent;
+                                listener.downloaded(percent);
+                            }
+                        }
+                    })
+                })
+                .await
+                .map_err(|e| AaeError::Failed {
+                    message: e.to_string(),
+                })??;
+                Ok(ImageInfo {
+                    sysdir: aae_core::googlebook::TAG.to_string(),
+                    api: aae_core::googlebook::API,
+                    release: aae_core::googlebook::TAG.to_string(),
+                    description: aae_core::googlebook::RELEASE.to_string(),
+                })
+            })
+            .await;
+        }
         let sdk = self.sdk.clone();
         on_runtime(async move {
             let catalogue = load_catalogue().await?;
@@ -1223,6 +1281,10 @@ impl Engine {
         sysdir: String,
         profile: DeviceProfile,
     ) -> Result<DeviceInfo, AaeError> {
+        if sysdir == aae_core::googlebook::TAG {
+            let device = self.store.create_googlebook(&name)?;
+            return Ok(DeviceInfo::from_device(&device));
+        }
         let image = self
             .sdk
             .system_images()

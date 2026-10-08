@@ -79,6 +79,14 @@ pub enum Error {
     #[error("Audio problem: {0}")]
     Audio(String),
 
+    /// A Googlebook device's virtual machine failed.
+    #[error("{0}")]
+    Vm(String),
+
+    /// Something Google's emulator does that a Googlebook device can't.
+    #[error("{0} isn't available on Googlebook devices.")]
+    NotOnGooglebook(&'static str),
+
     #[error("Could not reach the device's control service: {0}")]
     Connect(#[from] tonic::transport::Error),
 
