@@ -97,6 +97,7 @@ Mac with Apple silicon only.
   - Hold 2, 3 or 4 for that many fingers.
   - Touch point: Tab and Shift-Tab move between screen elements, Shift-arrows move in steps, C centres, W says what's there and its position in percent and pixels, D reads every property of the element there. Works without a screen reader running.
   - Question mark lists the keys.
+- Windows touchpad: in device and gesture mode, a Precision Touchpad is the device's screen, stretched to fit, so the screen reader recognises its own gestures and explore by touch works. Each touch is held back a fifth of a second to tell what it is: quick taps and swipes are replayed cleanly, as gestures from keys are, keeping their shape; a resting or slow finger, or the next tap of a double tap, goes live. The pad's top edge, nearest the keyboard, is the status bar. Follows rotation. The pointer stays still while fingers are on the pad. Windows' three- and four-finger gestures stay Windows'; set them to Nothing in Touchpad settings to use the screen reader's. Off in Settings.
 - `aae gesture <device> swipe-right double-tap`; `--at X,Y`. `aae inspect <device> --targets` lists touch targets; `--at X,Y` prints the element at a point.
 
 ### Battery, Location, Phone and Network

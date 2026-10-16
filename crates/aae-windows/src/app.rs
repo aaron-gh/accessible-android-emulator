@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use aae_ffi::{
     AaeError, AppChoice, AppPartInfo, AppPartKind, CheckOutcome, DeviceInfo, DeviceProfile,
-    DownloadListener, Engine, HardwareChoice, LicenceInfo, ProgressListener, ScreenPoint,
+    DownloadListener, Engine, HardwareChoice, LicenceInfo, PadPoint, PadTouch, ProgressListener, ScreenPoint,
     ScreenReaderSource, Session, SetupStatus, TouchTarget, TouchTargets, VersionInfo,
 };
 use windows::Win32::Foundation::HWND;
@@ -27,7 +27,7 @@ use crate::forms::{self, Field, Form, Role};
 use crate::gestures::{self, GestureAction};
 use crate::speech::{Tone, announce as speak};
 use crate::ui::{self, run_on_ui};
-use crate::{keyboard, menu, settings};
+use crate::{keyboard, menu, settings, touchpad, touchpad_input};
 
 // MARK: - Background work
 
@@ -1899,7 +1899,7 @@ fn enter_device_mode(gestures: bool) {
         }
         run_on_ui(move || {
             *TOUCH.lock().unwrap() = Touch::default();
-            if !keyboard::enter(session, gestures) {
+            if !keyboard::enter(session.clone(), gestures) {
                 announce(
                     "Couldn't give the keyboard to Android. Windows wouldn't let AAE watch the keyboard.",
                     Tone::Failure,
@@ -1916,10 +1916,24 @@ fn enter_device_mode(gestures: bool) {
             // Keys don't reach the window, but this keeps the focus off the
             // device list, so its name isn't read out again.
             ui::focus(return_button);
+            let chosen = settings::get();
+            let touchpad = chosen.touchpad
+                && touchpad_input::start(touchpad_touches, chosen.touchpad_steadiness) > 0;
+            if touchpad {
+                // The rotation, read now so the first touch needn't wait for it.
+                spawn(async move {
+                    let _ = session.refresh_screen().await;
+                });
+            }
+            let touchpad = if touchpad {
+                " The touchpad is the screen, its top edge the status bar."
+            } else {
+                ""
+            };
             if gestures {
                 announce(
                     &format!(
-                        "Gesture mode on. Arrows swipe, Space double taps, question mark lists the keys. {} returns to Windows.",
+                        "Gesture mode on. Arrows swipe, Space double taps, question mark lists the keys.{touchpad} {} returns to Windows.",
                         keyboard::return_shortcut()
                     ),
                     Tone::Info,
@@ -1927,7 +1941,7 @@ fn enter_device_mode(gestures: bool) {
             } else {
                 announce(
                     &format!(
-                        "Android keyboard on. {} returns to Windows.",
+                        "Android keyboard on.{touchpad} {} returns to Windows.",
                         keyboard::return_shortcut()
                     ),
                     Tone::Info,
@@ -1942,7 +1956,12 @@ fn leave_device_mode(quietly: bool) {
         return;
     };
     let gesture_mode = with(|app| app.gesture_mode);
-    // Lifts any held touch, while the session is still there to lift it.
+    // Lifts fingers still on the touchpad, and any held touch, while the
+    // session is still there to lift them.
+    let lifted = touchpad_input::stop();
+    if !lifted.is_empty() {
+        touchpad_touches(lifted);
+    }
     let actions = keyboard::leave();
     gesture_actions(actions);
     if gesture_mode && let Some(session) = session_if_open(&id) {
@@ -1961,6 +1980,94 @@ fn leave_device_mode(quietly: bool) {
     if !quietly {
         announce("Windows keyboard on.", Tone::Info);
     }
+}
+
+// MARK: - Touchpad
+
+/// What fingers on the touchpad do, sent in order. They have a queue of
+/// their own, as a gesture from keys can take seconds and they must keep
+/// their timing.
+fn touchpad_touches(outs: Vec<touchpad::Out>) {
+    for out in outs {
+        match out {
+            touchpad::Out::Live(touches) => touchpad_live(touches),
+            touchpad::Out::Gesture(tracks) => {
+                let tracks: Vec<Vec<PadPoint>> = tracks
+                    .into_iter()
+                    .map(|t| t.into_iter().map(|(x, y)| PadPoint { x, y }).collect())
+                    .collect();
+                touchpad_job(true, move |s| {
+                    Box::pin(async move { s.touch_gesture(tracks).await })
+                });
+            }
+        }
+    }
+}
+
+fn touchpad_live(touches: Vec<touchpad::Touch>) {
+    let all_lifted = touches.iter().all(|t| !t.down);
+    let touches: Vec<PadTouch> = touches
+        .into_iter()
+        .map(|t| PadTouch {
+            id: t.id,
+            x: t.x,
+            y: t.y,
+            down: t.down,
+        })
+        .collect();
+    touchpad_job(all_lifted, move |s| {
+        Box::pin(async move { s.touch_screen(touches).await })
+    });
+}
+
+/// Queues touches for the device in use; `all_lifted` once they leave no
+/// finger down.
+fn touchpad_job(
+    all_lifted: bool,
+    send: impl FnOnce(Arc<Session>) -> Pin<Box<dyn Future<Output = Result<(), AaeError>> + Send>>
+    + Send
+    + 'static,
+) {
+    static QUEUE: OnceLock<tokio::sync::mpsc::UnboundedSender<(Arc<Session>, GestureJob)>> =
+        OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(Arc<Session>, GestureJob)>();
+        spawn(async move {
+            while let Some((session, job)) = rx.recv().await {
+                let _ = job(session).await;
+            }
+        });
+        tx
+    });
+    let Some(session) = with(|app| app.device_mode.clone()).and_then(|id| session_if_open(&id))
+    else {
+        return;
+    };
+    let job: GestureJob = Box::new(move |s| {
+        Box::pin(async move {
+            if let Err(e) = send(s.clone()).await {
+                // Touches come many a second: say why they fail only now and then.
+                static SAID: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+                let mut said = SAID.lock().unwrap();
+                if said.is_none_or(|at| at.elapsed() > Duration::from_secs(5)) {
+                    *said = Some(std::time::Instant::now());
+                    say_error(e);
+                }
+            }
+            // The device may have turned; read it while no finger is down,
+            // one reading at a time, as taps come quicker than readings.
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static READING: AtomicBool = AtomicBool::new(false);
+            if all_lifted && !READING.swap(true, Ordering::SeqCst) {
+                spawn(async move {
+                    let _ = s.refresh_screen().await;
+                    READING.store(false, Ordering::SeqCst);
+                });
+            }
+            Ok(())
+        })
+    });
+    let _ = queue.send((session, job));
 }
 
 // MARK: - Gestures
@@ -3415,6 +3522,15 @@ fn diagnostic_report() {
     }
 }
 
+/// How far a touchpad tap can wobble, from 1 millimetre up.
+const STEADINESS: [&str; 5] = [
+    "1 millimetre, for quick swipes",
+    "2 millimetres",
+    "3 millimetres",
+    "4 millimetres",
+    "5 millimetres, for steady taps",
+];
+
 fn edit_settings() {
     let hwnd = with(|app| app.hwnd);
     let current = settings::get();
@@ -3441,6 +3557,17 @@ fn edit_settings() {
                     .collect(),
                 selected: current.return_shortcut as usize,
             })
+            .field(Field::Check {
+                label: "In device and gesture mode, the &touchpad is the device's screen".into(),
+                checked: current.touchpad,
+            })
+            .field(Field::Choice {
+                label: "A touchpad tap can &wobble by".into(),
+                items: STEADINESS.iter().map(|s| s.to_string()).collect(),
+                selected: (current.touchpad_steadiness as usize)
+                    .clamp(1, STEADINESS.len())
+                    - 1,
+            })
             .button("OK", 1, Role::Default)
             .button("Cancel", 0, Role::Cancel),
     );
@@ -3453,6 +3580,10 @@ fn edit_settings() {
         s.play_only_in_use = answer.values[1].checked();
         s.correct_pitch = answer.values[2].checked();
         s.return_shortcut = answer.values[3].choice().unwrap_or(0).min(2) as u8;
+        s.touchpad = answer.values[4].checked();
+        s.touchpad_steadiness = answer.values[5]
+            .choice()
+            .map_or(touchpad::SETTLE_MM, |i| i.min(STEADINESS.len() - 1) as u8 + 1);
     });
     with(|app| app.apply_audio_focus());
     if pitch_changed {

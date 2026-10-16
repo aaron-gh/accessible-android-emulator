@@ -684,6 +684,27 @@ pub struct ScreenPoint {
     pub y: i32,
 }
 
+/// A finger on the computer's touchpad, standing in for one on the screen.
+#[derive(uniffi::Record, Clone, Copy, Debug, PartialEq)]
+pub struct PadTouch {
+    /// Which finger, from 0, kept for as long as it's down.
+    pub id: i32,
+    /// Where it is, as fractions of the screen as the user sees it: 0 at
+    /// the left and top, where the status bar is, and 1 at the right and
+    /// bottom.
+    pub x: f64,
+    pub y: f64,
+    /// False lifts the finger.
+    pub down: bool,
+}
+
+/// A point on the screen, as fractions of it as `PadTouch` gives them.
+#[derive(uniffi::Record, Clone, Copy, Debug, PartialEq)]
+pub struct PadPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
 /// Something on the screen that can be touched.
 #[derive(uniffi::Record, Clone)]
 pub struct TouchTarget {
@@ -817,6 +838,27 @@ impl Session {
         screen.orientation = gestures::display_orientation(&self.adb).await;
         *cached = Some(screen);
         Ok(screen)
+    }
+
+    /// The screen as last read, reading it only the first time.
+    async fn last_screen(&self) -> Result<gestures::Screen, AaeError> {
+        let mut cached = self.screen.lock().await;
+        if let Some(screen) = *cached {
+            return Ok(screen);
+        }
+        let screen = gestures::Screen::read(&self.adb).await?;
+        *cached = Some(screen);
+        Ok(screen)
+    }
+
+    /// Streams touches to the device, so they reach it as fast as they come.
+    fn pad_send(&self, points: Vec<aae_core::control::TouchPoint>) {
+        if points.is_empty() {
+            return;
+        }
+        let mut pad = self.pad.lock().unwrap();
+        let stream = pad.get_or_insert_with(|| self.controller.touch_stream());
+        let _ = stream.send(points);
     }
 
     async fn gesture(
@@ -1828,6 +1870,8 @@ pub struct Session {
     screen: tokio::sync::Mutex<Option<gestures::Screen>>,
     /// The touches that lift fingers a held gesture left down.
     held: tokio::sync::Mutex<Option<Vec<aae_core::control::TouchPoint>>>,
+    /// Where touchpad touches go, once one has.
+    pad: Mutex<Option<mpsc::UnboundedSender<Vec<aae_core::control::TouchPoint>>>>,
     /// The keyboard layout in use, and characters being typed with it.
     typing: Mutex<Typing>,
 }
@@ -2003,6 +2047,7 @@ impl Session {
             bridge: Mutex::new(None),
             screen: tokio::sync::Mutex::new(None),
             held: tokio::sync::Mutex::new(None),
+            pad: Mutex::new(None),
             typing: Mutex::new(Typing {
                 chosen: device_meta.keyboard_layout.is_some(),
                 ..Typing::new(keyboard_layouts::for_device(&device_meta))
@@ -2719,6 +2764,98 @@ impl Session {
             if let Some(release) = self.held.lock().await.take() {
                 gestures::lift(&self.controller, &release).await?;
             }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Puts fingers down on the screen, moves them or lifts them, as they
+    /// go on a touchpad: live, so Android's touch exploration takes them as
+    /// a real finger and the screen reader recognises its own gestures.
+    /// Pass every finger down, and those lifting, each time one changes.
+    /// Positions follow the screen's rotation as last read; see
+    /// `refresh_screen`, which this doesn't wait for, so touches stay on time.
+    pub async fn touch_screen(self: Arc<Self>, touches: Vec<PadTouch>) -> Result<(), AaeError> {
+        on_runtime(async move {
+            // Nothing here stops a lift going, or Android keeps the finger.
+            let mut held = self.held.lock().await;
+            let mut failed: Option<AaeError> = None;
+            if let Some(release) = held.take()
+                && let Err(e) = gestures::lift(&self.controller, &release).await
+            {
+                failed = Some(e.into());
+            }
+            let screen = match self.last_screen().await {
+                Ok(screen) => Some(screen),
+                Err(e) => {
+                    failed = Some(e);
+                    None
+                }
+            };
+            let points: Vec<aae_core::control::TouchPoint> = touches
+                .iter()
+                // Without the screen, only lifts can go, where doesn't matter.
+                .filter(|t| screen.is_some() || !t.down)
+                .map(|t| {
+                    let (x, y) = screen.map_or((0, 0), |s| gestures::touch_at(&s, t.x, t.y));
+                    aae_core::control::TouchPoint {
+                        id: t.id,
+                        x,
+                        y,
+                        down: t.down,
+                    }
+                })
+                .collect();
+            self.pad_send(points);
+            match failed {
+                Some(e) => Err(e),
+                None => Ok(()),
+            }
+        })
+        .await
+    }
+
+    /// Plays a tap or swipe made on a touchpad, as cleanly as one from keys,
+    /// so the screen reader recognises it whatever the timing on the way:
+    /// each track is a finger's path, sampled together. See
+    /// `gestures::replay`. Touches sent after it wait for it to end.
+    pub async fn touch_gesture(self: Arc<Self>, tracks: Vec<Vec<PadPoint>>) -> Result<(), AaeError> {
+        on_runtime(async move {
+            if let Some(release) = self.held.lock().await.take() {
+                let _ = gestures::lift(&self.controller, &release).await;
+            }
+            let screen = self.last_screen().await?;
+            let tracks: Vec<Vec<(f64, f64)>> = tracks
+                .iter()
+                .map(|t| t.iter().map(|p| (p.x, p.y)).collect())
+                .collect();
+            let start = tokio::time::Instant::now();
+            for frame in gestures::replay(&screen, &tracks) {
+                tokio::time::sleep_until(start + std::time::Duration::from_millis(frame.at)).await;
+                self.pad_send(frame.touches);
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Reads the screen's size and rotation again, for `touch_screen`.
+    /// Call it before touches start and once fingers lift, as the device
+    /// may have turned.
+    pub async fn refresh_screen(self: Arc<Self>) -> Result<(), AaeError> {
+        on_runtime(async move {
+            // Read before taking the lock, which touches need meanwhile.
+            // If the device doesn't answer, it keeps the rotation it had.
+            let orientation = gestures::read_display_orientation(&self.adb).await;
+            let cached = *self.screen.lock().await;
+            let mut screen = match cached {
+                Some(screen) => screen,
+                None => gestures::Screen::read(&self.adb).await?,
+            };
+            if let Some(orientation) = orientation {
+                screen.orientation = orientation;
+            }
+            *self.screen.lock().await = Some(screen);
             Ok(())
         })
         .await
