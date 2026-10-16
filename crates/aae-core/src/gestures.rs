@@ -459,18 +459,32 @@ const REPLAY_STEP_MS: f64 = 10.0;
 
 /// Works out the touches to replay a tap or swipe made on a touchpad, as
 /// cleanly as one from keys: each track is a finger's path, as fractions of
-/// the screen as the user sees it (see [`touch_at`]), sampled together.
-/// Fingers go down and up together. A finger that stays put taps; a path
-/// keeps its shape, at least [`SWIPE_CM`] long and at the speed of keys.
-pub fn replay(screen: &Screen, tracks: &[Vec<(f64, f64)>]) -> Vec<Frame> {
+/// the screen as the user sees it (see [`touch_at`]), sampled together, on
+/// a touchpad `pad_mm` wide and high. Fingers go down and up together. A
+/// finger that stays put taps; a path keeps its shape as drawn on the pad,
+/// at least [`SWIPE_CM`] long and at the speed of keys.
+pub fn replay(screen: &Screen, tracks: &[Vec<(f64, f64)>], pad_mm: (f64, f64)) -> Vec<Frame> {
     let (w, h) = user_size(screen);
     let (w1, h1) = ((w - 1.0).max(1.0), (h - 1.0).max(1.0));
+    // Fingers start where they would touch live, the pad stretched over the
+    // screen, but move as they did on the pad. Stretched, a wide pad over a
+    // tall screen makes going down count for several times going across, so
+    // a slightly slanted swipe across arrives as one down, and the screen
+    // reader takes a swipe's direction from which way it went further.
+    let (pad_w, pad_h) = (pad_mm.0.max(1.0), pad_mm.1.max(1.0));
+    let per_mm = ((w1 / pad_w) * (h1 / pad_h)).sqrt();
     let tracks: Vec<Vec<(f64, f64)>> = tracks
         .iter()
         .filter(|t| !t.is_empty())
         .map(|t| {
+            let start = (t[0].0.clamp(0.0, 1.0), t[0].1.clamp(0.0, 1.0));
             t.iter()
-                .map(|&(x, y)| (x.clamp(0.0, 1.0) * w1, y.clamp(0.0, 1.0) * h1))
+                .map(|&(x, y)| {
+                    (
+                        start.0 * w1 + (x - start.0) * pad_w * per_mm,
+                        start.1 * h1 + (y - start.1) * pad_h * per_mm,
+                    )
+                })
                 .collect()
         })
         .collect();
@@ -517,22 +531,60 @@ pub fn replay(screen: &Screen, tracks: &[Vec<(f64, f64)>]) -> Vec<Frame> {
     }
     // Too short a swipe is drawn bigger, from where it started.
     let cm = screen.pixels_per_cm();
-    let scale = (SWIPE_CM * cm / travel).max(1.0);
-    let tracks: Vec<Vec<(f64, f64)>> = tracks
-        .iter()
-        .zip(&starts)
-        .map(|(track, start)| {
-            (0..samples)
-                .map(|k| {
-                    let p = at(track, k);
-                    (
-                        (start.0 + (p.0 - start.0) * scale).clamp(0.0, w1),
-                        (start.1 + (p.1 - start.1) * scale).clamp(0.0, h1),
-                    )
-                })
-                .collect()
-        })
-        .collect();
+    let mut scale = (SWIPE_CM * cm / travel).max(1.0);
+    let drawn = |scale: f64| -> Vec<Vec<(f64, f64)>> {
+        tracks
+            .iter()
+            .zip(&starts)
+            .map(|(track, start)| {
+                (0..samples)
+                    .map(|k| {
+                        let p = at(track, k);
+                        (
+                            start.0 + (p.0 - start.0) * scale,
+                            start.1 + (p.1 - start.1) * scale,
+                        )
+                    })
+                    .collect()
+            })
+            .collect()
+    };
+    let bounds = |tracks: &[Vec<(f64, f64)>]| {
+        tracks.iter().flatten().fold(
+            (f64::MAX, f64::MIN, f64::MAX, f64::MIN),
+            |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)),
+        )
+    };
+    // Kept on the screen whole, smaller if need be, then moved back onto it:
+    // stopping each point at the edge would bend the path, so a swipe across
+    // near the edge would keep only its drift down.
+    let (x0, x1, y0, y1) = bounds(&drawn(scale));
+    let (x0s, x1s, y0s, y1s) = bounds(&drawn(1.0));
+    let room = |lo: f64, hi: f64, lo1: f64, hi1: f64, size: f64| {
+        let (grown, base) = (hi - lo, hi1 - lo1);
+        if grown > size && grown > base {
+            // How far it can grow and still fit.
+            1.0 + (scale - 1.0) * ((size - base).max(0.0) / (grown - base))
+        } else {
+            scale
+        }
+    };
+    scale = room(x0, x1, x0s, x1s, w1).min(room(y0, y1, y0s, y1s, h1)).max(1.0);
+    let mut tracks = drawn(scale);
+    let (x0, x1, y0, y1) = bounds(&tracks);
+    let shift = |lo: f64, hi: f64, size: f64| {
+        if lo < 0.0 {
+            -lo
+        } else if hi > size {
+            (size - hi).max(-lo)
+        } else {
+            0.0
+        }
+    };
+    let (sx, sy) = (shift(x0, x1, w1), shift(y0, y1, h1));
+    for p in tracks.iter_mut().flatten() {
+        *p = ((p.0 + sx).clamp(0.0, w1), (p.1 + sy).clamp(0.0, h1));
+    }
     // How far the lead finger has gone at each sample.
     let mut gone = vec![0.0];
     for k in 1..samples {
@@ -674,7 +726,7 @@ mod tests {
 
     #[test]
     fn a_touchpad_tap_replays_as_a_clean_tap() {
-        let frames = replay(&screen(Orientation::Portrait), &[vec![(0.5, 0.5)]]);
+        let frames = replay(&screen(Orientation::Portrait), &[vec![(0.5, 0.5)]], (100.0, 200.0));
         let summary: Vec<(u64, i32, i32, bool)> = frames
             .iter()
             .map(|f| (f.at, f.touches[0].x, f.touches[0].y, f.touches[0].down))
@@ -691,6 +743,7 @@ mod tests {
         let frames = replay(
             &screen(Orientation::Portrait),
             &[vec![(0.5, 0.5), (0.525, 0.5), (0.55, 0.5)]],
+            (100.0, 200.0),
         );
         let first = &frames[0].touches[0];
         let last = &frames.last().unwrap().touches[0];
@@ -704,6 +757,48 @@ mod tests {
         assert!(frames.windows(2).all(|w| w[1].touches[0].x >= w[0].touches[0].x));
     }
 
+    /// Which way a replayed swipe went further on the screen, as the screen
+    /// reader judges it: true for across.
+    fn went_across(frames: &[Frame]) -> bool {
+        let (first, last) = (&frames[0].touches[0], &frames.last().unwrap().touches[0]);
+        (last.x - first.x).abs() > (last.y - first.y).abs()
+    }
+
+    #[test]
+    fn a_slanted_swipe_across_a_wide_pad_stays_across() {
+        // Across a pad 100 by 60 mm, 20 mm right and 8 mm down: 22 degrees.
+        // Stretched over a screen 10 by 20 cm, it would go 2 cm across and
+        // 2.7 cm down.
+        let frames = replay(
+            &screen(Orientation::Portrait),
+            &[vec![(0.4, 0.4), (0.5, 0.45), (0.6, 0.5333)]],
+            (100.0, 60.0),
+        );
+        assert!(went_across(&frames));
+        // And down stays down.
+        let frames = replay(
+            &screen(Orientation::Portrait),
+            &[vec![(0.5, 0.3), (0.55, 0.6)]],
+            (100.0, 60.0),
+        );
+        assert!(!went_across(&frames));
+    }
+
+    #[test]
+    fn a_short_swipe_near_the_edge_keeps_its_direction() {
+        // A short swipe right at the right edge, drifting down a little.
+        let frames = replay(
+            &screen(Orientation::Portrait),
+            &[vec![(0.97, 0.5), (0.99, 0.505)]],
+            (100.0, 60.0),
+        );
+        assert!(went_across(&frames));
+        // Drawn full length, moved back onto the screen to fit.
+        let (first, last) = (&frames[0].touches[0], &frames.last().unwrap().touches[0]);
+        assert!(last.x - first.x >= 240);
+        assert!(last.x <= 999);
+    }
+
     #[test]
     fn fingers_of_a_touchpad_swipe_go_down_and_up_together() {
         let frames = replay(
@@ -712,6 +807,7 @@ mod tests {
                 vec![(0.4, 0.3), (0.4, 0.6)],
                 vec![(0.6, 0.3), (0.6, 0.6)],
             ],
+            (100.0, 200.0),
         );
         assert!(frames.iter().all(|f| f.touches.len() == 2));
         assert!(frames[0].touches.iter().all(|t| t.down));

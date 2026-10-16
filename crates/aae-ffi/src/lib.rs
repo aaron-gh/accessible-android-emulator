@@ -2817,9 +2817,15 @@ impl Session {
 
     /// Plays a tap or swipe made on a touchpad, as cleanly as one from keys,
     /// so the screen reader recognises it whatever the timing on the way:
-    /// each track is a finger's path, sampled together. See
-    /// `gestures::replay`. Touches sent after it wait for it to end.
-    pub async fn touch_gesture(self: Arc<Self>, tracks: Vec<Vec<PadPoint>>) -> Result<(), AaeError> {
+    /// each track is a finger's path, sampled together, on a touchpad
+    /// `pad_width_mm` by `pad_height_mm`. See `gestures::replay`. Touches
+    /// sent after it wait for it to end.
+    pub async fn touch_gesture(
+        self: Arc<Self>,
+        tracks: Vec<Vec<PadPoint>>,
+        pad_width_mm: f64,
+        pad_height_mm: f64,
+    ) -> Result<(), AaeError> {
         on_runtime(async move {
             if let Some(release) = self.held.lock().await.take() {
                 let _ = gestures::lift(&self.controller, &release).await;
@@ -2830,7 +2836,7 @@ impl Session {
                 .map(|t| t.iter().map(|p| (p.x, p.y)).collect())
                 .collect();
             let start = tokio::time::Instant::now();
-            for frame in gestures::replay(&screen, &tracks) {
+            for frame in gestures::replay(&screen, &tracks, (pad_width_mm, pad_height_mm)) {
                 tokio::time::sleep_until(start + std::time::Duration::from_millis(frame.at)).await;
                 self.pad_send(frame.touches);
             }

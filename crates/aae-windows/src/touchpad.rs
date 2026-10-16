@@ -316,8 +316,10 @@ const NEXT_DECIDE_MS: u64 = 70;
 pub enum Out {
     /// Touches to send as they are.
     Live(Vec<Touch>),
-    /// A tap or swipe to play cleanly: each finger's path, sampled together.
-    Gesture(Vec<Vec<(f64, f64)>>),
+    /// A tap or swipe to play cleanly: each finger's path, sampled together,
+    /// and the pad's width and height in millimetres, so the path keeps the
+    /// shape it had on the pad.
+    Gesture(Vec<Vec<(f64, f64)>>, (f64, f64)),
 }
 
 enum Phase {
@@ -392,7 +394,7 @@ impl Recogniser {
                 let tracks = tracks(&frames);
                 let moved = tracks.iter().any(|t| t.len() > 1);
                 self.last_tap = (!moved).then_some(now);
-                vec![Out::Gesture(tracks)]
+                vec![Out::Gesture(tracks, self.size_mm)]
             }
             Phase::Live { start } => {
                 if all_up {
@@ -709,6 +711,10 @@ mod tests {
         assert!(!frame[0].touching);
     }
 
+    fn gesture(tracks: Vec<Vec<(f64, f64)>>) -> Out {
+        Out::Gesture(tracks, pad().size_mm())
+    }
+
     fn down(id: i32, x: f64, y: f64) -> Touch {
         Touch { id, x, y, down: true }
     }
@@ -724,7 +730,7 @@ mod tests {
         assert!(r.waiting());
         assert!(r.tick(50).is_empty());
         let out = r.touches(90, &pad(), vec![up(0, 0.5, 0.5)]);
-        assert_eq!(out, vec![Out::Gesture(vec![vec![(0.5, 0.5)]])]);
+        assert_eq!(out, vec![gesture(vec![vec![(0.5, 0.5)]])]);
         assert!(!r.waiting());
     }
 
@@ -737,7 +743,7 @@ mod tests {
         let out = r.touches(120, &pad(), vec![up(0, 0.4, 0.5)]);
         assert_eq!(
             out,
-            vec![Out::Gesture(vec![vec![(0.2, 0.5), (0.3, 0.5), (0.4, 0.5)]])]
+            vec![gesture(vec![vec![(0.2, 0.5), (0.3, 0.5), (0.4, 0.5)]])]
         );
     }
 
@@ -774,7 +780,7 @@ mod tests {
         assert!(r.tick(DECIDE_MS).is_empty());
         assert!(r.touches(400, &pad(), vec![down(0, 0.5, 0.8)]).is_empty());
         let out = r.touches(450, &pad(), vec![up(0, 0.5, 0.8)]);
-        assert!(matches!(&out[..], [Out::Gesture(t)] if t[0].len() == 3));
+        assert!(matches!(&out[..], [Out::Gesture(t, _)] if t[0].len() == 3));
     }
 
     #[test]
@@ -804,7 +810,7 @@ mod tests {
         r.touches(150, &pad(), vec![down(0, 0.5, 0.5)]);
         assert_eq!(
             r.touches(200, &pad(), vec![up(0, 0.5, 0.5)]),
-            vec![Out::Gesture(vec![vec![(0.5, 0.5)]])]
+            vec![gesture(vec![vec![(0.5, 0.5)]])]
         );
     }
 
@@ -819,7 +825,7 @@ mod tests {
         assert!(r.tick(150 + NEXT_DECIDE_MS).is_empty());
         assert_eq!(
             r.touches(240, &pad(), vec![up(0, 0.3, 0.5)]),
-            vec![Out::Gesture(vec![vec![(0.2, 0.5), (0.3, 0.5)]])]
+            vec![gesture(vec![vec![(0.2, 0.5), (0.3, 0.5)]])]
         );
     }
 
@@ -833,7 +839,7 @@ mod tests {
         let out = r.touches(100, &pad(), vec![up(1, 0.6, 0.5)]);
         assert_eq!(
             out,
-            vec![Out::Gesture(vec![
+            vec![gesture(vec![
                 vec![(0.4, 0.2), (0.4, 0.5)],
                 vec![(0.6, 0.2), (0.6, 0.5)],
             ])]

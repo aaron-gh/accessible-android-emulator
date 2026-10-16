@@ -1991,13 +1991,13 @@ fn touchpad_touches(outs: Vec<touchpad::Out>) {
     for out in outs {
         match out {
             touchpad::Out::Live(touches) => touchpad_live(touches),
-            touchpad::Out::Gesture(tracks) => {
+            touchpad::Out::Gesture(tracks, (width, height)) => {
                 let tracks: Vec<Vec<PadPoint>> = tracks
                     .into_iter()
                     .map(|t| t.into_iter().map(|(x, y)| PadPoint { x, y }).collect())
                     .collect();
                 touchpad_job(true, move |s| {
-                    Box::pin(async move { s.touch_gesture(tracks).await })
+                    Box::pin(async move { s.touch_gesture(tracks, width, height).await })
                 });
             }
         }
