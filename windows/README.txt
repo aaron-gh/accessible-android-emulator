@@ -31,6 +31,12 @@ Your screen reader keeps its own keys: while Insert or Caps Lock is held, keys g
 
 Control Shift G starts gesture mode, where keys perform touch screen gestures. Arrows swipe. Hold one arrow and press another for a two-part swipe, such as up then left. Space double taps, T taps, R triple taps. H double taps and holds, and L touches and holds, until you let go. Hold 2, 3 or 4 while pressing a key to use that many fingers. Tab and Shift Tab move the touch point from item to item, Shift arrows move it a step, C puts it in the middle, W says where it is, and question mark reads these keys out. Control Windows Escape returns to Windows.
 
+THE TOUCHPAD
+
+In device and gesture mode, a precision touchpad is the device's screen. Touch it as you would a phone, and TalkBack recognises its own gestures. A quick tap or swipe goes to Android cleanly once your finger lifts, as from keys, so it isn't taken for exploring. A finger that rests or moves slowly explores by touch, following your finger after a fifth of a second. If a tap wobbles into exploring, raise "A touchpad tap can wobble by" in AAE's Settings. The whole pad is the whole screen. Its top edge, nearest the keyboard, is the top of the screen, where the status bar is, and its bottom edge is the bottom of the screen. The Windows pointer stays still while your fingers are on the pad, and for a moment after.
+
+Windows keeps its own three- and four-finger gestures, such as Task View. To use TalkBack's, set them to Nothing in Windows Settings, Bluetooth & devices, Touchpad. If your screen reader has its own touchpad support, turn it off while you use AAE. To keep the touchpad for Windows, turn it off in AAE's Settings.
+
 The Device menu has everything else, with its shortcuts: Back (Control Shift B), Home (Control Shift H), notifications, rotating, the device's volume, its clipboard, installing apps, screenshots, renaming, copying, wiping and deleting devices. Control Shift I speaks the status. To install apps, choose Install App (Control I), or copy them in File Explorer and paste them into AAE with Control V.
 
 TESTING TOOLS AND OTHER WINDOWS

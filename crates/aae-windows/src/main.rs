@@ -27,6 +27,10 @@ mod speech;
 mod speech_bridge;
 #[cfg(windows)]
 mod tools;
+#[allow(dead_code)]
+mod touchpad;
+#[cfg(windows)]
+mod touchpad_input;
 #[cfg(windows)]
 mod ui;
 #[cfg(windows)]

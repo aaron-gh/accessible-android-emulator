@@ -19,6 +19,11 @@ pub struct Settings {
     pub include_previews: bool,
     /// Which of keyboard::RETURN_SHORTCUTS brings the keyboard back.
     pub return_shortcut: u8,
+    /// In device and gesture mode, a Precision Touchpad is the device's screen.
+    pub touchpad: bool,
+    /// How far, in millimetres, a finger on the touchpad can wobble and
+    /// still tap: see `touchpad::SETTLE_MM`.
+    pub touchpad_steadiness: u8,
 }
 
 impl Default for Settings {
@@ -30,6 +35,8 @@ impl Default for Settings {
             last_update_mention: 0,
             include_previews: false,
             return_shortcut: 0,
+            touchpad: true,
+            touchpad_steadiness: crate::touchpad::SETTLE_MM,
         }
     }
 }

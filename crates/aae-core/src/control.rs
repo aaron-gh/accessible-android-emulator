@@ -80,6 +80,29 @@ impl Snapshot {
     }
 }
 
+fn touch_event(points: &[TouchPoint]) -> pb::TouchEvent {
+    pb::TouchEvent {
+        touches: points
+            .iter()
+            .map(|p| pb::Touch {
+                x: p.x,
+                y: p.y,
+                identifier: p.id,
+                pressure: if p.down { 1 } else { 0 },
+                touch_major: if p.down { 8 } else { 0 },
+                ..Default::default()
+            })
+            .collect(),
+        display: 0,
+    }
+}
+
+/// True if two touches put the same fingers down and lift the same ones,
+/// so the second only moves them on from the first.
+fn same_fingers(a: &[TouchPoint], b: &[TouchPoint]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.id == b.id && a.down == b.down)
+}
+
 /// One finger on the touchscreen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TouchPoint {
@@ -428,24 +451,89 @@ impl Controller {
         if let Some(vm) = &self.vm {
             return vm.qmp.touch_points(points).await;
         }
-        let touches = points
-            .iter()
-            .map(|p| pb::Touch {
-                x: p.x,
-                y: p.y,
-                identifier: p.id,
-                pressure: if p.down { 1 } else { 0 },
-                touch_major: if p.down { 8 } else { 0 },
-                ..Default::default()
-            })
-            .collect();
-        self.emu("Touch")?
-            .send_touch(pb::TouchEvent {
-                touches,
-                display: 0,
-            })
-            .await?;
+        self.emu("Touch")?.send_touch(touch_event(points)).await?;
         Ok(())
+    }
+
+    /// A way to send touches that come thick and fast, as from a touchpad:
+    /// each goes as it's sent, without waiting for the emulator to answer
+    /// the one before, so the device sees them with the user's timing.
+    /// Touches still waiting that only move the same fingers as the next
+    /// are dropped for it. Each is as for `touch_points`. Needs a Tokio
+    /// runtime; touches stop when the sender is dropped.
+    pub fn touch_stream(&self) -> tokio::sync::mpsc::UnboundedSender<Vec<TouchPoint>> {
+        use tokio::sync::mpsc;
+        let (tx, mut rx) = mpsc::unbounded_channel::<Vec<TouchPoint>>();
+        let controller = self.clone();
+        tokio::spawn(async move {
+            // The emulator's input stream. Without one, on a Googlebook
+            // device or an emulator that refuses it, touches go one by one.
+            let mut stream = None;
+            // The fingers sent down through it, lifted if it fails, as what
+            // it hadn't passed on yet is lost.
+            let down = std::sync::Arc::new(std::sync::Mutex::new(Vec::<i32>::new()));
+            if controller.vm.is_none()
+                && let Some(mut emu) = controller.emu.clone()
+            {
+                let (events, queue) = mpsc::unbounded_channel::<pb::InputEvent>();
+                let down = down.clone();
+                let controller = controller.clone();
+                tokio::spawn(async move {
+                    let queue = tokio_stream::wrappers::UnboundedReceiverStream::new(queue);
+                    let result = emu.stream_input_event(queue).await;
+                    if let Err(e) = &result {
+                        tracing::debug!("touch stream: {e}");
+                    }
+                    let lifts: Vec<TouchPoint> = std::mem::take(&mut *down.lock().unwrap())
+                        .into_iter()
+                        .map(|id| TouchPoint {
+                            id,
+                            x: 0,
+                            y: 0,
+                            down: false,
+                        })
+                        .collect();
+                    if !lifts.is_empty() {
+                        let _ = controller.touch_points(&lifts).await;
+                    }
+                });
+                stream = Some(events);
+            }
+            let mut send = async |points: Vec<TouchPoint>| {
+                if let Some(events) = &stream {
+                    let event = pb::InputEvent {
+                        r#type: Some(pb::input_event::Type::TouchEvent(touch_event(&points))),
+                    };
+                    let mut down = down.lock().unwrap();
+                    // Fails once the stream has ended.
+                    if events.send(event).is_ok() {
+                        for point in &points {
+                            down.retain(|&id| id != point.id);
+                            if point.down {
+                                down.push(point.id);
+                            }
+                        }
+                        return;
+                    }
+                    drop(down);
+                    stream = None;
+                }
+                if let Err(e) = controller.touch_points(&points).await {
+                    tracing::debug!("touch: {e}");
+                }
+            };
+            while let Some(mut points) = rx.recv().await {
+                while let Ok(next) = rx.try_recv() {
+                    if !same_fingers(&points, &next) {
+                        send(std::mem::replace(&mut points, next)).await;
+                    } else {
+                        points = next;
+                    }
+                }
+                send(points).await;
+            }
+        });
+        tx
     }
 
     // Device state.
