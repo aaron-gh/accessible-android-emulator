@@ -2020,6 +2020,9 @@ fn touchpad_live(touches: Vec<touchpad::Touch>) {
     });
 }
 
+/// How long the touchpad is left alone before the device's rotation is read.
+const TOUCHPAD_QUIET: Duration = Duration::from_secs(1);
+
 /// Queues touches for the device in use; `all_lifted` once they leave no
 /// finger down.
 fn touchpad_job(
@@ -2054,14 +2057,23 @@ fn touchpad_job(
                     say_error(e);
                 }
             }
-            // The device may have turned; read it while no finger is down,
-            // one reading at a time, as taps come quicker than readings.
-            use std::sync::atomic::{AtomicBool, Ordering};
+            // The device may have turned; read it once fingers have been off
+            // for a moment, one reading at a time. Reading straight after
+            // each lift keeps the device busy just as the next swipe comes,
+            // which stretches its timing.
+            use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+            static TOUCHES: AtomicU64 = AtomicU64::new(0);
             static READING: AtomicBool = AtomicBool::new(false);
-            if all_lifted && !READING.swap(true, Ordering::SeqCst) {
+            let touches = TOUCHES.fetch_add(1, Ordering::SeqCst) + 1;
+            if all_lifted {
                 spawn(async move {
-                    let _ = s.refresh_screen().await;
-                    READING.store(false, Ordering::SeqCst);
+                    tokio::time::sleep(TOUCHPAD_QUIET).await;
+                    if TOUCHES.load(Ordering::SeqCst) == touches
+                        && !READING.swap(true, Ordering::SeqCst)
+                    {
+                        let _ = s.refresh_screen().await;
+                        READING.store(false, Ordering::SeqCst);
+                    }
                 });
             }
             Ok(())

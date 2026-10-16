@@ -305,9 +305,11 @@ const SWIPE_MM: f64 = 5.0;
 /// The longest a swipe is held back; still down after that, the finger is
 /// exploring.
 const SWIPE_MAX_MS: u64 = 1000;
-/// A touch this soon after a tap is the next of several, or a tap and hold,
-/// so it goes at once to keep in time with the one before.
+/// A touch this soon after a tap may be the next of several, or a tap and
+/// hold, so to keep in time with the one before it's held back only briefly:
+/// long enough to tell a quick swipe, which would explore if it went live.
 const NEXT_TAP_MS: u64 = 300;
+const NEXT_DECIDE_MS: u64 = 70;
 
 /// What to send the screen.
 #[derive(Debug, Clone, PartialEq)]
@@ -320,8 +322,13 @@ pub enum Out {
 
 enum Phase {
     Idle,
-    /// Holding a touch back, with what the fingers have done since `start`.
-    Waiting { start: u64, frames: Vec<Vec<Touch>> },
+    /// Holding a touch back for up to `decide` milliseconds, with what the
+    /// fingers have done since `start`.
+    Waiting {
+        start: u64,
+        decide: u64,
+        frames: Vec<Vec<Touch>>,
+    },
     /// Sending touches as they come.
     Live { start: u64 },
 }
@@ -365,15 +372,12 @@ impl Recogniser {
                 if all_up {
                     return Vec::new();
                 }
-                if self
+                let after_tap = self
                     .last_tap
-                    .is_some_and(|at| now.saturating_sub(at) < NEXT_TAP_MS)
-                {
-                    self.phase = Phase::Live { start: now };
-                    return vec![Out::Live(touches)];
-                }
+                    .is_some_and(|at| now.saturating_sub(at) < NEXT_TAP_MS);
                 self.phase = Phase::Waiting {
                     start: now,
+                    decide: if after_tap { NEXT_DECIDE_MS } else { DECIDE_MS },
                     frames: vec![touches],
                 };
                 Vec::new()
@@ -403,12 +407,17 @@ impl Recogniser {
 
     /// Decides about a touch held back long enough.
     pub fn tick(&mut self, now: u64) -> Vec<Out> {
-        let Phase::Waiting { start, frames } = &self.phase else {
+        let Phase::Waiting {
+            start,
+            decide,
+            frames,
+        } = &self.phase
+        else {
             return Vec::new();
         };
         let start = *start;
         let held = now.saturating_sub(start);
-        if held < DECIDE_MS {
+        if held < *decide {
             return Vec::new();
         }
         let (w, h) = self.size_mm;
@@ -769,13 +778,14 @@ mod tests {
     }
 
     #[test]
-    fn a_tap_soon_after_a_tap_goes_at_once() {
+    fn a_touch_soon_after_a_tap_is_decided_quickly() {
         let mut r = Recogniser::default();
         r.touches(0, &pad(), vec![down(0, 0.5, 0.5)]);
         r.touches(60, &pad(), vec![up(0, 0.5, 0.5)]);
-        // The second tap of a double tap, and its hold, keep their timing.
+        // The hold of a double tap and hold keeps its timing.
+        assert!(r.touches(160, &pad(), vec![down(0, 0.5, 0.5)]).is_empty());
         assert_eq!(
-            r.touches(160, &pad(), vec![down(0, 0.5, 0.5)]),
+            r.tick(160 + NEXT_DECIDE_MS),
             vec![Out::Live(vec![down(0, 0.5, 0.5)])]
         );
         assert_eq!(
@@ -784,6 +794,33 @@ mod tests {
         );
         // Long after, a touch is held back again.
         assert!(r.touches(3000, &pad(), vec![down(0, 0.5, 0.5)]).is_empty());
+    }
+
+    #[test]
+    fn a_double_tap_plays_both_taps() {
+        let mut r = Recogniser::default();
+        r.touches(0, &pad(), vec![down(0, 0.5, 0.5)]);
+        r.touches(60, &pad(), vec![up(0, 0.5, 0.5)]);
+        r.touches(150, &pad(), vec![down(0, 0.5, 0.5)]);
+        assert_eq!(
+            r.touches(200, &pad(), vec![up(0, 0.5, 0.5)]),
+            vec![Out::Gesture(vec![vec![(0.5, 0.5)]])]
+        );
+    }
+
+    #[test]
+    fn a_swipe_soon_after_a_tap_is_played_whole() {
+        let mut r = Recogniser::default();
+        r.touches(0, &pad(), vec![down(0, 0.5, 0.5)]);
+        r.touches(60, &pad(), vec![up(0, 0.5, 0.5)]);
+        r.touches(150, &pad(), vec![down(0, 0.2, 0.5)]);
+        r.touches(180, &pad(), vec![down(0, 0.3, 0.5)]);
+        // Ten millimetres gone by the time to decide: swiping.
+        assert!(r.tick(150 + NEXT_DECIDE_MS).is_empty());
+        assert_eq!(
+            r.touches(240, &pad(), vec![up(0, 0.3, 0.5)]),
+            vec![Out::Gesture(vec![vec![(0.2, 0.5), (0.3, 0.5)]])]
+        );
     }
 
     #[test]
