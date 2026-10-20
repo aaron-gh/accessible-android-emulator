@@ -385,6 +385,23 @@ enum Command {
         #[arg(long, value_parser = parse_point)]
         at: Option<(i32, i32)>,
     },
+    /// Hold one finger down, drag it through points, then lift it, as when
+    /// exploring by touch. Points are X,Y in the pixel positions the
+    /// accessibility inspector reports.
+    Drag {
+        device: String,
+        #[arg(value_parser = parse_point, required = true)]
+        points: Vec<(i32, i32)>,
+        /// Milliseconds the finger stays at the first point before moving.
+        #[arg(long, default_value_t = 800)]
+        hold: u64,
+        /// Milliseconds each part of the path takes.
+        #[arg(long = "move", default_value_t = 300)]
+        move_ms: u64,
+        /// Milliseconds the finger stays at the last point before lifting.
+        #[arg(long, default_value_t = 500)]
+        end_hold: u64,
+    },
     /// Type text on the device.
     Type { device: String, text: String },
     /// Install apps, and choose which of their services to turn on.
@@ -1758,6 +1775,19 @@ async fn run(cli: Cli) -> Result<()> {
                 }
                 gestures::perform(&controller, &screen, gesture, at).await?;
             }
+            Ok(())
+        }
+        Command::Drag {
+            device,
+            points,
+            hold,
+            move_ms,
+            end_hold,
+        } => {
+            use aae_core::gestures::{self, Screen};
+            let (_, controller, adb) = ctx.connect(&device).await?;
+            let screen = Screen::read(&adb).await?;
+            gestures::drag(&controller, &screen, &points, hold, move_ms, end_hold).await?;
             Ok(())
         }
         Command::Type { device, text } => {

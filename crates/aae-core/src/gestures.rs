@@ -462,6 +462,55 @@ pub async fn lift(controller: &Controller, release: &[TouchPoint]) -> Result<()>
     controller.touch_points(release).await
 }
 
+/// How often a drag's finger moves.
+const DRAG_STEP_MS: u64 = 16;
+
+/// Puts one finger down at the first point, holds it for `hold_ms` so touch
+/// exploration starts, moves it through the other points, taking `move_ms`
+/// for each part, holds it at the last point for `end_hold_ms`, then lifts
+/// it. Points are in pixels of the screen as the user sees it.
+pub async fn drag(
+    controller: &Controller,
+    screen: &Screen,
+    points: &[(i32, i32)],
+    hold_ms: u64,
+    move_ms: u64,
+    end_hold_ms: u64,
+) -> Result<()> {
+    let Some(&first) = points.first() else {
+        return Ok(());
+    };
+    let finger = |(x, y): (f64, f64), down: bool| {
+        let (x, y) = to_touchscreen(screen, x, y);
+        vec![TouchPoint { id: 0, x, y, down }]
+    };
+    let point = |(x, y): (i32, i32)| (x as f64, y as f64);
+    let mut frames = vec![Frame {
+        at: 0,
+        touches: finger(point(first), true),
+    }];
+    let mut at = hold_ms;
+    let steps = (move_ms / DRAG_STEP_MS).max(1);
+    for pair in points.windows(2) {
+        let (a, b) = (point(pair[0]), point(pair[1]));
+        for i in 1..=steps {
+            let t = i as f64 / steps as f64;
+            at += DRAG_STEP_MS;
+            frames.push(Frame {
+                at,
+                touches: finger((a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t), true),
+            });
+        }
+    }
+    at += end_hold_ms;
+    let last = point(*points.last().unwrap_or(&first));
+    frames.push(Frame {
+        at,
+        touches: finger(last, false),
+    });
+    play(controller, frames).await
+}
+
 async fn play(controller: &Controller, frames: Vec<Frame>) -> Result<()> {
     let start = tokio::time::Instant::now();
     for frame in frames {
