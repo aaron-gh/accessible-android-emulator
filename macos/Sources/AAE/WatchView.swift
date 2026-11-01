@@ -55,7 +55,7 @@ struct WatchView: View {
             }
             ForEach(model.watches) { watch in
                 HStack {
-                    Text(describe(watch))
+                    Text(tr(describe(watch)))
                     Spacer()
                     Button("Stop") { model.stopWatching(watch) }
                         .accessibilityLabel("Stop watching \((watch.path as NSString).lastPathComponent)")

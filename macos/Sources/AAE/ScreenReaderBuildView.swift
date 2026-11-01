@@ -23,7 +23,7 @@ struct ScreenReaderBuildView: View {
                 .accessibilityAddTraits(.isHeader)
             Text("Install on which devices? Stopped devices get it at next start.")
             ForEach(model.devices, id: \.id) { device in
-                Toggle(label(device), isOn: Binding(
+                Toggle(tr(label(device)), isOn: Binding(
                     get: { chosen.contains(device.id) },
                     set: { if $0 { chosen.insert(device.id) } else { chosen.remove(device.id) } }
                 ))

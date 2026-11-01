@@ -9,14 +9,14 @@ struct SnapshotsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.snapshotsDevice.map { "Snapshots of \($0)" } ?? "Snapshots")
+            Text(tr(model.snapshotsDevice.map { "Snapshots of \($0)" } ?? "Snapshots"))
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
             List(model.snapshots, id: \.id, selection: $selection) { snapshot in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(snapshot.name)
-                    Text(details(snapshot))
+                    Text(tr(details(snapshot)))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     if !snapshot.notes.isEmpty {
@@ -30,7 +30,7 @@ struct SnapshotsView: View {
             .frame(minHeight: 220)
             .overlay {
                 if model.snapshots.isEmpty {
-                    Text(emptyText)
+                    Text(tr(emptyText))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -94,7 +94,7 @@ struct SnapshotEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(edit.snapshot == nil ? "Save a Snapshot" : "Edit \(edit.snapshot?.name ?? "")")
+            Text(tr(edit.snapshot == nil ? "Save a Snapshot" : "Edit \(edit.snapshot?.name ?? "")"))
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             TextField("Name", text: $name)
@@ -106,7 +106,7 @@ struct SnapshotEditor: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(edit.snapshot == nil ? "Save" : "Save Changes") {
+                Button(tr(edit.snapshot == nil ? "Save" : "Save Changes")) {
                     if let snapshot = edit.snapshot {
                         model.updateSnapshot(snapshot, name: name, notes: notes)
                     } else {

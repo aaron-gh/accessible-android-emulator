@@ -91,7 +91,7 @@ struct SettingsView: View {
             Toggle("When several devices are running, play only the one you're using", isOn: $playOnlyInUse)
             Toggle("Correct the pitch of older Android versions", isOn: $correctPitch)
             Picker("Return to the Mac with", selection: $returnShortcut) {
-                ForEach(ReturnShortcut.allCases) { Text($0.spoken).tag($0.rawValue) }
+                ForEach(ReturnShortcut.allCases) { Text(tr($0.spoken)).tag($0.rawValue) }
             }
         }
         .padding()

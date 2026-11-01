@@ -3,6 +3,29 @@
 //! Every message is a full sentence, printed on its own line, so a screen reader
 //! reads it as it arrives. Errors say what went wrong and what to do.
 
+// AAE's own messages go through say!, esay! and say_part!, in the user's
+// language (see aae_core::l10n). What comes from the device or from other
+// programs, and JSON that programs read, is printed as it is with the
+// standard macros. The MCP server stays in English, for the AI agents that
+// read it.
+macro_rules! say {
+    ($($arg:tt)*) => { println!("{}", aae_core::l10n::tr(&format!($($arg)*))) };
+}
+macro_rules! esay {
+    ($($arg:tt)*) => { eprintln!("{}", aae_core::l10n::tr(&format!($($arg)*))) };
+}
+macro_rules! say_part {
+    ($($arg:tt)*) => { print!("{}", aae_core::l10n::tr(&format!($($arg)*))) };
+}
+// A line that mixes AAE's words with names or the device's text: the format
+// is translated, and its values are kept exactly as they are, so values that
+// are AAE's own words go in through tr().
+macro_rules! say_with {
+    ($format:literal $(, $value:expr)* $(,)?) => {
+        println!("{}", aae_core::l10n::tr_format($format, &[$($value.to_string().as_str()),*]))
+    };
+}
+
 mod attach;
 
 use std::collections::HashMap;
@@ -14,6 +37,7 @@ use aae_core::catalog::{self, Catalogue, InstallProgress, RemoteImage};
 use aae_core::control::Orientation;
 use aae_core::device::{Device, DeviceStore, Profile, human_size};
 use aae_core::emulator::{self, StartOptions};
+use aae_core::l10n::tr;
 use aae_core::lifecycle;
 use aae_core::proto::android::emulation::control::phone_call::Operation;
 use aae_core::provision::{self, ProvisionOptions};
@@ -60,6 +84,10 @@ enum DaemonAction {
 enum Command {
     /// Check the Android SDK, emulator and audio, and say what is missing.
     Doctor,
+    /// Write a language's labels for the Mac app's views, as an Apple
+    /// Localizable.strings file, on standard output. For macos/build.sh.
+    #[command(hide = true)]
+    LocalizableStrings { language: String },
     /// Run AAE's MCP server for AI agents, over standard input and output.
     Mcp {
         /// Also offer tools that delete devices, apps or data, or run shell
@@ -881,9 +909,24 @@ async fn main() {
     // Only the command's name: its arguments can be text to type.
     let command = std::env::args().nth(1).unwrap_or_default();
     tracing::info!("aae {} {command}", env!("CARGO_PKG_VERSION"));
+    if command != "mcp"
+        && let Some(language) = aae_core::l10n::language_from_env()
+    {
+        aae_core::l10n::set_language(&language);
+    }
     if let Err(e) = run(Cli::parse()).await {
-        eprintln!("Error: {e:#}");
+        esay!("Error: {e:#}");
         std::process::exit(1);
+    }
+}
+
+/// A device's description in the user's language, with its name as it is.
+fn described(device: &Device) -> String {
+    let text = device.describe();
+    let name = device.meta.name.as_str();
+    match text.strip_prefix(name).and_then(|rest| rest.strip_prefix(": ")) {
+        Some(rest) => aae_core::l10n::tr_format("{}: {}", &[name, &tr(rest)]),
+        None => tr(&text),
     }
 }
 
@@ -924,8 +967,16 @@ impl Ctx {
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    if let Command::LocalizableStrings { language } = &cli.command {
+        let strings = aae_core::l10n::localizable_strings(language)
+            .ok_or_else(|| anyhow!("AAE has no translation for {language}."))?;
+        print!("{strings}");
+        return Ok(());
+    }
     let ctx = Ctx::new()?;
     match cli.command {
+        // Written above, without opening the device store.
+        Command::LocalizableStrings { .. } => Ok(()),
         Command::Doctor => doctor(&ctx),
         Command::Serve {
             port,
@@ -941,11 +992,11 @@ async fn run(cli: Cli) -> Result<()> {
                     serde_json::json!({"code": code, "minutes": minutes, "serving": aae_remote::daemon::running_pid().is_some()})
                 );
             } else {
-                println!(
+                say!(
                     "Pairing code: {code}. Enter it in AAE Remote; it works once, for {minutes} minutes."
                 );
                 if aae_remote::daemon::running_pid().is_none() {
-                    println!("Nothing is serving yet: run aae serve, or aae daemon install.");
+                    say!("Nothing is serving yet: run aae serve, or aae daemon install.");
                 }
             }
             Ok(())
@@ -954,10 +1005,10 @@ async fn run(cli: Cli) -> Result<()> {
             use aae_remote::daemon;
             match action {
                 DaemonAction::Install => {
-                    println!("{}", daemon::install().map_err(|e| anyhow::anyhow!(e))?)
+                    say!("{}", daemon::install().map_err(|e| anyhow::anyhow!(e))?)
                 }
                 DaemonAction::Uninstall => {
-                    println!("{}", daemon::uninstall().map_err(|e| anyhow::anyhow!(e))?)
+                    say!("{}", daemon::uninstall().map_err(|e| anyhow::anyhow!(e))?)
                 }
                 DaemonAction::Status => {
                     let status = daemon::status();
@@ -967,7 +1018,7 @@ async fn run(cli: Cli) -> Result<()> {
                             serde_json::json!({"installed": status.installed, "running": status.running})
                         );
                     } else {
-                        println!(
+                        say!(
                             "{} {}",
                             if status.installed {
                                 "AAE serves devices whenever you log in."
@@ -999,7 +1050,7 @@ async fn run(cli: Cli) -> Result<()> {
             match unpair {
                 Some(id) => {
                     if clients.remove(&id) {
-                        println!("Unpaired {id}. It can't connect until it pairs again.");
+                        say!("Unpaired {id}. It can't connect until it pairs again.");
                     } else {
                         bail!("No phone with the id {id} is paired.");
                     }
@@ -1007,10 +1058,10 @@ async fn run(cli: Cli) -> Result<()> {
                 None => {
                     let list = clients.list();
                     if list.is_empty() {
-                        println!("No phones are paired. Run aae serve to pair one.");
+                        say!("No phones are paired. Run aae serve to pair one.");
                     }
                     for client in list {
-                        println!("{}: {}", client.id, client.name);
+                        say_with!("{}: {}", client.id, client.name);
                     }
                 }
             }
@@ -1028,7 +1079,7 @@ async fn run(cli: Cli) -> Result<()> {
                     Outcome::Warning => "Warning",
                     Outcome::Failed => "Problem",
                 };
-                println!("{label}: {}. {}", check.name, check.detail);
+                say!("{label}: {}. {}", tr(&check.name), check.detail);
             }
             let failed = checks
                 .iter()
@@ -1038,7 +1089,7 @@ async fn run(cli: Cli) -> Result<()> {
                 .iter()
                 .filter(|c| c.outcome == Outcome::Warning)
                 .count();
-            println!(
+            say!(
                 "{} checks: {} passed, {warned} warnings, {failed} problems.",
                 checks.len(),
                 checks.len() - failed - warned
@@ -1055,13 +1106,13 @@ async fn run(cli: Cli) -> Result<()> {
                     let volume = f32::from(percent.min(100)) / 100.0;
                     device.meta.playback_volume = (volume < 1.0).then_some(volume);
                     device.save_meta()?;
-                    println!(
+                    say!(
                         "{}: playback volume {}%.",
                         device.meta.name,
                         percent.min(100)
                     );
                 }
-                None => println!(
+                None => say!(
                     "{} plays at {}%.",
                     device.meta.name,
                     (device.meta.playback_volume.unwrap_or(1.0) * 100.0).round()
@@ -1097,14 +1148,14 @@ async fn run(cli: Cli) -> Result<()> {
                     };
                     device.meta.audio_output = chosen.clone();
                     device.save_meta()?;
-                    println!(
+                    say!(
                         "{}: audio output {}.",
                         device.meta.name,
                         chosen.as_deref().unwrap_or("system default")
                     );
                 }
                 None => {
-                    println!(
+                    say!(
                         "{}: audio output {}.",
                         device.meta.name,
                         device
@@ -1113,7 +1164,7 @@ async fn run(cli: Cli) -> Result<()> {
                             .as_deref()
                             .unwrap_or("system default")
                     );
-                    println!("Outputs: {}.", outputs.join(", "));
+                    say!("Outputs: {}.", outputs.join(", "));
                 }
             }
             Ok(())
@@ -1125,7 +1176,7 @@ async fn run(cli: Cli) -> Result<()> {
             player.stop();
             match health {
                 aae_core::audio::AudioHealth::Broken(why) => bail!("{why}"),
-                _ => println!("{}'s sound is reaching AAE.", device.meta.name),
+                _ => say!("{}'s sound is reaching AAE.", device.meta.name),
             }
             Ok(())
         }
@@ -1139,7 +1190,7 @@ async fn run(cli: Cli) -> Result<()> {
                 PathBuf::from(format!("aae-report-{stamp}.txt"))
             });
             std::fs::write(&path, report)?;
-            println!("Saved the report to {}, as plain text.", path.display());
+            say!("Saved the report to {}, as plain text.", path.display());
             Ok(())
         }
         Command::Setup {
@@ -1150,7 +1201,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Available { refresh, previews } => {
             let catalogue = tokio::task::spawn_blocking(move || Catalogue::load(refresh)).await??;
             if catalogue.images.is_empty() {
-                println!("Google offers no Android versions for this computer's processor.");
+                say!("Google offers no Android versions for this computer's processor.");
             }
             for image in catalogue
                 .images
@@ -1166,10 +1217,10 @@ async fn run(cli: Cli) -> Result<()> {
                         image.release.id
                     )
                 };
-                println!("{}, {state}.", image.describe());
+                say!("{}, {state}.", image.describe());
             }
             if !previews {
-                println!("Add --previews to include previews of upcoming Android releases.");
+                say!("Add --previews to include previews of upcoming Android releases.");
             }
             Ok(())
         }
@@ -1179,19 +1230,19 @@ async fn run(cli: Cli) -> Result<()> {
             accept_licence,
         } => {
             let image = download_image(&ctx, &api, kind, accept_licence).await?;
-            println!("{image} is installed.");
+            say!("{image} is installed.");
             Ok(())
         }
         Command::Images => {
             let images = ctx.sdk.system_images();
             let googlebook = aae_core::googlebook::install::present();
             if images.is_empty() && !googlebook {
-                println!("No Android versions are installed yet.");
+                say!("No Android versions are installed yet.");
             }
             for image in images {
                 let users = catalog::image_users(&ctx.sdk, &ctx.store, &image)?;
                 let size = human_size(catalog::image_size(&image));
-                println!("{image}. {size}. {}", describe_users(&users));
+                say!("{image}. {size}. {}", describe_users(&users));
             }
             if googlebook {
                 use aae_core::googlebook::{RELEASE, install};
@@ -1200,7 +1251,7 @@ async fn run(cli: Cli) -> Result<()> {
                     others: Vec::new(),
                 };
                 let size = human_size(install::size());
-                println!(
+                say!(
                     "{RELEASE}, virtual machine. {size}. {}",
                     describe_users(&users)
                 );
@@ -1229,11 +1280,11 @@ async fn run(cli: Cli) -> Result<()> {
                 let question =
                     format!("Delete {RELEASE} and its {size} of files? You can download it again later.");
                 if !yes && !confirm(&question)? {
-                    println!("Nothing was deleted.");
+                    say!("Nothing was deleted.");
                     return Ok(());
                 }
                 let freed = install::remove(&ctx.store)?;
-                println!("Deleted {RELEASE}. Freed {}.", human_size(freed));
+                say!("Deleted {RELEASE}. Freed {}.", human_size(freed));
                 return Ok(());
             }
             let api = api.unwrap_or_default();
@@ -1274,17 +1325,17 @@ async fn run(cli: Cli) -> Result<()> {
             }
             question.push_str(" You can download it again later.");
             if !yes && !confirm(&question)? {
-                println!("Nothing was deleted.");
+                say!("Nothing was deleted.");
                 return Ok(());
             }
             let freed = catalog::remove(&ctx.sdk, &ctx.store, &image)?;
-            println!("Deleted {image}. Freed {}.", human_size(freed));
+            say!("Deleted {image}. Freed {}.", human_size(freed));
             Ok(())
         }
         Command::List => {
             let devices = ctx.store.list()?;
             if devices.is_empty() {
-                println!("You have no devices yet. Create one with: aae create \"My phone\"");
+                say!("You have no devices yet. Create one with: aae create \"My phone\"");
             }
             for device in devices {
                 let state = if emulator::running(&device).is_ok() {
@@ -1292,7 +1343,7 @@ async fn run(cli: Cli) -> Result<()> {
                 } else {
                     "stopped"
                 };
-                println!("{}, {state}.", device.describe());
+                println!("{}, {}.", described(&device), tr(state));
             }
             Ok(())
         }
@@ -1341,7 +1392,7 @@ async fn run(cli: Cli) -> Result<()> {
                 }
                 device
             };
-            println!("Created {}.", device.describe());
+            say!("Created {}.", described(&device));
             if no_start {
                 return Ok(());
             }
@@ -1360,9 +1411,9 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Command::Clone { device, new_name } => {
             let source = ctx.device(&device)?;
-            println!("Copying {}.", source.meta.name);
+            say!("Copying {}.", source.meta.name);
             let clone = ctx.store.clone_device(&source, &new_name)?;
-            println!(
+            say!(
                 "Created {}, a copy of {}.",
                 clone.meta.name, source.meta.name
             );
@@ -1372,7 +1423,7 @@ async fn run(cli: Cli) -> Result<()> {
             let mut device = ctx.device(&device)?;
             let old = device.meta.name.clone();
             ctx.store.rename(&mut device, &new_name)?;
-            println!("Renamed {old} to {}.", device.meta.name);
+            say!("Renamed {old} to {}.", device.meta.name);
             Ok(())
         }
         Command::Wipe { device, yes } => {
@@ -1384,12 +1435,12 @@ async fn run(cli: Cli) -> Result<()> {
                      with its screen reader. This can't be undone."
                 ))?
             {
-                println!("Nothing was wiped.");
+                say!("Nothing was wiped.");
                 return Ok(());
             }
-            println!("Wiping {name}.");
+            say!("Wiping {name}.");
             lifecycle::wipe_device(&ctx.sdk, &ctx.store, &mut device, |p| {
-                println!("{}", p.describe(&name))
+                say!("{}", p.describe(&name))
             })
             .await?;
             Ok(())
@@ -1403,11 +1454,11 @@ async fn run(cli: Cli) -> Result<()> {
                     device.meta.name
                 ))?
             {
-                println!("Nothing was deleted.");
+                say!("Nothing was deleted.");
                 return Ok(());
             }
             let freed = ctx.store.delete(&device)?;
-            println!("Deleted {}. Freed {}.", device.meta.name, human_size(freed));
+            say!("Deleted {}. Freed {}.", device.meta.name, human_size(freed));
             Ok(())
         }
         Command::Start {
@@ -1434,7 +1485,7 @@ async fn run(cli: Cli) -> Result<()> {
                 ..Default::default()
             };
             if cold && aae_core::emulator::running(&device).is_ok() {
-                println!("Stopping {}.", device.meta.name);
+                say!("Stopping {}.", device.meta.name);
                 aae_core::emulator::stop(&ctx.sdk, &device, std::time::Duration::from_secs(60))
                     .await?;
             }
@@ -1466,12 +1517,12 @@ async fn run(cli: Cli) -> Result<()> {
                             println!("{line}");
                         }
                     }
-                    None => println!("Nothing at {x}, {y}."),
+                    None => say!("Nothing at {x}, {y}."),
                 }
             } else if targets {
                 for target in aae_core::inspector::targets(&tree) {
                     let (x, y) = target.centre();
-                    println!("{} (at {x}, {y})", target.label);
+                    say_with!("{} (at {}, {})", target.label, x, y);
                 }
             } else if html {
                 let title = format!("{}: the screen's accessibility", device.meta.name);
@@ -1489,7 +1540,7 @@ async fn run(cli: Cli) -> Result<()> {
                 with_helper(&ctx, &device, &adb, aae_core::inspector::read_tree(&adb)).await?;
             let issues = aae_core::inspector::check(&tree);
             if issues.is_empty() {
-                println!("No problems found on this screen.");
+                say!("No problems found on this screen.");
             }
             for issue in &issues {
                 let severity = match issue.severity {
@@ -1501,7 +1552,7 @@ async fn run(cli: Cli) -> Result<()> {
                     .as_deref()
                     .map(|id| format!(" ({id})"))
                     .unwrap_or_default();
-                println!(
+                say!(
                     "{severity}: {} Element: {}{id}.",
                     issue.message, issue.element
                 );
@@ -1515,9 +1566,9 @@ async fn run(cli: Cli) -> Result<()> {
             provision::measure_audio(&mut device, &adb).await;
             match device.meta.audio_speed {
                 Some(speed) if (speed - 1.0).abs() < 0.01 => {
-                    println!("{} plays audio at the right speed.", device.meta.name)
+                    say!("{} plays audio at the right speed.", device.meta.name)
                 }
-                Some(speed) => println!(
+                Some(speed) => say!(
                     "{} plays audio at {:.1}% speed, which lowers its pitch. AAE corrects it when playing.",
                     device.meta.name,
                     speed * 100.0
@@ -1554,7 +1605,7 @@ async fn run(cli: Cli) -> Result<()> {
             };
             let (_, _, adb) = ctx.connect(&device).await?;
             let print = |e: &logcat::Entry| {
-                println!(
+                say!(
                     "{} {} {} {}: {}",
                     e.clock(),
                     e.level.letter(),
@@ -1610,7 +1661,7 @@ async fn run(cli: Cli) -> Result<()> {
                 SpeechLogAction::On | SpeechLogAction::Off => {
                     let on = matches!(action, SpeechLogAction::On);
                     if device.meta.speech_log_on() == on {
-                        println!(
+                        say!(
                             "The speech log is already {} for {}.",
                             if on { "on" } else { "off" },
                             device.meta.name
@@ -1620,12 +1671,12 @@ async fn run(cli: Cli) -> Result<()> {
                     provision::update_helper(&ctx.sdk, &adb).await?;
                     let bridge = device.meta.speech_bridge;
                     tts::set_relay(&adb, &mut device, on, bridge).await?;
-                    println!("The speech log is {}.", if on { "on" } else { "off" });
+                    say!("The speech log is {}.", if on { "on" } else { "off" });
                 }
                 SpeechLogAction::Show => {
                     let log = tts::speech_log(&adb, 0, false).await?;
                     if log.is_empty() {
-                        println!(
+                        say!(
                             "Nothing has been said{}.",
                             if !device.meta.speech_log_on() {
                                 ", and the speech log is off. Turn it on with: aae speech-log <device> on"
@@ -1639,7 +1690,7 @@ async fn run(cli: Cli) -> Result<()> {
                     }
                 }
                 SpeechLogAction::Follow => {
-                    println!(
+                    say!(
                         "Showing what {} says. Press Control-C to stop.",
                         device.meta.name
                     );
@@ -1660,7 +1711,7 @@ async fn run(cli: Cli) -> Result<()> {
                 }
                 SpeechLogAction::Clear => {
                     tts::speech_log(&adb, u64::MAX, true).await?;
-                    println!("Cleared the speech log.");
+                    say!("Cleared the speech log.");
                 }
             }
             Ok(())
@@ -1670,23 +1721,23 @@ async fn run(cli: Cli) -> Result<()> {
             provision::update_helper(&ctx.sdk, &adb).await?;
             let status = aae_core::tts::check(&adb).await?;
             if status.ok {
-                println!(
+                say!(
                     "{}: text-to-speech works, with {}.",
                     device.meta.name, status.engine
                 );
                 return Ok(());
             }
-            println!(
+            say!(
                 "{}: text-to-speech failed: {}. Repairing it.",
                 device.meta.name, status.detail
             );
             let fix = provision::ensure_device_speech(&device, &adb).await?;
-            println!("{}", fix.describe().unwrap_or("Speech works now."));
+            say!("{}", fix.describe().unwrap_or("Speech works now."));
             Ok(())
         }
         Command::Restart { device } => {
             let mut device = ctx.device(&device)?;
-            println!("Restarting Android on {}.", device.meta.name);
+            say!("Restarting Android on {}.", device.meta.name);
             emulator::reboot(&ctx.sdk, &device, lifecycle::BOOT_TIMEOUT).await?;
             start(
                 &ctx,
@@ -1698,9 +1749,9 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Command::Stop { device } => {
             let device = ctx.device(&device)?;
-            println!("Stopping {}.", device.meta.name);
+            say!("Stopping {}.", device.meta.name);
             emulator::stop(&ctx.sdk, &device, Duration::from_secs(60)).await?;
-            println!("{} is stopped.", device.meta.name);
+            say!("{} is stopped.", device.meta.name);
             Ok(())
         }
         Command::Attach {
@@ -1750,7 +1801,7 @@ async fn run(cli: Cli) -> Result<()> {
         } => {
             use aae_core::gestures::{self, Gesture, Screen};
             if gestures.is_empty() {
-                println!("Gestures, named with hyphens or spaces:");
+                say!("Gestures, named with hyphens or spaces:");
                 for gesture in Gesture::all() {
                     println!("  {}", gesture.to_string().replace(' ', "-"));
                 }
@@ -1811,14 +1862,14 @@ async fn run(cli: Cli) -> Result<()> {
             for name in names {
                 let (mut device, _, adb) = ctx.connect(name).await?;
                 for apk in &apks {
-                    println!("Installing {} on {}.", apk.display(), device.meta.name);
+                    say!("Installing {} on {}.", apk.display(), device.meta.name);
                     let (info, parts) =
                         provision::install_app(&ctx.sdk, &mut device, &adb, apk).await?;
-                    println!("Installed {}.", info.package);
+                    say!("Installed {}.", info.package);
                     let mut choices = Vec::new();
                     for part in parts {
                         match part.choice {
-                            Some(on) => println!(
+                            Some(on) => say!(
                                 "{} is {}, as you chose before.",
                                 part.name,
                                 if on { "on" } else { "off" }
@@ -1840,7 +1891,7 @@ async fn run(cli: Cli) -> Result<()> {
                     }
                     for (part, on) in &choices {
                         let state = if *on { "Turning on" } else { "Leaving off" };
-                        println!("{state} {}, {}.", part.name, part.kind.describe());
+                        say_with!("{} {}, {}.", tr(state), part.name, tr(part.kind.describe()));
                     }
                     provision::apply_choices(&mut device, &adb, &choices).await?;
                 }
@@ -1858,7 +1909,7 @@ async fn run(cli: Cli) -> Result<()> {
             if last.is_none() && !path.exists() {
                 bail!("{} doesn't exist.", path.display());
             }
-            println!(
+            say!(
                 "Watching {} for new builds. Press Control-C to stop.",
                 path.display()
             );
@@ -1872,7 +1923,7 @@ async fn run(cli: Cli) -> Result<()> {
                     },
                 };
                 last = Some(build.clone());
-                println!("New build: {}.", build.path.display());
+                say!("New build: {}.", build.path.display());
                 for name in &names {
                     let result: Result<()> = async {
                         let (mut device, _, adb) = ctx.connect(name).await?;
@@ -1885,12 +1936,12 @@ async fn run(cli: Cli) -> Result<()> {
                             choices.push((part, on));
                         }
                         provision::apply_choices(&mut device, &adb, &choices).await?;
-                        println!("Installed {} on {}.", info.package, device.meta.name);
+                        say!("Installed {} on {}.", info.package, device.meta.name);
                         Ok(())
                     }
                     .await;
                     if let Err(e) = result {
-                        println!("{name}: {e:#}");
+                        say!("{name}: {e:#}");
                     }
                 }
             }
@@ -1902,7 +1953,7 @@ async fn run(cli: Cli) -> Result<()> {
                 None => None,
             };
             aae_core::apps::open_link(&adb, &link, app.as_deref()).await?;
-            println!("Opened {link}.");
+            say!("Opened {link}.");
             Ok(())
         }
         Command::Intent {
@@ -1938,6 +1989,7 @@ async fn run(cli: Cli) -> Result<()> {
                 },
             )
             .await?;
+            // What Android's activity manager answered.
             println!("{said}");
             Ok(())
         }
@@ -1946,15 +1998,15 @@ async fn run(cli: Cli) -> Result<()> {
             provision::update_helper(&ctx.sdk, &adb).await?;
             let apps = aae_core::apps::list(&adb, system).await?;
             if apps.is_empty() {
-                println!("No apps are installed.");
+                say!("No apps are installed.");
             }
             for app in apps {
                 let mut line = format!("{} ({}", app.label, app.package);
                 if !app.version.is_empty() {
-                    line.push_str(&format!(", version {}", app.version));
+                    line.push_str(&tr(&format!(", version {}", app.version)));
                 }
                 if !app.enabled {
-                    line.push_str(", turned off");
+                    line.push_str(&tr(", turned off"));
                 }
                 println!("{line}).");
             }
@@ -1984,7 +2036,7 @@ async fn run(cli: Cli) -> Result<()> {
             match action {
                 AppAction::Open => {
                     apps::open(&adb, &package).await?;
-                    println!("Opened {name}.");
+                    say!("Opened {name}.");
                 }
                 AppAction::Screen { name: screen } => {
                     let component = if screen.contains('/') {
@@ -1993,59 +2045,59 @@ async fn run(cli: Cli) -> Result<()> {
                         format!("{package}/{screen}")
                     };
                     apps::open_activity(&adb, &component).await?;
-                    println!("Opened {component}.");
+                    say!("Opened {component}.");
                 }
                 AppAction::Stop => {
                     apps::force_stop(&adb, &package).await?;
-                    println!("Stopped {name}.");
+                    say!("Stopped {name}.");
                 }
                 AppAction::Clear => {
                     apps::clear_data(&adb, &package).await?;
-                    println!("Cleared {name}'s data.");
+                    say!("Cleared {name}'s data.");
                 }
                 AppAction::Uninstall => {
                     adb.uninstall(&package).await?;
-                    println!("Uninstalled {name}.");
+                    say!("Uninstalled {name}.");
                 }
                 AppAction::Permissions => {
                     let permissions = apps::permissions(&adb, &package).await?;
                     if permissions.is_empty() {
-                        println!("{name} asks for no permissions.");
+                        say!("{name} asks for no permissions.");
                     }
                     for p in permissions {
                         let state = if p.granted { "granted" } else { "not granted" };
-                        println!("{}: {state} ({}).", p.label, p.name);
+                        say_with!("{}: {} ({}).", p.label, tr(state), p.name);
                     }
                     for access in apps::Access::ALL {
                         let on = apps::has_access(&adb, &package, access).await?;
-                        println!(
+                        say_with!(
                             "{}: {}.",
-                            access.describe(),
-                            if on { "allowed" } else { "not allowed" }
+                            tr(access.describe()),
+                            tr(if on { "allowed" } else { "not allowed" })
                         );
                     }
                 }
                 AppAction::Grant { permission } if permission.eq_ignore_ascii_case("all") => {
                     let n = apps::grant_all(&adb, &package).await?;
-                    println!("Granted {n} permissions to {name}.");
+                    say!("Granted {n} permissions to {name}.");
                 }
                 AppAction::Grant { permission } => {
                     apps::set_permission(&adb, &package, &permission, true).await?;
-                    println!("Granted {permission} to {name}.");
+                    say!("Granted {permission} to {name}.");
                 }
                 AppAction::Revoke { permission } => {
                     apps::set_permission(&adb, &package, &permission, false).await?;
-                    println!("Revoked {permission} from {name}.");
+                    say!("Revoked {permission} from {name}.");
                 }
                 AppAction::Allow { access } => {
                     let access = apps::Access::from(access);
                     apps::set_access(&adb, &package, access, true).await?;
-                    println!("{name}: {} allowed.", access.describe());
+                    say!("{name}: {} allowed.", tr(access.describe()));
                 }
                 AppAction::Disallow { access } => {
                     let access = apps::Access::from(access);
                     apps::set_access(&adb, &package, access, false).await?;
-                    println!("{name}: {} not allowed.", access.describe());
+                    say!("{name}: {} not allowed.", tr(access.describe()));
                 }
             }
             Ok(())
@@ -2077,7 +2129,7 @@ async fn run(cli: Cli) -> Result<()> {
                             )
                         })?;
                     services::use_screen_reader(&mut device, &adb, &service).await?;
-                    println!(
+                    say!(
                         "{} is now the screen reader on {}.",
                         service.label, device.meta.name
                     );
@@ -2119,7 +2171,7 @@ async fn run(cli: Cli) -> Result<()> {
                 let apk_path = match &path {
                     Some(path) => path.clone(),
                     None => {
-                        println!("Getting Backtalk's latest development build.");
+                        say!("Getting Backtalk's latest development build.");
                         let downloaded = provision::download_backtalk(device.meta.api).await?;
                         path = Some(downloaded.clone());
                         downloaded
@@ -2135,10 +2187,10 @@ async fn run(cli: Cli) -> Result<()> {
                         replace,
                     )
                     .await?;
-                    println!("{package} is installed and on, on {name}.");
+                    say!("{package} is installed and on, on {name}.");
                 } else {
                     let package = provision::queue_screen_reader(&ctx.sdk, &mut device, &apk_path)?;
-                    println!(
+                    say!(
                         "{name} is stopped, so {package} will be installed when it next starts."
                     );
                 }
@@ -2158,13 +2210,13 @@ async fn run(cli: Cli) -> Result<()> {
             match action {
                 None => {
                     for s in &list {
-                        let mut line = format!("{}: {}", s.label, if s.on { "on" } else { "off" });
+                        let mut state = tr(if s.on { "on" } else { "off" });
                         if s.current_screen_reader {
-                            line.push_str(", the device's screen reader");
+                            state.push_str(&tr(", the device's screen reader"));
                         } else if s.screen_reader {
-                            line.push_str(", a screen reader");
+                            state.push_str(&tr(", a screen reader"));
                         }
-                        println!("{line} ({}).", s.component);
+                        say_with!("{}: {} ({}).", s.label, state, s.component);
                         if !s.description.is_empty() {
                             println!("  {}", s.description.lines().next().unwrap_or(""));
                         }
@@ -2174,15 +2226,15 @@ async fn run(cli: Cli) -> Result<()> {
                     let service = pick(&service)?;
                     services::set(&mut device, &adb, &service, true).await?;
                     if service.screen_reader {
-                        println!("{} is now the screen reader.", service.label);
+                        say!("{} is now the screen reader.", service.label);
                     } else {
-                        println!("Turned on {}, and AAE keeps it on.", service.label);
+                        say!("Turned on {}, and AAE keeps it on.", service.label);
                     }
                 }
                 Some(ServiceAction::Off { service }) => {
                     let service = pick(&service)?;
                     services::set(&mut device, &adb, &service, false).await?;
-                    println!("Turned off {}.", service.label);
+                    say!("Turned off {}.", service.label);
                 }
             }
             Ok(())
@@ -2205,19 +2257,19 @@ async fn run(cli: Cli) -> Result<()> {
                 SnapshotAction::List => {
                     let snapshots = controller.snapshots().await?;
                     if snapshots.is_empty() {
-                        println!("{} has no snapshots.", device.meta.name);
+                        say!("{} has no snapshots.", device.meta.name);
                     }
                     for s in snapshots {
                         let mut line = s.name.clone();
                         if let Some(taken) = s.taken() {
-                            line.push_str(&format!(", taken {taken}"));
+                            line.push_str(&tr(&format!(", taken {taken}")));
                         }
                         line.push_str(&format!(", {}", human_size(s.size)));
                         if s.loaded {
-                            line.push_str(", restored last");
+                            line.push_str(&tr(", restored last"));
                         }
                         if !s.compatible {
-                            line.push_str(", can't be restored by this emulator");
+                            line.push_str(&tr(", can't be restored by this emulator"));
                         }
                         println!("{line}.");
                         if !s.notes.is_empty() {
@@ -2226,14 +2278,14 @@ async fn run(cli: Cli) -> Result<()> {
                     }
                 }
                 SnapshotAction::Save { name, notes } => {
-                    println!("Saving snapshot {name}.");
+                    say!("Saving snapshot {name}.");
                     controller.save_named_snapshot(&name, &notes).await?;
-                    println!("Saved snapshot {name}.");
+                    say!("Saved snapshot {name}.");
                 }
                 SnapshotAction::Load { name } => {
                     let snapshot = find(&controller.snapshots().await?, &name)?;
                     controller.load_snapshot(&snapshot.id).await?;
-                    println!("Restored snapshot {}.", snapshot.name);
+                    say!("Restored snapshot {}.", snapshot.name);
                 }
                 SnapshotAction::Rename {
                     name,
@@ -2245,12 +2297,12 @@ async fn run(cli: Cli) -> Result<()> {
                     controller
                         .update_snapshot(&snapshot.id, &new_name, &notes)
                         .await?;
-                    println!("Renamed snapshot {} to {new_name}.", snapshot.name);
+                    say!("Renamed snapshot {} to {new_name}.", snapshot.name);
                 }
                 SnapshotAction::Delete { name } => {
                     let snapshot = find(&controller.snapshots().await?, &name)?;
                     controller.delete_snapshot(&snapshot.id).await?;
-                    println!("Deleted snapshot {}.", snapshot.name);
+                    say!("Deleted snapshot {}.", snapshot.name);
                 }
             }
             Ok(())
@@ -2265,7 +2317,7 @@ async fn run(cli: Cli) -> Result<()> {
                 Rotation::Landscape => Orientation::LandscapeLeft,
             };
             controller.set_orientation(next).await?;
-            println!("{}.", next.describe());
+            say!("{}.", next.describe());
             Ok(())
         }
         Command::Mic {
@@ -2279,38 +2331,38 @@ async fn run(cli: Cli) -> Result<()> {
             match action {
                 MicAction::Check => {
                     let heard = microphone::check(&controller, &adb).await?;
-                    println!("{}", microphone::describe_check(heard)?);
+                    say!("{}", microphone::describe_check(heard)?);
                 }
                 MicAction::Level => {
                     let heard = microphone::level(&adb, 1500).await?;
-                    println!("Microphone peak over 1.5 seconds: {heard} of 32767.");
+                    say!("Microphone peak over 1.5 seconds: {heard} of 32767.");
                 }
                 MicAction::Play => {
                     let Some(file) = file else {
                         bail!("Give an audio file: aae mic <device> play <file>");
                     };
                     let sound = microphone::decode(&file)?;
-                    println!(
+                    say!(
                         "{} seconds of audio. It plays when an app on the device records. Control-C cancels.",
                         (sound.seconds() * 10.0).round() / 10.0
                     );
                     tokio::select! {
                         played = microphone::play(&controller, &adb, &sound) => match played? {
-                            microphone::Played::Whole => println!("Played the whole file into the microphone."),
-                            microphone::Played::Stopped(at) => println!(
+                            microphone::Played::Whole => say!("Played the whole file into the microphone."),
+                            microphone::Played::Stopped(at) => say!(
                                 "The app stopped recording {:.1} seconds in.",
                                 at
                             ),
                         },
-                        _ = tokio::signal::ctrl_c() => println!("Cancelled."),
+                        _ = tokio::signal::ctrl_c() => say!("Cancelled."),
                     }
                 }
                 MicAction::On => {
                     let mic = microphone::Microphone::start(&controller, &adb).await?;
-                    println!("Microphone on: {}. Control-C stops.", mic.name);
+                    say!("Microphone on: {}. Control-C stops.", mic.name);
                     tokio::signal::ctrl_c().await?;
                     mic.stop();
-                    println!("Microphone off.");
+                    say!("Microphone off.");
                 }
             }
             Ok(())
@@ -2348,7 +2400,7 @@ async fn run(cli: Cli) -> Result<()> {
             if !settings.is_empty() {
                 tokio::time::sleep(std::time::Duration::from_millis(800)).await;
             }
-            println!("{}", network::status(&adb).await?.describe());
+            say!("{}", network::status(&adb).await?.describe());
             Ok(())
         }
         Command::Battery {
@@ -2372,7 +2424,7 @@ async fn run(cli: Cli) -> Result<()> {
             if let Some(health) = health {
                 controller.set_battery_health(health).await?;
             }
-            println!(
+            say!(
                 "Battery at {}%, {}, health {}.",
                 level.clamp(0, 100),
                 if charging { "charging" } else { "not charging" },
@@ -2386,7 +2438,7 @@ async fn run(cli: Cli) -> Result<()> {
             }
             let (_, controller, _) = ctx.connect(&device).await?;
             controller.touch_fingerprint(finger).await?;
-            println!("Touched the fingerprint sensor with finger {finger}.");
+            say!("Touched the fingerprint sensor with finger {finger}.");
             Ok(())
         }
         Command::Settings {
@@ -2418,17 +2470,17 @@ async fn run(cli: Cli) -> Result<()> {
                         settings::set_for_new_devices(&pairs)?;
                     }
                 }
-                println!("{}", aae_ffi::new_device_settings_description());
+                say!("{}", aae_ffi::new_device_settings_description());
                 return Ok(());
             }
             if list || device.is_none() {
                 for setting in SETTINGS {
-                    println!("{} ({}):", setting.name, setting.label);
+                    say_with!("{} ({}):", setting.name, tr(setting.label));
                     for (value, label) in setting.choices {
-                        println!("  {value}: {label}");
+                        say_with!("  {}: {}", value, tr(label));
                     }
                 }
-                println!(
+                say!(
                     "The language also takes any language tags, such as fr-CA or fr-FR,en-US."
                 );
                 return Ok(());
@@ -2441,12 +2493,12 @@ async fn run(cli: Cli) -> Result<()> {
             // The helper sets the language.
             provision::update_helper(&ctx.sdk, &adb).await?;
             for pair in changes.chunks(2) {
-                println!("{}", settings::change(&adb, &pair[0], &pair[1]).await?);
+                say!("{}", settings::change(&adb, &pair[0], &pair[1]).await?);
             }
             if changes.is_empty() {
                 for (name, value) in settings::read(&adb).await? {
                     let label = settings::setting(name).map_or(name, |s| s.label);
-                    println!("{label}: {}", settings::label_of(name, &value));
+                    say!("{label}: {}", settings::label_of(name, &value));
                 }
             }
             Ok(())
@@ -2464,7 +2516,7 @@ async fn run(cli: Cli) -> Result<()> {
             // The emulator wants the whole path.
             let file = std::path::absolute(&file)?;
             let file = recording::start(&adb, &file, limit).await?;
-            println!(
+            say!(
                 "Recording into {} for up to {limit} seconds. Press Control-C to stop.",
                 file.display()
             );
@@ -2474,7 +2526,7 @@ async fn run(cli: Cli) -> Result<()> {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(limit as u64)) => {}
             }
             recording::stop(&adb).await?;
-            println!(
+            say!(
                 "Saved {}, {} seconds.",
                 file.display(),
                 started.elapsed().as_secs().min(limit as u64)
@@ -2491,7 +2543,7 @@ async fn run(cli: Cli) -> Result<()> {
                 .with_context(|| format!("{} can't be read", file.display()))?;
             let points = route::parse(&text)?;
             let (_, controller, _) = ctx.connect(&device).await?;
-            println!(
+            say!(
                 "{} points, taking {:.0} seconds. Press Control-C to stop.",
                 points.len(),
                 route::duration(&points, speed.clamp(0.1, 100.0))
@@ -2499,9 +2551,9 @@ async fn run(cli: Cli) -> Result<()> {
             tokio::select! {
                 played = route::play(&controller, &points, speed) => {
                     played?;
-                    println!("The route has finished.");
+                    say!("The route has finished.");
                 }
-                _ = tokio::signal::ctrl_c() => println!("Stopped the route."),
+                _ = tokio::signal::ctrl_c() => say!("Stopped the route."),
             }
             Ok(())
         }
@@ -2510,7 +2562,7 @@ async fn run(cli: Cli) -> Result<()> {
             let mut device = ctx.device(&device)?;
             let mut hw = hardware::read(&device)?;
             if changes.is_empty() {
-                println!(
+                say!(
                     "{}: {} megabytes of memory, {} processor cores, {} megabytes of storage, a {} by {} screen at {} dots per inch, {}.",
                     device.meta.name,
                     hw.memory_mb,
@@ -2574,7 +2626,7 @@ async fn run(cli: Cli) -> Result<()> {
                     ),
                 }
             }
-            println!("{}", hardware::write(&mut device, &hw)?);
+            say!("{}", hardware::write(&mut device, &hw)?);
             Ok(())
         }
         Command::Export { device, file } => {
@@ -2584,10 +2636,10 @@ async fn run(cli: Cli) -> Result<()> {
                 let percent = (done * 100 / total.max(1)) as u32;
                 if percent >= said + 10 {
                     said = percent / 10 * 10;
-                    println!("{said}%");
+                    say!("{said}%");
                 }
             })?;
-            println!(
+            say!(
                 "Exported {} to {}, {:.1} gigabytes.",
                 device.meta.name,
                 file.display(),
@@ -2606,11 +2658,11 @@ async fn run(cli: Cli) -> Result<()> {
                     let percent = (done * 100 / total.max(1)) as u32;
                     if percent >= said + 10 {
                         said = percent / 10 * 10;
-                        println!("{said}%");
+                        say!("{said}%");
                     }
                 },
             )?;
-            println!("Imported {}.", device.describe());
+            say!("Imported {}.", described(&device));
             Ok(())
         }
         Command::SpeechBridge { device, action } => {
@@ -2621,7 +2673,7 @@ async fn run(cli: Cli) -> Result<()> {
                 let on = action == BridgeAction::On;
                 let log = device.meta.speech_log_on();
                 aae_core::tts::set_relay(&adb, &mut device, log, on).await?;
-                println!(
+                say!(
                     "The speech bridge is {} for {}. The speech log is {}.",
                     if on { "on" } else { "off" },
                     device.meta.name,
@@ -2633,7 +2685,7 @@ async fn run(cli: Cli) -> Result<()> {
             let bridge = Bridge::start(adb, false, move |r| {
                 let _ = tx.send(r);
             });
-            println!("Listening. Press Control-C to stop.");
+            say!("Listening. Press Control-C to stop.");
             let start = std::time::Instant::now();
             let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<u64>();
             let mut speaking: Option<tokio::task::JoinHandle<()>> = None;
@@ -2668,7 +2720,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Shake { device } => {
             let (_, controller, _) = ctx.connect(&device).await?;
             controller.shake().await?;
-            println!("Shook the device.");
+            say!("Shook the device.");
             Ok(())
         }
         Command::Fold { device } => fold(&ctx, &device, true).await,
@@ -2698,13 +2750,13 @@ async fn run(cli: Cli) -> Result<()> {
         } => {
             let (_, controller, _) = ctx.connect(&device).await?;
             controller.set_location(latitude, longitude).await?;
-            println!("Location set to {latitude}, {longitude}.");
+            say!("Location set to {latitude}, {longitude}.");
             Ok(())
         }
         Command::Sms { device, from, text } => {
             let (_, controller, _) = ctx.connect(&device).await?;
             controller.send_sms(&from, &text).await?;
-            println!("Sent a text from {from}.");
+            say!("Sent a text from {from}.");
             Ok(())
         }
         Command::Call {
@@ -2715,10 +2767,10 @@ async fn run(cli: Cli) -> Result<()> {
             let (_, controller, _) = ctx.connect(&device).await?;
             if end {
                 controller.phone(Operation::DisconnectCall, &number).await?;
-                println!("Ended the call from {number}.");
+                say!("Ended the call from {number}.");
             } else {
                 controller.phone(Operation::InitCall, &number).await?;
-                println!("{number} is calling.");
+                say!("{number} is calling.");
             }
             Ok(())
         }
@@ -2727,12 +2779,12 @@ async fn run(cli: Cli) -> Result<()> {
             match text {
                 Some(text) => {
                     controller.set_clipboard(&text).await?;
-                    println!("Copied to the device's clipboard.");
+                    say!("Copied to the device's clipboard.");
                 }
                 None => {
                     let text = controller.clipboard().await?;
                     if text.is_empty() {
-                        println!("The device's clipboard is empty.");
+                        say!("The device's clipboard is empty.");
                     } else {
                         println!("{text}");
                     }
@@ -2748,7 +2800,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Volume { device, percent } => {
             let (mut device, _, adb) = ctx.connect(&device).await?;
             let index = provision::boost_volume(&mut device, &adb, percent).await?;
-            println!(
+            say!(
                 "The screen reader's volume on {} is now {percent}%, step {index}.",
                 device.meta.name
             );
@@ -2760,7 +2812,7 @@ async fn run(cli: Cli) -> Result<()> {
             let path =
                 path.unwrap_or_else(|| PathBuf::from(format!("{}-screenshot.png", device.id)));
             std::fs::write(&path, png).with_context(|| format!("Saving {}", path.display()))?;
-            println!("Saved the screenshot as {}.", path.display());
+            say!("Saved the screenshot as {}.", path.display());
             Ok(())
         }
         Command::Shell { device, command } => {
@@ -2823,18 +2875,18 @@ async fn download_image(
             );
         }
         catalog::accept_licence(&ctx.sdk, &image.licence_id, &licence)?;
-        println!("Accepted Google's licence {}.", image.licence_id);
+        say!("Accepted Google's licence {}.", image.licence_id);
     }
     if let (Some(needed), Some(have)) = (&image.min_emulator, ctx.sdk.emulator_version()) {
         if version_less(&have, needed) {
-            println!(
+            say!(
                 "Warning: {} needs emulator version {needed} or later, and this one is {have}. \
                  Run aae setup --update to update it.",
                 image.describe()
             );
         }
     }
-    println!(
+    say!(
         "Downloading {}, {}.",
         image.describe(),
         human_size(image.size)
@@ -2847,11 +2899,11 @@ async fn download_image(
                 let percent = p.percent().unwrap_or(0);
                 if percent >= last + 10 {
                     last = percent - percent % 10;
-                    println!("Downloaded {last}%.");
+                    say!("Downloaded {last}%.");
                 }
             }
-            InstallProgress::Verifying => println!("Checking the download."),
-            InstallProgress::Unpacking => println!("Unpacking."),
+            InstallProgress::Verifying => say!("Checking the download."),
+            InstallProgress::Unpacking => say!("Unpacking."),
         })
     })
     .await??;
@@ -2902,7 +2954,7 @@ async fn start(
     let name = device.meta.name.clone();
     let (_, adb) =
         lifecycle::start_device(&ctx.sdk, &ctx.store, device, start_options, options, |p| {
-            println!("{}", p.describe(&name))
+            say!("{}", p.describe(&name))
         })
         .await?;
     if device.meta.screen_reader.is_none() && !device.meta.screen_reader_declined {
@@ -2916,7 +2968,7 @@ async fn keyboard(ctx: &Ctx, device: Option<String>, layout: Option<String>, lis
     use aae_core::keyboard_layouts::{self, LAYOUTS};
     if list {
         for layout in LAYOUTS {
-            println!("{} ({})", layout.label, layout.name);
+            say!("{} ({})", layout.label, layout.name);
         }
         return Ok(());
     }
@@ -2926,12 +2978,12 @@ async fn keyboard(ctx: &Ctx, device: Option<String>, layout: Option<String>, lis
     let mut device = ctx.device(&device)?;
     let Some(layout) = layout else {
         match &device.meta.keyboard_layout {
-            Some(_) => println!(
+            Some(_) => say!(
                 "{}, chosen for {}.",
                 keyboard_layouts::for_device(&device.meta).label,
                 device.meta.name
             ),
-            None => println!(
+            None => say!(
                 "{} follows the computer's keyboard in the apps, and the terminal's language in aae attach.",
                 device.meta.name
             ),
@@ -2941,7 +2993,7 @@ async fn keyboard(ctx: &Ctx, device: Option<String>, layout: Option<String>, lis
     if layout.eq_ignore_ascii_case("auto") {
         device.meta.keyboard_layout = None;
         device.save_meta()?;
-        println!("{} follows the computer's keyboard.", device.meta.name);
+        say!("{} follows the computer's keyboard.", device.meta.name);
         return Ok(());
     }
     let chosen = keyboard_layouts::find(&layout).ok_or_else(|| {
@@ -2952,14 +3004,14 @@ async fn keyboard(ctx: &Ctx, device: Option<String>, layout: Option<String>, lis
     if let Ok((_, _, adb)) = aae_core::emulator::attach(&ctx.sdk, &device).await {
         provision::reselect_keyboard_layout(&adb, chosen).await?;
     }
-    println!("{} uses {}.", device.meta.name, chosen.label);
+    say!("{} uses {}.", device.meta.name, chosen.label);
     Ok(())
 }
 
 /// Folds or unfolds a foldable device.
 async fn fold(ctx: &Ctx, device: &str, folded: bool) -> Result<()> {
     let (_, _, adb) = ctx.connect(device).await?;
-    println!("{}", aae_core::fold::set_folded(&adb, folded).await?);
+    say!("{}", aae_core::fold::set_folded(&adb, folded).await?);
     Ok(())
 }
 
@@ -2971,12 +3023,12 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
     let backtalk = device.meta.api >= aae_core::screenreader::BACKTALK_MIN_API;
     if !std::io::stdin().is_terminal() {
         if backtalk {
-            println!(
+            say!(
                 "{name} has no screen reader. Add one with: aae screen-reader \"{name}\" backtalk, \
                  or aae screen-reader \"{name}\" followed by the path to an APK."
             );
         } else {
-            println!(
+            say!(
                 "{name} has no screen reader, and Backtalk needs Android 8 or later. Add one made for \
                  this Android version, such as an older TalkBack, with: aae screen-reader \"{name}\" \
                  followed by the path to its APK."
@@ -2987,10 +3039,10 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
     // The choices, numbered in order.
     let mut choices = Vec::new();
     if backtalk {
-        println!("{name} has no screen reader. Choose:");
+        say!("{name} has no screen reader. Choose:");
         choices.push(("Download and install Backtalk.", "backtalk"));
     } else {
-        println!(
+        say!(
             "{name} has no screen reader, and Backtalk needs Android 8 or later. \
              You can install one made for this Android version, such as an older TalkBack."
         );
@@ -3001,7 +3053,7 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
         "none",
     ));
     for (i, (text, _)) in choices.iter().enumerate() {
-        println!("{}. {text}", i + 1);
+        say!("{}. {text}", i + 1);
     }
     let numbers: Vec<String> = (1..=choices.len()).map(|n| n.to_string()).collect();
     let prompt = format!(
@@ -3011,7 +3063,7 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
     );
     let stdin = std::io::stdin();
     loop {
-        print!("{prompt}");
+        say_part!("{prompt}");
         std::io::stdout().flush()?;
         let mut answer = String::new();
         if stdin.lock().read_line(&mut answer)? == 0 {
@@ -3027,11 +3079,11 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
         };
         let path = match choice {
             "backtalk" => {
-                println!("Getting Backtalk's latest development build.");
+                say!("Getting Backtalk's latest development build.");
                 provision::download_backtalk(device.meta.api).await?
             }
             "apk" => {
-                print!("Type the path to the APK: ");
+                say_part!("Type the path to the APK: ");
                 std::io::stdout().flush()?;
                 let mut path = String::new();
                 stdin.lock().read_line(&mut path)?;
@@ -3041,12 +3093,12 @@ async fn offer_screen_reader(ctx: &Ctx, device: &mut Device, adb: &Adb) -> Resul
             _ => {
                 device.meta.screen_reader_declined = true;
                 device.save_meta()?;
-                println!("{name} has no screen reader. AAE won't ask again.");
+                say!("{name} has no screen reader. AAE won't ask again.");
                 return Ok(());
             }
         };
         let package = provision::add_screen_reader(&ctx.sdk, device, adb, &path, false).await?;
-        println!("{package} is installed and on.");
+        say!("{package} is installed and on.");
         return Ok(());
     }
 }
@@ -3073,7 +3125,7 @@ async fn with_helper<T>(
 
 async fn keytest(ctx: &Ctx, name: &str) -> Result<()> {
     let (device, controller, adb) = ctx.connect_keyboard(name).await?;
-    println!(
+    say!(
         "Testing {}'s keyboard. The keys go to AAE's helper, not to any app.",
         device.meta.name
     );
@@ -3094,9 +3146,9 @@ async fn keytest(ctx: &Ctx, name: &str) -> Result<()> {
     let failed = results.iter().filter(|r| !r.passed).count();
     for r in &results {
         if r.passed {
-            println!("{}: works.", r.name);
+            say!("{}: works.", r.name);
         } else {
-            println!("{}: doesn't work. Android received {}.", r.name, r.received);
+            say!("{}: doesn't work. Android received {}.", r.name, r.received);
         }
     }
     if aae_core::keytest::received_nothing(&results) {
@@ -3106,7 +3158,7 @@ async fn keytest(ctx: &Ctx, name: &str) -> Result<()> {
         )
     }
     if failed == 0 {
-        println!("All {} keys work.", results.len());
+        say!("All {} keys work.", results.len());
         Ok(())
     } else {
         bail!("{failed} of {} keys don't work.", results.len())
@@ -3122,7 +3174,7 @@ async fn latency(ctx: &Ctx, name: &str, names: &str, trials: usize) -> Result<()
         })
         .collect::<Result<Vec<_>>>()?;
     let (device, controller, _) = ctx.connect_keyboard(name).await?;
-    println!(
+    say!(
         "Pressing {names} on {} {trials} times, and timing each response.",
         device.meta.name
     );
@@ -3148,15 +3200,15 @@ async fn latency(ctx: &Ctx, name: &str, names: &str, trials: usize) -> Result<()
     let silent = results.len() - heard.len();
     for (i, result) in results.iter().enumerate() {
         match result {
-            Some(d) => println!("Trial {}: {} milliseconds.", i + 1, d.as_millis()),
-            None => println!("Trial {}: no audio detected.", i + 1),
+            Some(d) => say!("Trial {}: {} milliseconds.", i + 1, d.as_millis()),
+            None => say!("Trial {}: no audio detected.", i + 1),
         }
     }
     if heard.is_empty() {
         bail!("No audio detected. Check the screen reader is on and text-to-speech works.");
     }
     heard.sort_unstable();
-    println!(
+    say!(
         "Fastest {}, median {}, slowest {} milliseconds.{}",
         heard[0],
         heard[heard.len() / 2],
@@ -3167,7 +3219,7 @@ async fn latency(ctx: &Ctx, name: &str, names: &str, trials: usize) -> Result<()
             String::new()
         }
     );
-    println!(
+    say!(
         "This is the time until the sound leaves the device. Playback adds about 30 milliseconds plus the Mac's own output delay."
     );
     Ok(())
@@ -3176,7 +3228,7 @@ async fn latency(ctx: &Ctx, name: &str, names: &str, trials: usize) -> Result<()
 /// Installs Googlebook OS, saying how it goes.
 async fn install_googlebook() -> Result<()> {
     use aae_core::googlebook::install::{self, Progress};
-    println!(
+    say!(
         "Installing Googlebook OS: about {} to download, {} on disk.",
         aae_core::device::human_size(install::DOWNLOAD_BYTES),
         aae_core::device::human_size(install::DISK_BYTES)
@@ -3184,12 +3236,12 @@ async fn install_googlebook() -> Result<()> {
     tokio::task::spawn_blocking(|| {
         let mut last = (String::new(), u64::MAX);
         install::install(&mut |p| match p {
-            Progress::Step(step) => println!("{step}"),
+            Progress::Step(step) => say!("{step}"),
             Progress::Downloading { what, done, total } => {
                 let tenth = done * 10 / total.max(1);
                 if last.0 != what || last.1 != tenth {
                     last = (what.to_string(), tenth);
-                    println!("Downloading {what}: {}%.", tenth * 10);
+                    say!("Downloading {what}: {}%.", tenth * 10);
                 }
             }
         })
@@ -3200,15 +3252,15 @@ async fn install_googlebook() -> Result<()> {
 
 async fn status(ctx: &Ctx, name: &str) -> Result<()> {
     let device = ctx.device(name)?;
-    println!("{}.", device.describe());
+    println!("{}.", described(&device));
     let Ok(info) = emulator::running(&device) else {
-        println!("It is stopped.");
+        say!("It is stopped.");
         return Ok(());
     };
     let adb = emulator::adb_for(&ctx.sdk, &info).await?;
     let controller = Controller::for_runtime(&info, adb.clone()).await?;
     let booted = adb.boot_completed().await;
-    println!(
+    say!(
         "It is running{}.",
         if booted { "" } else { " and still starting" }
     );
@@ -3216,16 +3268,16 @@ async fn status(ctx: &Ctx, name: &str) -> Result<()> {
         let enabled = adb.enabled_services().await?;
         match &device.meta.screen_reader {
             Some(reader) if enabled.iter().any(|c| same_component(c, reader)) => {
-                println!("The screen reader, {reader}, is on.")
+                say!("The screen reader, {reader}, is on.")
             }
-            Some(reader) => println!(
+            Some(reader) => say!(
                 "The screen reader, {reader}, is off. Start the device again, or run aae services to turn it on."
             ),
-            None => println!("No screen reader is set up."),
+            None => say!("No screen reader is set up."),
         }
-        println!("{}.", controller.orientation().await?.describe());
+        say!("{}.", controller.orientation().await?.describe());
     }
-    println!(
+    say!(
         "adb serial {}, gRPC port {}.",
         info.serial(),
         info.grpc_port
@@ -3241,16 +3293,16 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
     } else {
         "the"
     };
-    println!("Using {own} Android SDK at {}.", sdk.root.display());
+    say!("Using {own} Android SDK at {}.", sdk.root.display());
     match setup::virtualisation(sdk) {
         Virtualisation::Available => {
-            println!("The emulator can use this computer's hardware virtualisation.")
+            say!("The emulator can use this computer's hardware virtualisation.")
         }
         Virtualisation::Missing(how) => bail!("{how}"),
         Virtualisation::Unknown => {}
     }
     if let Some(warning) = setup::performance_warning() {
-        println!("{warning}");
+        say!("{warning}");
     }
     let tools = tokio::task::spawn_blocking(move || Tools::load(refresh)).await??;
     let mut wanted: Vec<setup::Tool> = tools.missing(sdk).into_iter().cloned().collect();
@@ -3261,7 +3313,7 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
         .map(|t| t.name.clone())
         .collect();
     if !elsewhere.is_empty() {
-        println!("Managed outside AAE: {}.", elsewhere.join(", "));
+        say!("Managed outside AAE: {}.", elsewhere.join(", "));
     }
     if update {
         wanted.extend(updates.iter().cloned());
@@ -3270,13 +3322,13 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
             .iter()
             .map(|t| format!("{} {}", t.name, t.revision))
             .collect();
-        println!(
+        say!(
             "Updates are available: {}. Run aae setup --update to install them.",
             names.join(", ")
         );
     }
     if wanted.is_empty() {
-        println!("Everything AAE needs is installed.");
+        say!("Everything AAE needs is installed.");
         return Ok(());
     }
     if update && !updates.is_empty() {
@@ -3311,11 +3363,11 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
             );
         }
         catalog::accept_licence(sdk, &id, &text)?;
-        println!("Accepted Google's licence {id}.");
+        say!("Accepted Google's licence {id}.");
     }
     let total: u64 = wanted.iter().map(|t| t.size).sum();
     if wanted.len() > 1 {
-        println!(
+        say!(
             "Downloading {} tools, {} in all.",
             wanted.len(),
             human_size(total)
@@ -3325,7 +3377,7 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
         .iter()
         .any(|t| !updates.iter().any(|u| u.path == t.path));
     for tool in wanted {
-        println!(
+        say!(
             "Downloading {} {}, {}.",
             tool.name,
             tool.revision,
@@ -3340,18 +3392,18 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
                     let percent = p.percent().unwrap_or(0);
                     if percent >= last + 10 {
                         last = percent - percent % 10;
-                        println!("Downloaded {last}%.");
+                        say!("Downloaded {last}%.");
                     }
                 }
-                InstallProgress::Verifying => println!("Checking the download."),
-                InstallProgress::Unpacking => println!("Unpacking."),
+                InstallProgress::Verifying => say!("Checking the download."),
+                InstallProgress::Unpacking => say!("Unpacking."),
             })
         })
         .await??;
-        println!("{name} is installed.");
+        say!("{name} is installed.");
     }
     if first_setup {
-        println!(
+        say!(
             "AAE is ready. Next, download an Android version with aae available and aae download."
         );
     }
@@ -3359,27 +3411,27 @@ async fn setup(ctx: &Ctx, accept_licence: bool, update: bool, refresh: bool) -> 
 }
 
 fn doctor(ctx: &Ctx) -> Result<()> {
-    println!("Android SDK: {}.", ctx.sdk.root.display());
+    say!("Android SDK: {}.", ctx.sdk.root.display());
     if let aae_core::setup::Virtualisation::Missing(how) = aae_core::setup::virtualisation(&ctx.sdk)
     {
-        println!("Problem: {how}");
+        say!("Problem: {how}");
     }
     match ctx.sdk.emulator_bin() {
-        Ok(_) => println!(
+        Ok(_) => say!(
             "Emulator: version {}.",
             ctx.sdk
                 .emulator_version()
                 .unwrap_or_else(|| "unknown".into())
         ),
-        Err(e) => println!("Problem: {e}"),
+        Err(e) => say!("Problem: {e}"),
     }
     match ctx.sdk.adb_bin() {
-        Ok(path) => println!("adb: {}.", path.display()),
-        Err(e) => println!("Problem: {e}"),
+        Ok(path) => say!("adb: {}.", path.display()),
+        Err(e) => say!("Problem: {e}"),
     }
     match ctx.sdk.aapt2_bin() {
-        Some(path) => println!("Build tools: {}.", path.display()),
-        None => println!(
+        Some(path) => say!("Build tools: {}.", path.display()),
+        None => say!(
             "Problem: no build tools. AAE needs them to read app packages. Run aae setup to install them."
         ),
     }
@@ -3389,20 +3441,20 @@ fn doctor(ctx: &Ctx) -> Result<()> {
         .into_iter()
         .filter(|i| i.runs_natively())
         .collect();
-    println!(
+    say!(
         "{} Android versions installed that run at full speed here.",
         native.len()
     );
     match provision::default_screen_reader_apk() {
-        Some(path) => println!("Default screen reader: {}.", path.display()),
-        None => println!(
+        Some(path) => say!("Default screen reader: {}.", path.display()),
+        None => say!(
             "No default screen reader. Pass --screen-reader when creating a device, or put an APK at {}.",
             aae_core::paths::data_dir()
                 .join("screen-readers/default.apk")
                 .display()
         ),
     }
-    println!("Devices are stored in {}.", ctx.store.root.display());
+    say!("Devices are stored in {}.", ctx.store.root.display());
     Ok(())
 }
 
@@ -3430,9 +3482,9 @@ fn ask_part(part: &provision::AppPart, package: &str) -> Result<bool> {
     }
     let hint = if default { "Y/n" } else { "y/N" };
     loop {
-        print!(
+        say_part!(
             "{package} has {}, {}. Turn it on? [{hint}] ",
-            part.kind.describe(),
+            tr(part.kind.describe()),
             part.name
         );
         std::io::stdout().flush()?;
@@ -3497,7 +3549,7 @@ fn describe_users(users: &catalog::ImageUsers) -> String {
 
 fn confirm(question: &str) -> Result<bool> {
     use std::io::Write;
-    print!("{question} Type yes to confirm: ");
+    say_part!("{question} Type yes to confirm: ");
     std::io::stdout().flush()?;
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer)?;
@@ -3511,7 +3563,7 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
         if json {
             println!("{event}");
         } else {
-            println!("{text}");
+            say!("{text}");
         }
     };
     if let Some(pid) = aae_remote::daemon::running_pid() {
@@ -3571,7 +3623,7 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
         show_code();
     }
     if !json && attended {
-        println!("Press P and Enter for a new pairing code, or Q and Enter to stop.");
+        say!("Press P and Enter for a new pairing code, or Q and Enter to stop.");
     }
     let mut input = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     use tokio::io::AsyncBufReadExt;
@@ -3629,7 +3681,7 @@ async fn serve(port: u16, discovery: bool, json: bool) -> Result<()> {
         }
     }
     if !json {
-        println!("Stopped serving.");
+        say!("Stopped serving.");
     }
     // Exits now: the thread reading standard input would otherwise keep the
     // process waiting for a line that may never come.
@@ -3680,7 +3732,7 @@ async fn follow_screen(
             // Ignore changes that leave the printed tree the same, such as a clock.
             if text != last {
                 if !last.is_empty() {
-                    println!("\nThe screen changed:");
+                    say!("\nThe screen changed:");
                 }
                 print!("{text}");
                 last = text;

@@ -236,14 +236,14 @@ struct ServeView: View {
                 get: { serving.atLogin },
                 set: { serving.setAtLogin($0) }
             ))
-            Text(serving.status)
+            Text(tr(serving.status))
             if let code = serving.code {
                 HStack {
                     Text("Pairing code:")
                     Text(code)
                         .font(.system(.title2, design: .monospaced))
                         .textSelection(.enabled)
-                        .accessibilityLabel(Serving.spoken(code))
+                        .accessibilityLabel(tr(Serving.spoken(code)))
                 }
             }
             if serving.on {

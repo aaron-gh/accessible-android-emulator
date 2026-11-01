@@ -215,7 +215,7 @@ const MARGIN: i32 = 12;
 
 /// Shows a form and waits for it to close.
 pub fn run(owner: HWND, form: Form) -> Answer {
-    let template = template(&form.title);
+    let template = template(&crate::tr(&form.title));
     let state = Rc::new(RefCell::new(State {
         form,
         controls: Vec::new(),

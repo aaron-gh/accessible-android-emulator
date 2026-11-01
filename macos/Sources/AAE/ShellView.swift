@@ -11,7 +11,7 @@ struct ShellView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.selected.map { "Shell of \($0.name)" } ?? "Shell")
+            Text(tr(model.selected.map { "Shell of \($0.name)" } ?? "Shell"))
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             HStack {
@@ -19,7 +19,7 @@ struct ShellView: View {
                     .font(.system(.body, design: .monospaced))
                     .focused($commandFocused)
                     .onSubmit(run)
-                Button(model.shellRunning ? "Running…" : "Run", action: run)
+                Button(tr(model.shellRunning ? "Running…" : "Run"), action: run)
                     .keyboardShortcut(.defaultAction)
                     .disabled(model.shellRunning || command.trimmingCharacters(in: .whitespaces).isEmpty)
                 Menu("Recent") {

@@ -8,11 +8,11 @@ struct ServicesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.servicesDevice.map { "Accessibility Services on \($0)" } ?? "Accessibility Services")
+            Text(tr(model.servicesDevice.map { "Accessibility Services on \($0)" } ?? "Accessibility Services"))
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             if model.services.isEmpty {
-                Text(emptyText).foregroundStyle(.secondary)
+                Text(tr(emptyText)).foregroundStyle(.secondary)
             } else {
                 Form {
                     Section {

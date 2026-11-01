@@ -232,7 +232,7 @@ const BRIDGE_OFF: &str = "Turn Off Speech &Bridge";
 
 /// Names the speech bridge item for what it will do, as its menu opens.
 pub fn name_speech_bridge(menu: HMENU, on: bool) {
-    let text = ui::wide(if on { BRIDGE_OFF } else { BRIDGE_ON });
+    let text = ui::wide(&crate::tr(if on { BRIDGE_OFF } else { BRIDGE_ON }));
     unsafe {
         let _ = ModifyMenuW(
             menu,
@@ -251,7 +251,7 @@ const RECORD_STOP: &str = "Stop Recordi&ng";
 pub fn name_recording(menu: HMENU, recording: bool) {
     let text = format!(
         "{}\t{}",
-        if recording { RECORD_STOP } else { RECORD_START },
+        crate::tr(if recording { RECORD_STOP } else { RECORD_START }),
         shortcut_name(CONTROL | ALT, b'R' as u16)
     );
     let text = ui::wide(&text);
@@ -271,11 +271,11 @@ const PLAY_FILE_STOP: &str = "Stop Playing Audio &File";
 
 /// Names the microphone items for what they will do, as their menu opens.
 pub fn name_microphone(menu: HMENU, on: bool, playing: bool) {
-    let play = ui::wide(if playing {
+    let play = ui::wide(&crate::tr(if playing {
         PLAY_FILE_STOP
     } else {
         PLAY_FILE_START
-    });
+    }));
     unsafe {
         let _ = ModifyMenuW(
             menu,
@@ -287,7 +287,7 @@ pub fn name_microphone(menu: HMENU, on: bool, playing: bool) {
     }
     let text = format!(
         "{}\t{}",
-        if on { MICROPHONE_OFF } else { MICROPHONE_ON },
+        crate::tr(if on { MICROPHONE_OFF } else { MICROPHONE_ON }),
         shortcut_name(CONTROL | SHIFT, b'U' as u16)
     );
     let text = ui::wide(&text);
@@ -309,19 +309,19 @@ fn shortcut_name(modifiers: u8, key: u16) -> String {
         parts.push("Ctrl".to_string());
     }
     if modifiers & SHIFT != 0 {
-        parts.push("Shift".to_string());
+        parts.push(crate::tr("Shift"));
     }
     if modifiers & ALT != 0 {
         parts.push("Alt".to_string());
     }
     parts.push(match VIRTUAL_KEY(key) {
-        VK_OEM_COMMA => "Comma".into(),
-        VK_OEM_PERIOD => "Period".into(),
-        VK_LEFT => "Left".into(),
-        VK_RIGHT => "Right".into(),
-        VK_UP => "Up".into(),
-        VK_DOWN => "Down".into(),
-        VK_DELETE => "Del".into(),
+        VK_OEM_COMMA => crate::tr("Comma"),
+        VK_OEM_PERIOD => crate::tr("Period"),
+        VK_LEFT => crate::tr("Left"),
+        VK_RIGHT => crate::tr("Right"),
+        VK_UP => crate::tr("Up"),
+        VK_DOWN => crate::tr("Down"),
+        VK_DELETE => crate::tr("Del"),
         VK_F2 => "F2".into(),
         _ => char::from(key as u8).to_string(),
     });
@@ -344,7 +344,7 @@ pub fn build() -> (HMENU, HACCEL) {
                     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                     continue;
                 }
-                let mut text = name.to_string();
+                let mut text = crate::tr(name);
                 if let Some((modifiers, key)) = shortcut {
                     text = format!("{text}\t{}", shortcut_name(modifiers, key));
                     let mut flags = FVIRTKEY;
@@ -366,7 +366,7 @@ pub fn build() -> (HMENU, HACCEL) {
                 let text = ui::wide(&text);
                 let _ = AppendMenuW(menu, MF_STRING, id as usize, PCWSTR(text.as_ptr()));
             }
-            let title = ui::wide(title);
+            let title = ui::wide(&crate::tr(title));
             let _ = AppendMenuW(bar, MF_POPUP, menu.0 as usize, PCWSTR(title.as_ptr()));
         }
         let table = CreateAcceleratorTableW(&accels).unwrap();

@@ -26,6 +26,7 @@ pub mod keyboard_layouts;
 mod keyboard_layouts_table;
 pub mod keys;
 pub mod keytest;
+pub mod l10n;
 pub mod lifecycle;
 pub mod logcat;
 pub mod microphone;

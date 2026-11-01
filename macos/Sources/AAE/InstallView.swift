@@ -18,12 +18,12 @@ struct InstallView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(question.watch ? "Watch \(names) for new builds" : "Install \(names)")
+            Text(tr(question.watch ? "Watch \(names) for new builds" : "Install \(names)"))
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text(question.watch
+            Text(tr(question.watch
                 ? "Which devices should each new build go on? Only running devices are listed."
-                : "Which devices should it go on? Only running devices are listed.")
+                : "Which devices should it go on? Only running devices are listed."))
             ForEach(question.devices, id: \.id) { device in
                 Toggle("\(device.name), \(device.android)", isOn: Binding(
                     get: { chosen.contains(device.id) },
@@ -35,7 +35,7 @@ struct InstallView: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { model.installQuestion = nil }
                     .keyboardShortcut(.cancelAction)
-                Button(question.watch ? "Watch" : "Install") {
+                Button(question.watch ? tr("Watch", context: "start watching for builds") : tr("Install")) {
                     // In the list's order, so installs happen in a predictable order.
                     let ids = question.devices.map(\.id).filter(chosen.contains)
                     if question.watch {

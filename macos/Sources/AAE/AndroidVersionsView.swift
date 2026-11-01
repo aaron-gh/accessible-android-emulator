@@ -14,8 +14,8 @@ struct AndroidVersionsView: View {
 
             List(model.installedImages, id: \.sysdir, selection: $selection) { image in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(image.description)
-                    Text(details(image))
+                    Text(tr(image.description))
+                    Text(tr(details(image)))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -25,7 +25,7 @@ struct AndroidVersionsView: View {
             .frame(minHeight: 240)
             .overlay {
                 if model.installedImages.isEmpty {
-                    Text(model.loadingImages ? "Reading…" : "No Android versions are installed.")
+                    Text(tr(model.loadingImages ? "Reading…" : "No Android versions are installed."))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -42,7 +42,7 @@ struct AndroidVersionsView: View {
                         Text("The emulator and tools are up to date.")
                     }
                 } else {
-                    Text("Updates: " + status.updates.map { "\($0.name) \($0.revision), \($0.size)" }.joined(separator: "; ") + ".")
+                    Text(tr("Updates: " + status.updates.map { "\($0.name) \($0.revision), \($0.size)" }.joined(separator: "; ") + "."))
                     if let download = model.download {
                         ProgressView(value: Double(download.percent), total: 100) {
                             Text("Updating: \(download.percent)%")
@@ -56,7 +56,7 @@ struct AndroidVersionsView: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                Text(model.setupError ?? "Checking for updates…")
+                Text(tr(model.setupError ?? "Checking for updates…"))
             }
 
             HStack {

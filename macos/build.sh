@@ -60,6 +60,10 @@ cp "$BIN/AAE" "$APP/Contents/MacOS/AAE"
 # Helpers, as "aae" and "AAE" are the same name on a Mac's disk.
 mkdir -p "$APP/Contents/Helpers"
 cp "target/$PROFILE/aae" "$APP/Contents/Helpers/aae"
+# The labels written in the views, in French. SwiftUI reads them from here;
+# other text is translated by the core from the same catalog.
+mkdir -p "$APP/Contents/Resources/en.lproj" "$APP/Contents/Resources/fr.lproj"
+"target/$PROFILE/aae" localizable-strings fr > "$APP/Contents/Resources/fr.lproj/Localizable.strings"
 cp macos/Support/Info.plist "$APP/Contents/Info.plist"
 PLIST="$APP/Contents/Info.plist"
 VERSION="${AAE_VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)}"

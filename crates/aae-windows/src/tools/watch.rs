@@ -206,7 +206,7 @@ fn ask() {
         owner,
         form.button("Choose APK…", CHOOSE_APK, Role::Action)
             .button("Choose Folder…", CHOOSE_FOLDER, Role::Action)
-            .button("Watch", 1, Role::Default)
+            .button(&crate::tr_in("start watching for builds", "Watch"), 1, Role::Default)
             .button("Cancel", 0, Role::Cancel),
     );
     if answer.button != 1 {

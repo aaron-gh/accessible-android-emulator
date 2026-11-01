@@ -40,11 +40,48 @@ fn main() {
     std::process::exit(1);
 }
 
+/// English text from AAE in the user's language (see aae_core::l10n).
+#[cfg(windows)]
+pub fn tr(text: &str) -> String {
+    aae_core::l10n::tr(text)
+}
+
+/// As `tr`, for a word with more than one meaning in English, such as "Watch".
+#[cfg(windows)]
+pub fn tr_in(context: &str, text: &str) -> String {
+    aae_core::l10n::tr_in(context, text)
+}
+
+/// Uses Windows' display language, if AAE has it.
+#[cfg(windows)]
+fn use_windows_language() {
+    use windows::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
+    let mut count = 0u32;
+    let mut length = 0u32;
+    unsafe {
+        if GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, None, &mut length).is_err() {
+            return;
+        }
+        let mut buffer = vec![0u16; length as usize];
+        let ok = GetUserPreferredUILanguages(
+            MUI_LANGUAGE_NAME,
+            &mut count,
+            Some(windows::core::PWSTR(buffer.as_mut_ptr())),
+            &mut length,
+        );
+        if ok.is_ok() {
+            let first: Vec<u16> = buffer.iter().copied().take_while(|&c| c != 0).collect();
+            aae_core::l10n::set_language(&String::from_utf16_lossy(&first));
+        }
+    }
+}
+
 #[cfg(windows)]
 fn main() {
     if std::env::args().any(|a| a == "--serve") {
         serve_hidden();
     }
+    use_windows_language();
     // Where a panic happened, for log_panic: the payload doesn't say.
     std::panic::set_hook(Box::new(|info| {
         if let Some(at) = info.location() {

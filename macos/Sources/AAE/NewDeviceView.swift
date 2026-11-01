@@ -35,7 +35,7 @@ struct NewDeviceView: View {
 
                 Picker("Android version", selection: $versionIndex) {
                     ForEach(model.versions.indices, id: \.self) { index in
-                        Text(versionLabel(model.versions[index])).tag(index)
+                        Text(tr(versionLabel(model.versions[index]))).tag(index)
                     }
                 }
                 .onChange(of: versionIndex) { index in
@@ -61,7 +61,7 @@ struct NewDeviceView: View {
                     } else {
                         Picker("Size", selection: $profile) {
                             ForEach(profiles.indices, id: \.self) { index in
-                                Text(profiles[index].0).tag(index)
+                                Text(tr(profiles[index].0)).tag(index)
                             }
                         }
                         .onChange(of: profile) { _ in loadDefaults() }
@@ -81,7 +81,7 @@ struct NewDeviceView: View {
                 }
 
                 HStack {
-                    Text(screenReaderText)
+                    Text(tr(screenReaderText))
                         .accessibilityLabel("Screen reader: \(screenReaderText)")
                     Button("Choose Screen Reader…", action: chooseScreenReader)
                 }
@@ -137,7 +137,7 @@ struct NewDeviceView: View {
 
     private func chooseScreenReader() {
         let panel = NSOpenPanel()
-        panel.message = "Choose a screen reader APK, such as a Backtalk build."
+        panel.message = tr("Choose a screen reader APK, such as a Backtalk build.")
         panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data]
         if panel.runModal() == .OK, let url = panel.url {
             screenReader = url.path

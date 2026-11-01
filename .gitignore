@@ -13,3 +13,5 @@
 /windows/dist/
 /android/dist/
 /googlebook/dist/
+# Python bytecode from the translation tools.
+/translations/__pycache__/

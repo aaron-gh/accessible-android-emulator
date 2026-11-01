@@ -27,6 +27,8 @@ use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
+use crate::tr;
+
 /// A null-terminated UTF-16 copy of a string, for Windows.
 pub fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain([0]).collect()
@@ -155,7 +157,7 @@ pub fn label(parent: HWND, text: &str) -> HWND {
     control(
         parent,
         w!("STATIC"),
-        text,
+        &tr(text),
         WINDOW_STYLE(0),
         WINDOW_EX_STYLE(0),
         0xFFFF,
@@ -166,7 +168,7 @@ pub fn button(parent: HWND, text: &str, id: u16) -> HWND {
     control(
         parent,
         w!("BUTTON"),
-        text,
+        &tr(text),
         WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
         WINDOW_EX_STYLE(0),
         id,
@@ -177,7 +179,7 @@ pub fn checkbox(parent: HWND, text: &str, id: u16, checked: bool) -> HWND {
     let hwnd = control(
         parent,
         w!("BUTTON"),
-        text,
+        &tr(text),
         WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
         WINDOW_EX_STYLE(0),
         id,
@@ -306,7 +308,7 @@ pub fn tree_add(
     param: isize,
 ) -> windows::Win32::UI::Controls::HTREEITEM {
     use windows::Win32::UI::Controls::*;
-    let mut text = wide(text);
+    let mut text = wide(&tr(text));
     let insert = TVINSERTSTRUCTW {
         hParent: parent.unwrap_or(TVI_ROOT),
         hInsertAfter: TVI_LAST,
@@ -357,12 +359,22 @@ pub fn place(hwnd: HWND, x: i32, y: i32, width: i32, height: i32) {
 }
 
 pub fn set_text(hwnd: HWND, text: &str) {
+    // Labels and buttons show AAE's text, in the user's language; text
+    // fields show the user's own, or a transcript, as it is.
+    let text = if is_edit(hwnd) { text.to_string() } else { tr(text) };
     // Edit controls need Windows line endings.
     let text = text.replace("\r\n", "\n").replace('\n', "\r\n");
     let text = wide(&text);
     unsafe {
         let _ = SetWindowTextW(hwnd, PCWSTR(text.as_ptr()));
     }
+}
+
+/// Whether a control is a text field.
+fn is_edit(hwnd: HWND) -> bool {
+    let mut class = [0u16; 16];
+    let length = unsafe { GetClassNameW(hwnd, &mut class) } as usize;
+    String::from_utf16_lossy(&class[..length.min(class.len())]).eq_ignore_ascii_case("edit")
 }
 
 pub fn text(hwnd: HWND) -> String {
@@ -434,7 +446,7 @@ pub fn set_list_items(hwnd: HWND, items: &[String], selected: Option<usize>) {
     send(hwnd, WM_SETREDRAW, 0, 0);
     send(hwnd, LB_RESETCONTENT, 0, 0);
     for item in items {
-        let item = wide(item);
+        let item = wide(&tr(item));
         send(hwnd, LB_ADDSTRING, 0, item.as_ptr() as isize);
     }
     if let Some(index) = selected {
@@ -447,7 +459,7 @@ pub fn set_list_items(hwnd: HWND, items: &[String], selected: Option<usize>) {
 pub fn set_list_item(hwnd: HWND, index: usize, item: &str) {
     let selected = list_selection(hwnd);
     send(hwnd, LB_DELETESTRING, index, 0);
-    let item = wide(item);
+    let item = wide(&tr(item));
     send(hwnd, LB_INSERTSTRING, index, item.as_ptr() as isize);
     if let Some(selected) = selected {
         send(hwnd, LB_SETCURSEL, selected, 0);
@@ -456,7 +468,7 @@ pub fn set_list_item(hwnd: HWND, index: usize, item: &str) {
 
 /// Adds an item to the end of a list box, keeping the selection.
 pub fn add_list_item(hwnd: HWND, item: &str) {
-    let item = wide(item);
+    let item = wide(&tr(item));
     send(hwnd, LB_ADDSTRING, 0, item.as_ptr() as isize);
 }
 
@@ -483,7 +495,7 @@ pub fn list_selection(hwnd: HWND) -> Option<usize> {
 pub fn set_combo_items(hwnd: HWND, items: &[String], selected: usize) {
     send(hwnd, CB_RESETCONTENT, 0, 0);
     for item in items {
-        let item = wide(item);
+        let item = wide(&tr(item));
         send(hwnd, CB_ADDSTRING, 0, item.as_ptr() as isize);
     }
     send(hwnd, CB_SETCURSEL, selected, 0);
@@ -518,7 +530,7 @@ pub fn text_height(hwnd: HWND, text: &str, width: i32) -> i32 {
 pub fn open_files(owner: HWND, title: &str, filter: &[(&str, &str)], many: bool) -> Vec<String> {
     let mut buffer = vec![0u16; 32 * 1024];
     let filter = filter_string(filter);
-    let title = wide(title);
+    let title = wide(&tr(title));
     let mut flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
     if many {
         flags |= OFN_ALLOWMULTISELECT;
@@ -564,7 +576,7 @@ pub fn choose_folder(owner: HWND, title: &str) -> Option<String> {
             CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
         let options = dialog.GetOptions().ok()?;
         dialog.SetOptions(options | FOS_PICKFOLDERS).ok()?;
-        let title = wide(title);
+        let title = wide(&tr(title));
         let _ = dialog.SetTitle(PCWSTR(title.as_ptr()));
         dialog.Show(Some(owner)).ok()?;
         let path = dialog
@@ -595,7 +607,7 @@ pub fn save_file(
         .collect();
     buffer[..name.len()].copy_from_slice(&name);
     let filter = filter_string(filter);
-    let title = wide(title);
+    let title = wide(&tr(title));
     let extension = wide(extension);
     let mut ofn = OPENFILENAMEW {
         lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
@@ -618,7 +630,7 @@ pub fn save_file(
 fn filter_string(filter: &[(&str, &str)]) -> Vec<u16> {
     let mut out = String::new();
     for (name, pattern) in filter {
-        out.push_str(name);
+        out.push_str(&tr(name));
         out.push('\0');
         out.push_str(pattern);
         out.push('\0');

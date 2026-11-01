@@ -10,7 +10,7 @@ struct ContentView: View {
             if let error = model.startupError {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("AAE could not start").font(.title2).accessibilityAddTraits(.isHeader)
-                    Text(error).textSelection(.enabled)
+                    Text(tr(error)).textSelection(.enabled)
                 }
                 .padding()
             } else if model.needsSetup {
@@ -64,7 +64,7 @@ struct ContentView: View {
                 title: "Copy \(device.name)",
                 label: "Name for the copy",
                 initial: "\(device.name) copy",
-                action: "Copy"
+                action: tr("Copy", context: "duplicate a device")
             ) { model.clone(device, as: $0) }
         }
     }
@@ -82,9 +82,9 @@ struct DeviceListView: View {
                 Text("You have no devices yet. Choose New Device to create one.")
             } else {
                 List(model.devices, selection: $model.selection) { device in
-                    Text(rowText(device))
+                    Text(tr(rowText(device)))
                         .tag(device.id)
-                        .accessibilityLabel(rowText(device))
+                        .accessibilityLabel(tr(rowText(device)))
                 }
                 .accessibilityLabel("Devices")
             }
@@ -93,7 +93,7 @@ struct DeviceListView: View {
                 Button("New Device…") { model.showingNewDevice = true }
                 if let device = model.selected {
                     if model.busy[device.id] != nil {
-                        ProgressView().controlSize(.small).accessibilityLabel(model.busy[device.id] ?? "")
+                        ProgressView().controlSize(.small).accessibilityLabel(tr(model.busy[device.id] ?? ""))
                     } else if device.running {
                         Button("Use Android Keyboard") { model.enterDeviceMode() }
                         Button("Stop") { model.stop() }
@@ -141,7 +141,7 @@ struct DeviceListView: View {
             }
 
             if !model.status.isEmpty {
-                Text(model.status)
+                Text(tr(model.status))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .accessibilityLabel("Last message: \(model.status)")
@@ -184,13 +184,13 @@ struct DeviceModeView: View {
                 sendText: { code, text, down in model.sendText(code, text, down) }
             )
             VStack(spacing: 12) {
-                Text(model.gestureMode
+                Text(tr(model.gestureMode
                     ? "Keys perform gestures on \(model.selected?.name ?? "Android")."
-                    : "The keyboard is in \(model.selected?.name ?? "Android").")
+                    : "The keyboard is in \(model.selected?.name ?? "Android")."))
                     .font(.title2)
                     .accessibilityHidden(true)
                 if model.gestureMode {
-                    Text(GestureKeys.helpText)
+                    Text(tr(GestureKeys.helpText))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 520)
                         .accessibilityHidden(true)
@@ -218,14 +218,14 @@ struct NamePrompt: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
-            TextField(label, text: $name)
+            Text(tr(title)).font(.headline).accessibilityAddTraits(.isHeader)
+            TextField(tr(label), text: $name)
                 .onSubmit(submit)
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(action, action: submit)
+                Button(tr(action), action: submit)
                     .keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -254,9 +254,9 @@ struct ScreenReaderQuestion: View {
             Text("\(device.name) has no screen reader")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text(device.backtalkSupported
+            Text(tr(device.backtalkSupported
                 ? "This Android image doesn't include one."
-                : "This Android image doesn't include one, and Backtalk needs Android 8 or later. You can install a screen reader APK made for \(device.android), such as an older TalkBack, or continue without.")
+                : "This Android image doesn't include one, and Backtalk needs Android 8 or later. You can install a screen reader APK made for \(device.android), such as an older TalkBack, or continue without."))
             HStack {
                 Button("Continue Without", role: .cancel) {
                     model.setUpScreenReader(device, source: nil)
@@ -265,7 +265,7 @@ struct ScreenReaderQuestion: View {
                 Spacer()
                 Button("Choose a Screen Reader…") {
                     let panel = NSOpenPanel()
-                    panel.message = "Choose a screen reader APK."
+                    panel.message = tr("Choose a screen reader APK.")
                     panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data]
                     if panel.runModal() == .OK, let url = panel.url {
                         model.setUpScreenReader(device, source: .apk(path: url.path))

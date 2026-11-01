@@ -16,22 +16,22 @@ struct SetupView: View {
                 ForEach(status.missing, id: \.name) { tool in
                     Text("\(tool.name) \(tool.revision), \(tool.size)")
                 }
-                Text(status.ownSdk
+                Text(tr(status.ownSdk
                     ? "They go in AAE's own folder, \(status.sdkPath)."
-                    : "They go in the Android SDK at \(status.sdkPath), which Android Studio uses too.")
+                    : "They go in the Android SDK at \(status.sdkPath), which Android Studio uses too."))
                     .foregroundStyle(.secondary)
                 if let problem = status.virtualisationProblem {
-                    Text(problem)
+                    Text(tr(problem))
                         .foregroundStyle(.red)
                 }
                 if let warning = status.performanceWarning {
-                    Text(warning)
+                    Text(tr(warning))
                 }
                 if let download = model.download {
                     ProgressView(value: Double(download.percent), total: 100) {
                         Text("Downloading: \(download.percent)%")
                     }
-                    Text(model.status)
+                    Text(tr(model.status))
                         .foregroundStyle(.secondary)
                 } else {
                     Button("Download and Set Up") { model.runSetup() }
@@ -42,7 +42,7 @@ struct SetupView: View {
                 Text("Checking what AAE needs…")
             }
             if let error = model.setupError, !model.settingUp {
-                Text(error)
+                Text(tr(error))
                     .foregroundStyle(.red)
                     .textSelection(.enabled)
                 Button("Try Again") { model.checkSetup(refresh: true) }

@@ -21,7 +21,7 @@ struct DeviceWindowView: View {
             }
         }
         .frame(minWidth: 460, minHeight: 260)
-        .navigationTitle(device?.name ?? "Device")
+        .navigationTitle(tr(device?.name ?? "Device"))
         .background(WindowFocusReporter { isKey in
             if isKey {
                 model.keyDeviceWindow = id
@@ -44,7 +44,7 @@ struct DeviceWindowView: View {
             Text("\(device.android), \(device.kind), \(model.busy[device.id]?.lowercased() ?? (device.running ? "running" : "stopped")).")
             HStack {
                 if model.busy[device.id] != nil {
-                    ProgressView().controlSize(.small).accessibilityLabel(model.busy[device.id] ?? "")
+                    ProgressView().controlSize(.small).accessibilityLabel(tr(model.busy[device.id] ?? ""))
                 } else if device.running {
                     Button("Use Android Keyboard") { model.enterDeviceMode(host: id) }
                     Button("Use Gestures") { model.enterDeviceMode(gestures: true, host: id) }

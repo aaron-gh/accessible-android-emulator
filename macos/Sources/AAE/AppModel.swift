@@ -169,6 +169,7 @@ final class AppModel: ObservableObject {
     private var firstStart: [String: (screenReader: String?, volumeBoost: Bool)] = [:]
 
     init() {
+        L10n.start()
         do {
             engine = try Engine()
             startupError = nil
@@ -231,6 +232,7 @@ final class AppModel: ObservableObject {
     /// `log`: failures go in AAE's log unless they're expected, such as the
     /// end of the screen.
     func announce(_ text: String, tone: Tone = .info, log: Bool = true) {
+        let text = tr(text)
         if tone == .failure && log {
             engine?.logProblem(message: text)
         }
@@ -350,16 +352,16 @@ final class AppModel: ObservableObject {
             return
         }
         let alert = NSAlert()
-        alert.messageText = "Delete \(image.description)?"
+        alert.messageText = tr("Delete \(image.description)?")
         var detail = "This deletes its \(image.size) of files. You can download it again later."
         if !image.otherDevices.isEmpty {
             detail += " Other emulator devices, such as Android Studio's, use it and won't start without it: \(image.otherDevices.joined(separator: ", "))."
         }
-        alert.informativeText = detail
+        alert.informativeText = tr(detail)
         alert.alertStyle = .warning
         // Cancel is the default, so a stray Return deletes nothing.
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: tr("Cancel"))
+        alert.addButton(withTitle: tr("Delete"))
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         announce("Deleting \(image.description).")
         Task {
@@ -577,11 +579,11 @@ final class AppModel: ObservableObject {
     func wipe() {
         guard let engine, let device = selected, busy[device.id] == nil else { return }
         let alert = NSAlert()
-        alert.messageText = "Wipe \(device.name)?"
-        alert.informativeText = "Its apps, data and snapshots are deleted, and it's set up again as it was when first created, with its screen reader. It keeps its name, hardware and volume. This can't be undone."
+        alert.messageText = tr("Wipe \(device.name)?")
+        alert.informativeText = tr("Its apps, data and snapshots are deleted, and it's set up again as it was when first created, with its screen reader. It keeps its name, hardware and volume. This can't be undone.")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Wipe")
+        alert.addButton(withTitle: tr("Cancel"))
+        alert.addButton(withTitle: tr("Wipe"))
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         if deviceModeID == device.id {
             leaveDeviceMode()
@@ -645,12 +647,12 @@ final class AppModel: ObservableObject {
         }
         let size = (try? engine.deviceSize(id: device.id)) ?? "all"
         let alert = NSAlert()
-        alert.messageText = "Delete \(device.name)?"
-        alert.informativeText = "This deletes the device and its \(size) of files. It can't be undone."
+        alert.messageText = tr("Delete \(device.name)?")
+        alert.informativeText = tr("This deletes the device and its \(size) of files. It can't be undone.")
         alert.alertStyle = .warning
         // Cancel is the default, so a stray Return deletes nothing.
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: tr("Cancel"))
+        alert.addButton(withTitle: tr("Delete"))
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         do {
             let freed = try engine.deleteDevice(id: device.id)
@@ -694,7 +696,7 @@ final class AppModel: ObservableObject {
             return
         }
         let panel = NSSavePanel()
-        panel.message = "Export \(device.name), with its apps, data and named snapshots, to import on another computer with the same kind of processor."
+        panel.message = tr("Export \(device.name), with its apps, data and named snapshots, to import on another computer with the same kind of processor.")
         panel.nameFieldStringValue = "\(device.name).aaedevice"
         panel.allowedContentTypes = [UTType(filenameExtension: "aaedevice") ?? .zip]
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -717,7 +719,7 @@ final class AppModel: ObservableObject {
     func importDevice() {
         guard let engine else { return }
         let panel = NSOpenPanel()
-        panel.message = "Choose a device exported from AAE."
+        panel.message = tr("Choose a device exported from AAE.")
         panel.allowedContentTypes = [UTType(filenameExtension: "aaedevice") ?? .zip]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         announce("Importing \(url.deletingPathExtension().lastPathComponent).")
@@ -1472,7 +1474,7 @@ final class AppModel: ObservableObject {
             playingFiles.remove(id)
         }
         let panel = NSOpenPanel()
-        panel.message = "Choose an audio file to play into \(device.name)'s microphone."
+        panel.message = tr("Choose an audio file to play into \(device.name)'s microphone.")
         panel.allowedContentTypes = [.audio]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         withSession { [weak self] session in
@@ -1536,7 +1538,7 @@ final class AppModel: ObservableObject {
 
     func installApp() {
         let panel = NSOpenPanel()
-        panel.message = "Choose apps to install."
+        panel.message = tr("Choose apps to install.")
         panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data]
         panel.allowsMultipleSelection = true
         guard panel.runModal() == .OK else { return }
@@ -1629,7 +1631,7 @@ final class AppModel: ObservableObject {
     func installScreenReaderBuild() {
         guard let engine else { return }
         let panel = NSOpenPanel()
-        panel.message = "Choose a screen reader build to install."
+        panel.message = tr("Choose a screen reader build to install.")
         panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
@@ -1661,11 +1663,11 @@ final class AppModel: ObservableObject {
                     }
                     // A build signed differently can only replace the old one, losing its settings.
                     let alert = NSAlert()
-                    alert.messageText = "Replace the screen reader on \(name)?"
-                    alert.informativeText = "This build is signed differently from the one on \(name), so it can't be installed over it. Replacing it removes the old one first, and with it the screen reader's settings."
+                    alert.messageText = tr("Replace the screen reader on \(name)?")
+                    alert.informativeText = tr("This build is signed differently from the one on \(name), so it can't be installed over it. Replacing it removes the old one first, and with it the screen reader's settings.")
                     alert.alertStyle = .warning
-                    alert.addButton(withTitle: "Skip \(name)")
-                    alert.addButton(withTitle: "Replace")
+                    alert.addButton(withTitle: tr("Skip \(name)"))
+                    alert.addButton(withTitle: tr("Replace"))
                     guard alert.runModal() == .alertSecondButtonReturn else { continue }
                     do {
                         let said = try await engine.installScreenReaderBuild(id: id, path: path, replace: true)
@@ -1814,11 +1816,11 @@ final class AppModel: ObservableObject {
     /// Asks a yes-or-no question, with Cancel the default.
     private func confirm(_ question: String, _ detail: String, action: String) -> Bool {
         let alert = NSAlert()
-        alert.messageText = question
-        alert.informativeText = detail
+        alert.messageText = tr(question)
+        alert.informativeText = tr(detail)
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: action)
+        alert.addButton(withTitle: tr("Cancel"))
+        alert.addButton(withTitle: tr(action))
         return alert.runModal() == .alertSecondButtonReturn
     }
 
@@ -1827,7 +1829,7 @@ final class AppModel: ObservableObject {
     /// Chooses an APK or a build folder to watch, then the devices.
     func watchForBuilds() {
         let panel = NSOpenPanel()
-        panel.message = "Choose an app's APK, or the folder its builds go in, such as build/outputs/apk."
+        panel.message = tr("Choose an app's APK, or the folder its builds go in, such as build/outputs/apk.")
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data, .folder]
@@ -1904,10 +1906,10 @@ final class AppModel: ObservableObject {
     /// Asks, then puts the device back as it was in a snapshot.
     func restoreSnapshot(_ snapshot: SnapshotInfo) {
         let alert = NSAlert()
-        alert.messageText = "Restore \(snapshot.name)?"
-        alert.informativeText = "The device goes back to how it was when this snapshot was taken. Anything since then is lost, unless you save a snapshot of it first."
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Restore")
+        alert.messageText = tr("Restore \(snapshot.name)?")
+        alert.informativeText = tr("The device goes back to how it was when this snapshot was taken. Anything since then is lost, unless you save a snapshot of it first.")
+        alert.addButton(withTitle: tr("Cancel"))
+        alert.addButton(withTitle: tr("Restore"))
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         announce("Restoring \(snapshot.name).")
         withSession { [weak self] session in
@@ -1930,11 +1932,11 @@ final class AppModel: ObservableObject {
     /// Asks, then deletes a snapshot.
     func deleteSnapshot(_ snapshot: SnapshotInfo) {
         let alert = NSAlert()
-        alert.messageText = "Delete \(snapshot.name)?"
-        alert.informativeText = "This frees \(snapshot.size). It can't be undone."
+        alert.messageText = tr("Delete \(snapshot.name)?")
+        alert.informativeText = tr("This frees \(snapshot.size). It can't be undone.")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: tr("Cancel"))
+        alert.addButton(withTitle: tr("Delete"))
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         withSession { [weak self] session in
             try await session.deleteSnapshot(id: snapshot.id)
@@ -2171,10 +2173,10 @@ final class AppModel: ObservableObject {
             }
             self.announce(result.message, tone: .failure)
             let alert = NSAlert()
-            alert.messageText = "Restart \(device.name)'s audio?"
-            alert.informativeText = "\(result.message) Restarting AAE's audio reconnects to the device's sound and to the Mac's output. The device itself keeps running."
-            alert.addButton(withTitle: "Restart Audio")
-            alert.addButton(withTitle: "Not Now")
+            alert.messageText = tr("Restart \(device.name)'s audio?")
+            alert.informativeText = tr("\(result.message) Restarting AAE's audio reconnects to the device's sound and to the Mac's output. The device itself keeps running.")
+            alert.addButton(withTitle: tr("Restart Audio"))
+            alert.addButton(withTitle: tr("Not Now"))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
             try await session.restartAudio(correctPitch: self.correctPitch)
             self.applyAudioFocus()
@@ -2307,7 +2309,7 @@ final class AppModel: ObservableObject {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "AAE report \(formatter.string(from: Date())).txt"
         panel.allowedContentTypes = [.plainText]
-        panel.message = "The report has AAE's log and details of this Mac and your devices, with your home folder, computer name and full name taken out. It never includes what you typed on a device. It's plain text, so you can read it before sending it."
+        panel.message = tr("The report has AAE's log and details of this Mac and your devices, with your home folder, computer name and full name taken out. It never includes what you typed on a device. It's plain text, so you can read it before sending it.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let report = engine.diagnosticReport(version: version)
         do {
@@ -2331,7 +2333,7 @@ final class AppModel: ObservableObject {
             return
         }
         let panel = NSOpenPanel()
-        panel.message = "Choose a GPX route for \(device.name)."
+        panel.message = tr("Choose a GPX route for \(device.name).")
         panel.allowedContentTypes = [UTType(filenameExtension: "gpx") ?? .xml]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         withSession { [weak self] session in
@@ -2367,7 +2369,7 @@ final class AppModel: ObservableObject {
             return
         }
         let panel = NSSavePanel()
-        panel.message = "Record the screen and its sound, for up to three minutes."
+        panel.message = tr("Record the screen and its sound, for up to three minutes.")
         panel.nameFieldStringValue = "\(device.name) recording.webm"
         panel.allowedContentTypes = [UTType(filenameExtension: "webm") ?? .movie]
         guard panel.runModal() == .OK, let url = panel.url else { return }

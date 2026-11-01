@@ -23,7 +23,7 @@ struct InspectorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(model.inspectedDevice.map { "Accessibility of \($0)" } ?? "Accessibility Inspector")
+                Text(tr(model.inspectedDevice.map { "Accessibility of \($0)" } ?? "Accessibility Inspector"))
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
@@ -57,13 +57,13 @@ struct InspectorView: View {
                 Group {
                     if flat {
                         List(flatten(tree), selection: $selection) { item in
-                            Text(String(repeating: "    ", count: item.depth) + item.summary)
+                            Text(tr(String(repeating: "    ", count: item.depth) + item.summary))
                                 .accessibilityLabel("Level \(item.depth + 1), \(item.summary)")
                                 .tag(item.id)
                         }
                     } else {
                         List(tree, children: \.children, selection: $selection) { item in
-                            Text(item.summary).tag(item.id)
+                            Text(tr(item.summary)).tag(item.id)
                         }
                     }
                 }
@@ -77,7 +77,7 @@ struct InspectorView: View {
                 .accessibilityLabel("Details of the selected element")
                 .frame(minHeight: 120)
 
-                Text(inspection.issues.isEmpty ? "No problems found" : "Problems: \(inspection.issues.count)")
+                Text(tr(inspection.issues.isEmpty ? "No problems found" : "Problems: \(inspection.issues.count)"))
                     .font(.subheadline).bold()
                     .accessibilityAddTraits(.isHeader)
                 if !inspection.issues.isEmpty {
@@ -136,7 +136,7 @@ struct InspectorView: View {
     private func save() {
         guard let inspection = model.inspection else { return }
         let panel = NSSavePanel()
-        panel.message = "Save as a web page, with the problems found; as JSON, with every property; or as text. The name's ending chooses."
+        panel.message = tr("Save as a web page, with the problems found; as JSON, with every property; or as text. The name's ending chooses.")
         panel.nameFieldStringValue = "\(model.inspectedDevice ?? "screen") accessibility.html"
         panel.allowedContentTypes = [.html, .json, .plainText]
         panel.allowsOtherFileTypes = true

@@ -563,6 +563,26 @@ pub struct DeviceSettingInfo {
     pub value: String,
 }
 
+/// Uses a language for what AAE shows and says, by a tag such as "fr-FR".
+/// Returns whether AAE has it; otherwise it stays in English.
+#[uniffi::export]
+pub fn set_language(tag: String) -> bool {
+    aae_core::l10n::set_language(&tag)
+}
+
+/// English text from AAE in the language in use (see aae_core::l10n).
+#[uniffi::export]
+pub fn translate(text: String) -> String {
+    aae_core::l10n::tr(&text)
+}
+
+/// As `translate`, for a word with more than one meaning in English, such as
+/// "Watch": the translation for this use, named by `context`.
+#[uniffi::export]
+pub fn translate_in(context: String, text: String) -> String {
+    aae_core::l10n::tr_in(&context, &text)
+}
+
 /// What new devices start with, in words: the settings chosen for them, or
 /// that they keep Android's own.
 #[uniffi::export]

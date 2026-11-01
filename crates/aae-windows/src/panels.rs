@@ -196,7 +196,7 @@ impl Panel {
     /// Starts a tool window of a kind, with a title and a size at 96 dots per inch.
     pub fn new(kind: &'static str, title: &str, width: i32, height: i32) -> Panel {
         register();
-        let title = ui::wide(title);
+        let title = ui::wide(&crate::tr(title));
         let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForSystem() } as i32;
         let hwnd = unsafe {
             CreateWindowExW(

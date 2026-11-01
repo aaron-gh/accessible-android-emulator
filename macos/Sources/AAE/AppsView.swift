@@ -8,18 +8,18 @@ struct AppsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.appsDevice.map { "Apps on \($0)" } ?? "Apps")
+            Text(tr(model.appsDevice.map { "Apps on \($0)" } ?? "Apps"))
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             Toggle("Show Android's own apps", isOn: $model.showSystemApps)
             List(model.apps, id: \.package, selection: $selection) { app in
-                Text(row(app))
+                Text(tr(row(app)))
             }
             .accessibilityLabel("Apps")
             .frame(minHeight: 260)
             .overlay {
                 if model.apps.isEmpty {
-                    Text(emptyText).foregroundStyle(.secondary)
+                    Text(tr(emptyText)).foregroundStyle(.secondary)
                 }
             }
             HStack {
@@ -87,7 +87,7 @@ struct PermissionsView: View {
                         Text("It asks for no permissions.")
                     }
                     ForEach(permissions.permissions, id: \.name) { permission in
-                        Toggle(permission.label, isOn: Binding(
+                        Toggle(tr(permission.label), isOn: Binding(
                             get: { permission.granted },
                             set: { model.setPermission(app, permission, granted: $0) }
                         ))
@@ -97,7 +97,7 @@ struct PermissionsView: View {
                         .accessibilityAddTraits(.isHeader)
                         .padding(.top, 8)
                     ForEach(permissions.access, id: \.name) { access in
-                        Toggle(access.name, isOn: Binding(
+                        Toggle(tr(access.name), isOn: Binding(
                             get: { access.allowed },
                             set: { model.setAccess(app, access, allowed: $0) }
                         ))

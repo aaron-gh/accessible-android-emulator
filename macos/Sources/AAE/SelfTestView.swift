@@ -26,7 +26,7 @@ struct SelfTestView: View {
             Text("Self-Test")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Text(summary)
+            Text(tr(summary))
             List(sorted) { row in
                 Text("\(row.label): \(row.name). \(row.detail)")
                     .foregroundStyle(row.outcome == .failed ? .red : row.outcome == .warning ? .orange : .primary)

@@ -10,7 +10,7 @@ struct SpeechLogView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(model.speechLogDevice.map { "What \($0) said" } ?? "Speech Log")
+                Text(tr(model.speechLogDevice.map { "What \($0) said" } ?? "Speech Log"))
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()

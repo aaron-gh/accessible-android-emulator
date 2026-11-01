@@ -23,7 +23,7 @@ struct ConditionsView: View {
                 .accessibilityValue("\(Int(level)) percent")
                 Toggle("Charging", isOn: $charging)
                 Picker("Health", selection: $health) {
-                    ForEach(batteryHealths(), id: \.name) { Text($0.label).tag($0.name) }
+                    ForEach(batteryHealths(), id: \.name) { Text(tr($0.label)).tag($0.name) }
                 }
                 Button("Set Battery") { model.setBattery(level: Int(level), charging: charging, health: health) }
             } header: {
@@ -53,7 +53,7 @@ struct ConditionsView: View {
                     Text("Ten times as fast").tag(10.0)
                 }
                 let playing = model.selection.map { model.routes.contains($0) } ?? false
-                Button(playing ? "Stop Route" : "Play GPX Route…") { model.toggleRoute(speed: routeSpeed) }
+                Button(tr(playing ? "Stop Route" : "Play GPX Route…")) { model.toggleRoute(speed: routeSpeed) }
             } header: {
                 Text("Location").accessibilityAddTraits(.isHeader)
             }
@@ -86,10 +86,10 @@ struct ConditionsView: View {
                         Text("Set elsewhere").tag("")
                     }
                     ForEach(networkSpeeds(), id: \.name) { speed in
-                        Text(speed.description.prefix(1).uppercased() + speed.description.dropFirst()).tag(speed.name)
+                        Text(tr(speed.description.prefix(1).uppercased() + speed.description.dropFirst())).tag(speed.name)
                     }
                 }
-                Text(model.network?.description ?? "Start the device to change its network.")
+                Text(tr(model.network?.description ?? "Start the device to change its network."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } header: {
@@ -117,7 +117,7 @@ struct ConditionsView: View {
         .formStyle(.grouped)
         .disabled(!(model.selected?.running ?? false))
         .frame(minWidth: 520, minHeight: 560)
-        .navigationTitle(model.selected.map { "Battery, Location, Phone and Network: \($0.name)" } ?? "Battery, Location, Phone and Network")
+        .navigationTitle(tr(model.selected.map { "Battery, Location, Phone and Network: \($0.name)" } ?? "Battery, Location, Phone and Network"))
         .onAppear { model.loadNetwork() }
         .onChange(of: model.selection) { _ in model.loadNetwork() }
     }

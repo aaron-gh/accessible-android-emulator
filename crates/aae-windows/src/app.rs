@@ -737,6 +737,7 @@ impl App {
 /// Says something, with its tone, and shows it as the last message.
 /// Failures also go in AAE's log.
 pub fn announce(text: &str, tone: Tone) {
+    let text = &crate::tr(text);
     if tone == Tone::Failure
         && let Some(engine) = engine()
     {
@@ -747,6 +748,7 @@ pub fn announce(text: &str, tone: Tone) {
 
 /// As `announce`, for an expected failure, such as the end of the screen.
 pub fn announce_unlogged(text: &str, tone: Tone) {
+    let text = &crate::tr(text);
     with(|app| {
         app.status = text.to_string();
         app.render();
@@ -1819,7 +1821,7 @@ fn copy_device() {
         &format!("Copy {}", device.name),
         "&Name for the copy",
         &format!("{} copy", device.name),
-        "Copy",
+        &crate::tr_in("duplicate a device", "Copy"),
     ) else {
         return;
     };

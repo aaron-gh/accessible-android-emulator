@@ -10,7 +10,7 @@ struct LogView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.logDevice.map { "Log of \($0)" } ?? "Device Log")
+            Text(tr(model.logDevice.map { "Log of \($0)" } ?? "Device Log"))
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
@@ -39,11 +39,11 @@ struct LogView: View {
                 Toggle("Pause", isOn: $model.logPaused)
                 Toggle("Announce new errors in this list", isOn: $model.announceLogErrors)
                 Spacer()
-                Text(count)
+                Text(tr(count))
                     .foregroundStyle(.secondary)
             }
             if let problem = model.logProblem {
-                Text(problem)
+                Text(tr(problem))
                     .foregroundStyle(.red)
             }
 

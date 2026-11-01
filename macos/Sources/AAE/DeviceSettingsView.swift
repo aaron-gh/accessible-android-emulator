@@ -10,15 +10,15 @@ struct DeviceSettingsView: View {
         Form {
             Section {
                 ForEach(model.deviceSettings, id: \.name) { setting in
-                    Picker(setting.label, selection: Binding(
+                    Picker(tr(setting.label), selection: Binding(
                         get: { setting.value },
                         set: { model.changeDeviceSetting(setting.name, to: $0) }
                     )) {
-                        ForEach(setting.choices, id: \.value) { Text($0.label).tag($0.value) }
+                        ForEach(setting.choices, id: \.value) { Text(tr($0.label)).tag($0.value) }
                     }
                 }
                 if model.deviceSettings.isEmpty {
-                    Text(model.selected?.running == true ? "Reading the device's settings." : "Start the device to change its settings.")
+                    Text(tr(model.selected?.running == true ? "Reading the device's settings." : "Start the device to change its settings."))
                 }
             }
             Section {
@@ -30,7 +30,7 @@ struct DeviceSettingsView: View {
                 Text("Another Language").accessibilityAddTraits(.isHeader)
             }
             Section {
-                Text(model.newDeviceSettings)
+                Text(tr(model.newDeviceSettings))
                 Button("Use These Settings for New Devices") { model.useSettingsForNewDevices() }
                 Button("New Devices Keep Android's Settings") { model.newDevicesKeepAndroidSettings() }
             } header: {
@@ -44,7 +44,7 @@ struct DeviceSettingsView: View {
         .formStyle(.grouped)
         .disabled(!(model.selected?.running ?? false))
         .frame(minWidth: 460, minHeight: 520)
-        .navigationTitle(model.selected.map { "Display and Language: \($0.name)" } ?? "Display and Language")
+        .navigationTitle(tr(model.selected.map { "Display and Language: \($0.name)" } ?? "Display and Language"))
         .onAppear { model.loadDeviceSettings() }
         .onChange(of: model.selection) { _ in model.loadDeviceSettings() }
     }

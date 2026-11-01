@@ -188,7 +188,7 @@ struct RecordMenuItem: View {
 
     var body: some View {
         let recording = model.selection.map { model.recordings.contains($0) } ?? false
-        Button(recording ? "Stop Recording" : "Record Screen…") { model.toggleRecording() }
+        Button(tr(recording ? "Stop Recording" : "Record Screen…")) { model.toggleRecording() }
             .keyboardShortcut("r", modifiers: [.command, .option])
     }
 }
@@ -200,15 +200,15 @@ struct MicrophoneMenuItems: View {
 
     var body: some View {
         let on = model.selection.map { model.microphones.contains($0) } ?? false
-        Button(on ? "Turn Off Microphone" : "Turn On Microphone") { model.toggleMicrophone() }
+        Button(tr(on ? "Turn Off Microphone" : "Turn On Microphone")) { model.toggleMicrophone() }
             .keyboardShortcut("u", modifiers: [.command, .shift])
         Button("Check Microphone") { model.checkMicrophone() }
         let bridged = model.selected?.speechBridge ?? false
-        Button(bridged ? "Turn Off Speech Bridge" : "Turn On Speech Bridge") {
+        Button(tr(bridged ? "Turn Off Speech Bridge" : "Turn On Speech Bridge")) {
             model.toggleSpeechBridge()
         }
         let playing = model.selection.map { model.playingFiles.contains($0) } ?? false
-        Button(playing ? "Stop Playing Audio File" : "Play Audio File into Microphone…") {
+        Button(tr(playing ? "Stop Playing Audio File" : "Play Audio File into Microphone…")) {
             model.playFileIntoMicrophone()
         }
     }

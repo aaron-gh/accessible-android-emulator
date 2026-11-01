@@ -38,12 +38,12 @@ pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool, correct_pitch: bool
     )
     .await?;
     audio.set_volume(device.meta.playback_volume.unwrap_or(1.0));
-    println!(
+    say!(
         "Keyboard is in {}. Press Control-right bracket to return to the terminal.",
         device.meta.name
     );
     if !keep_alt {
-        println!(
+        say!(
             "Option acts as Android's Meta key, the screen reader's modifier. \
              Terminal must have Use Option as Meta key turned on."
         );
@@ -53,7 +53,7 @@ pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool, correct_pitch: bool
     let raw = RawMode::enable()?;
     if !raw.enhanced {
         // Raw mode needs a carriage return to start a new line.
-        print!(
+        say_part!(
             "This terminal can't report every key, so Option with the arrow keys may not reach the device.\r\n\
              In macOS Terminal, open Settings, Profiles, Keyboard, and set Option-Left to send \\033[1;3D \
              and Option-Right to send \\033[1;3C. Or use iTerm2, Ghostty or kitty.\r\n"
@@ -128,7 +128,7 @@ pub async fn run(sdk: &Sdk, device: &Device, keep_alt: bool, correct_pitch: bool
             device.meta.name
         )),
         None => {
-            println!("Keyboard is back in the terminal.");
+            say!("Keyboard is back in the terminal.");
             Ok(())
         }
     }
@@ -154,7 +154,7 @@ pub async fn listen(sdk: &Sdk, device: &Device, correct_pitch: bool) -> Result<(
     )
     .await?;
     audio.set_volume(device.meta.playback_volume.unwrap_or(1.0));
-    println!(
+    say!(
         "Playing {}'s audio at {} hertz. Press Control-C to stop.",
         device.meta.name, audio.output_rate
     );
@@ -167,7 +167,7 @@ pub async fn listen(sdk: &Sdk, device: &Device, correct_pitch: bool) -> Result<(
         ),
         None => String::new(),
     };
-    println!(
+    say!(
         "Stopped. {} packets received, loudest {:.0}%, {} gaps, {} samples dropped to keep up.{delay}",
         audio.stats.packets.load(Relaxed),
         audio.stats.peak() * 100.0,
