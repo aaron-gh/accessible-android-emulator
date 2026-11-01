@@ -52,6 +52,13 @@ enum SpokenContent {
         return utterance
     }
 
+    /// The user's language, such as "fr-FR". Not `Locale.current`, which
+    /// follows this app's localizations, so is English while AAE has only
+    /// English, whatever language the Mac is in.
+    static var userLanguage: String {
+        Locale.preferredLanguages.first ?? Locale.current.identifier
+    }
+
     /// The selection for the system language, or the first. Stored as
     /// alternating language and selection entries.
     static func selection() -> (voiceId: String?, rate: Float?) {
@@ -66,7 +73,7 @@ enum SpokenContent {
             }
             index += 2
         }
-        let language = Locale.current.language.languageCode?.identifier ?? "en"
+        let language = Locale(identifier: userLanguage).language.languageCode?.identifier ?? "en"
         guard let choice = (choices.first { $0.0 == language } ?? choices.first)?.1 else {
             return (nil, nil)
         }

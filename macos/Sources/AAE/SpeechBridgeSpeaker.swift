@@ -27,7 +27,10 @@ final class SpeechBridgeSpeaker: NSObject, SpeechBridgeListener, AVSpeechSynthes
                 synthesizer.stopSpeaking(at: .immediate)
             }
             let utterance = SpokenContent.utterance(text)
-            let voiceLanguage = utterance.voice?.language ?? Locale.current.identifier
+            // The user's language, not this app's, which is English while
+            // AAE has no translations: French speech on a French Mac uses
+            // VoiceOver's voice.
+            let voiceLanguage = utterance.voice?.language ?? SpokenContent.userLanguage
             if !language.isEmpty, prefix(language) != prefix(voiceLanguage),
                let voice = AVSpeechSynthesisVoice(language: language) ?? AVSpeechSynthesisVoice(language: prefix(language)) {
                 utterance.voice = voice
