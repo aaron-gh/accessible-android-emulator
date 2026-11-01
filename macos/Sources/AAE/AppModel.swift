@@ -179,7 +179,14 @@ final class AppModel: ObservableObject {
         appliedCorrectPitch = correctPitch
         setUpGestureKeys()
         keyboardObserver = MacKeyboard.observe { [weak self] in
-            guard let self, self.inDeviceMode, !self.gestureMode, let session = self.activeSession else { return }
+            guard let self, self.inDeviceMode else { return }
+            if self.gestureMode {
+                // Gesture keys are found by what they type, so W stays W.
+                self.objectWillChange.send()
+                self.gestureKeys.useLayout(MacKeyboard.typing())
+                return
+            }
+            guard let session = self.activeSession else { return }
             Task { await self.followMacKeyboard(session, announceChange: true) }
         }
         watchSound()
@@ -1094,6 +1101,7 @@ final class AppModel: ObservableObject {
                 try? await session.ensureKeyboardLayout()
                 gestureMode = gestures
                 deviceModeHost = host
+                gestureKeys.useLayout(MacKeyboard.typing())
                 gestureKeys.reset()
                 touchPoint = nil
                 touchLabel = nil
@@ -1175,6 +1183,9 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The gesture keys, as on the Mac's keyboard layout.
+    var gestureHelp: String { gestureKeys.helpText }
+
     private func setUpGestureKeys() {
         gestureKeys.act = { [weak self] action in self?.gestureAction(action) }
     }
@@ -1219,7 +1230,7 @@ final class AppModel: ObservableObject {
                 try await session.turnCrown(steps: Int32(steps))
             }
         case .help:
-            announce(GestureKeys.helpText)
+            announce(gestureKeys.helpText)
         case .unknown:
             Tone.failure.play()
         }

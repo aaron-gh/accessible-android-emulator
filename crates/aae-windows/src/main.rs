@@ -325,13 +325,14 @@ mod window {
 
 #[cfg(test)]
 mod tests {
-    use super::gestures::{GestureAction, GestureKeys};
+    use super::gestures::{GestureAction, GestureKeys, KeyMap};
 
     const UP: u16 = 0x148;
     const LEFT: u16 = 0x14B;
     const SPACE: u16 = 0x39;
     const TWO: u16 = 0x03;
     const H: u16 = 0x23;
+    const SHIFT: u16 = 0x2A;
 
     fn gesture(name: &str) -> GestureAction {
         GestureAction::Gesture(name.into())
@@ -368,6 +369,92 @@ mod tests {
             keys.handle(SPACE, true),
             vec![gesture("two-finger-double-tap")]
         );
+    }
+
+    /// What keys type on Windows' French (AZERTY) layout, by scan code.
+    fn french(scan: u16, shift: bool) -> Option<String> {
+        let (plain, shifted) = match scan {
+            0x10 => ("a", "A"),
+            0x11 => ("z", "Z"),
+            0x13 => ("r", "R"),
+            0x14 => ("t", "T"),
+            0x1A => ("^", "¨"),
+            0x1B => ("$", "£"),
+            0x1E => ("q", "Q"),
+            0x20 => ("d", "D"),
+            0x23 => ("h", "H"),
+            0x26 => ("l", "L"),
+            0x2C => ("w", "W"),
+            0x2E => ("c", "C"),
+            0x32 => (",", "?"),
+            0x35 => ("!", "§"),
+            _ => return None,
+        };
+        Some(if shift { shifted } else { plain }.into())
+    }
+
+    fn french_keys() -> GestureKeys {
+        let mut keys = GestureKeys::default();
+        keys.use_map(KeyMap::new(Some(&french)));
+        keys
+    }
+
+    #[test]
+    fn letters_follow_the_layout() {
+        let mut keys = french_keys();
+        assert_eq!(keys.handle(0x2C, true), vec![GestureAction::WhereIsIt]);
+        keys.handle(0x2C, false);
+        // Where W is on a US keyboard, AZERTY has Z, which does nothing.
+        assert_eq!(keys.handle(0x11, true), vec![GestureAction::Unknown]);
+        keys.handle(0x11, false);
+        assert_eq!(keys.handle(0x14, true), vec![gesture("tap")]);
+    }
+
+    #[test]
+    fn question_mark_is_where_the_layout_types_it() {
+        let mut keys = french_keys();
+        keys.handle(SHIFT, true);
+        assert_eq!(keys.handle(0x32, true), vec![GestureAction::Help]);
+        let mut us = GestureKeys::default();
+        assert_eq!(us.handle(0x35, true), vec![GestureAction::Help]);
+    }
+
+    #[test]
+    fn crown_keys_without_brackets_are_named() {
+        let mut keys = french_keys();
+        assert_eq!(keys.handle(0x1A, true), vec![GestureAction::Crown(1)]);
+        assert_eq!(keys.handle(0x1B, true), vec![GestureAction::Crown(-1)]);
+        let help = KeyMap::new(Some(&french)).help("Control Windows Escape");
+        assert!(help.contains("the circumflex key turns the crown up and the dollar key turns it down"));
+        assert!(KeyMap::default().help("").contains("left bracket turns the crown up"));
+    }
+
+    #[test]
+    fn crown_keys_are_named_in_words_or_by_position() {
+        // As on a layout where the US bracket keys type ü and ;.
+        let layout = |scan: u16, shift: bool| -> Option<String> {
+            match (scan, shift) {
+                (0x1A, false) => Some("ü".into()),
+                (0x1B, false) => Some(";".into()),
+                _ => None,
+            }
+        };
+        let help = KeyMap::new(Some(&layout)).help("Control Windows Escape");
+        assert!(help.contains(
+            "the u umlaut key turns the crown up and the semicolon key turns it down"
+        ));
+        // A character with no name here: the key by where it is.
+        let layout = |scan: u16, shift: bool| -> Option<String> {
+            match (scan, shift) {
+                (0x1A, false) => Some("ö".into()),
+                (0x1B, false) => Some("¤".into()),
+                _ => None,
+            }
+        };
+        let help = KeyMap::new(Some(&layout)).help("Control Windows Escape");
+        assert!(help.contains(
+            "the ö key turns the crown up and the second key after P turns it down"
+        ));
     }
 
     #[test]

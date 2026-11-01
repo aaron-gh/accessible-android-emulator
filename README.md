@@ -99,6 +99,7 @@ Mac with Apple silicon only.
   - Touch point: Tab and Shift-Tab move between screen elements, Shift-arrows move in steps, C centres, W says what's there and its position in percent and pixels, D reads every property of the element there. Works without a screen reader running.
   - On a watch, left bracket turns the crown up and right bracket turns it down. Each step moves TalkBack's focus one item, or scrolls.
   - Question mark lists the keys.
+  - Letters and question mark are the keys that type them on the keyboard layout in use, so W is W on a French keyboard. Where brackets need Option or AltGr, as on a French keyboard, the crown keys are the two where US brackets are (circumflex and dollar on French), and question mark names them.
 - `aae gesture <device> swipe-right double-tap`; `--at X,Y`. `aae drag <device> X,Y X,Y` holds one finger down, drags it through the points and lifts it; `--hold`, `--move` and `--end-hold` set the times in milliseconds. `aae inspect <device> --targets` lists touch targets; `--at X,Y` prints the element at a point.
 
 ### Battery, Location, Phone and Network

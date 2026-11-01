@@ -190,7 +190,7 @@ struct DeviceModeView: View {
                     .font(.title2)
                     .accessibilityHidden(true)
                 if model.gestureMode {
-                    Text(GestureKeys.helpText)
+                    Text(model.gestureHelp)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 520)
                         .accessibilityHidden(true)

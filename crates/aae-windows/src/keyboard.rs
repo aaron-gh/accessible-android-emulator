@@ -25,10 +25,13 @@ use std::sync::Arc;
 
 use aae_ffi::Session;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Input::KeyboardAndMouse::{MAPVK_VK_TO_VSC, MapVirtualKeyW};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyboardLayout, HKL, MAPVK_VK_TO_VSC, MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW, MapVirtualKeyW,
+    ToUnicodeEx, VK_SHIFT,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use crate::gestures::{GestureAction, GestureKeys};
+use crate::gestures::{GestureAction, GestureKeys, KeyMap};
 use crate::ui;
 
 const EXTENDED: u16 = 0x100;
@@ -56,12 +59,42 @@ pub fn return_shortcut() -> &'static str {
     RETURN_SHORTCUTS
         [(crate::settings::get().return_shortcut as usize).min(RETURN_SHORTCUTS.len() - 1)]
 }
+/// The gesture keys, as on the keyboard layout in use.
+pub fn gesture_help() -> String {
+    let layout = unsafe { GetKeyboardLayout(0) };
+    KeyMap::new(Some(&layout_typing(layout))).help(return_shortcut())
+}
+
+/// What the key with a scan code types on a keyboard layout: with no
+/// modifier, or with Shift. Dead keys give their own character, such as "^"
+/// on a French keyboard.
+fn layout_typing(layout: HKL) -> impl Fn(u16, bool) -> Option<String> {
+    move |scan, shift| {
+        let vk = unsafe { MapVirtualKeyExW(scan.into(), MAPVK_VSC_TO_VK_EX, Some(layout)) };
+        if vk == 0 {
+            return None;
+        }
+        let mut state = [0u8; 256];
+        if shift {
+            state[VK_SHIFT.0 as usize] = 0x80;
+        }
+        let mut typed = [0u16; 8];
+        // 4: leave the keyboard's dead key state as it is (Windows 10 1607 and later).
+        let count = unsafe { ToUnicodeEx(vk, scan.into(), &state, &mut typed, 4, Some(layout)) };
+        // A dead key gives -1, with its character first.
+        let length = (count.unsigned_abs() as usize).min(typed.len());
+        (length > 0).then(|| String::from_utf16_lossy(&typed[..length]))
+    }
+}
+
 /// Insert, on its own and on the keypad, and Caps Lock: screen reader keys.
 const SCREEN_READER_KEYS: [u16; 3] = [EXTENDED | 0x52, 0x52, 0x3A];
 
 struct Mode {
     session: Arc<Session>,
     gestures: Option<GestureKeys>,
+    /// The keyboard layout gesture mode's keys were found on.
+    gesture_layout: Option<HKL>,
     /// Keys held, as far as AAE knows.
     held: HashSet<u16>,
     /// Keys sent to Android and not yet released there.
@@ -122,6 +155,7 @@ pub fn enter(session: Arc<Session>, gestures: bool) -> bool {
             hook.mode = Some(Mode {
                 session,
                 gestures: gestures.then(GestureKeys::default),
+                gesture_layout: None,
                 held: HashSet::new(),
                 sent: HashSet::new(),
                 passed: HashSet::new(),
@@ -267,7 +301,16 @@ fn handle(info: &KBDLLHOOKSTRUCT, down: bool) -> bool {
             return true;
         }
         match mode.gestures.as_mut() {
-            Some(gestures) => gesture_actions.extend(gestures.handle(key, true)),
+            Some(gestures) => {
+                // Gesture keys are found by what they type, so W stays W
+                // whatever the layout, and again when it changes.
+                let layout = unsafe { GetKeyboardLayout(0) };
+                if mode.gesture_layout != Some(layout) {
+                    mode.gesture_layout = Some(layout);
+                    gestures.use_map(KeyMap::new(Some(&layout_typing(layout))));
+                }
+                gesture_actions.extend(gestures.handle(key, true))
+            }
             None => {
                 if mode.session.windows_key(key & 0xFF, extended, true) {
                     mode.sent.insert(key);

@@ -24,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{PostQuitMessage, WM_CLOSE};
 use windows::core::w;
 
 use crate::forms::{self, Field, Form, Role};
-use crate::gestures::{self, GestureAction};
+use crate::gestures::GestureAction;
 use crate::speech::{Tone, announce as speak};
 use crate::ui::{self, run_on_ui};
 use crate::{keyboard, menu, settings};
@@ -519,7 +519,7 @@ impl App {
                     .map(|d| d.name.clone())
                     .unwrap_or_else(|| "Android".into());
                 let mut text = if self.gesture_mode {
-                    format!("Keys perform gestures on {name}.\n\n{}", gestures::help())
+                    format!("Keys perform gestures on {name}.\n\n{}", keyboard::gesture_help())
                 } else {
                     format!("The keyboard is in {name}.")
                 };
@@ -2044,7 +2044,7 @@ fn gesture_actions(actions: Vec<GestureAction>) {
             GestureAction::Crown(steps) => queue_gesture(session.clone(), move |s| {
                 Box::pin(async move { Ok(s.turn_crown(steps).await?) })
             }),
-            GestureAction::Help => announce(&gestures::help(), Tone::Info),
+            GestureAction::Help => announce(&keyboard::gesture_help(), Tone::Info),
             GestureAction::Unknown => Tone::Failure.play(),
         }
     }
