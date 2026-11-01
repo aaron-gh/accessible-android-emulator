@@ -189,6 +189,7 @@ pub async fn start_device(
                 return Err(Error::Message(how));
             }
             progress(Progress::Starting);
+            device.use_uwb_off_nfc_on()?;
             (emulator::start(sdk, store, device, start)?, true)
         }
     };

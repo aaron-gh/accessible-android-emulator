@@ -110,6 +110,10 @@ pub fn start(
             command.arg("-gpu").arg("swiftshader_indirect");
         }
     }
+    // See DeviceMeta::uwb_off_nfc_on.
+    if device.meta.uwb_off_nfc_on {
+        command.arg("-feature").arg("-Uwb,Nfc");
+    }
     if options.cold_boot {
         command.arg("-no-snapshot-load");
         // Otherwise a start after an emulator crash, which saves nothing,
