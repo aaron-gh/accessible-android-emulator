@@ -253,15 +253,28 @@ fn adb_public_key(sdk: &Sdk) -> Result<String> {
             .map(|b| b.home_dir().join(".android"))
             .unwrap_or_else(|| PathBuf::from(".android")),
     };
+    let private = dir.join("adbkey");
     let path = dir.join("adbkey.pub");
-    if !path.exists() {
+    if !path.exists() && !private.exists() {
         let _ = Command::new(sdk.adb_bin()?)
             .arg("start-server")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
     }
-    let text = std::fs::read_to_string(&path).context(|| format!("Reading {}", path.display()))?;
+    // adb only needs the private key, so the public one may be missing.
+    let text = if path.exists() || !private.exists() {
+        std::fs::read_to_string(&path).context(|| format!("Reading {}", path.display()))?
+    } else {
+        let output = Command::new(sdk.adb_bin()?)
+            .arg("pubkey")
+            .arg(&private)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .context(|| format!("Running adb pubkey {}", private.display()))?;
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
     let key = text.split_whitespace().next().unwrap_or_default();
     if key.is_empty()
         || !key

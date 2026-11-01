@@ -5,9 +5,15 @@
 //! input, so keys and touches sent here reach Android as a real keyboard and
 //! touchscreen would. (Googlebook OS disables a virtio keyboard, which it
 //! takes for a built-in one.)
+//!
+//! QEMU's control socket takes one client at a time, and the apps, `aae`,
+//! `aae mcp` and `aae serve` may each have the same device open, so a
+//! connection is closed once it has been idle for [`IDLE`], and opening one
+//! waits while another process has the socket.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -19,6 +25,12 @@ use crate::platform::{LocalStream, connect_local};
 
 /// The touchscreen's coordinate range: QEMU scales every absolute axis to 0..=0x7fff.
 const ABS_MAX: i64 = 0x7fff;
+
+/// How long a connection stays open after its last command.
+const IDLE: Duration = Duration::from_millis(250);
+
+/// How long to wait for another process to close its connection.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Link {
     reader: BufReader<ReadHalf<LocalStream>>,
@@ -38,6 +50,8 @@ struct Touches {
 pub struct Qmp {
     path: PathBuf,
     link: Arc<Mutex<Option<Link>>>,
+    /// Commands run, so a connection is only closed if none ran since.
+    commands: Arc<AtomicU64>,
     touches: Arc<Mutex<Touches>>,
     /// The screen's size in pixels, to scale touches.
     screen: (u32, u32),
@@ -49,6 +63,7 @@ impl Qmp {
         let qmp = Qmp {
             path: path.to_path_buf(),
             link: Arc::new(Mutex::new(None)),
+            commands: Arc::new(AtomicU64::new(0)),
             touches: Arc::new(Mutex::new(Touches::default())),
             screen,
         };
@@ -56,20 +71,66 @@ impl Qmp {
         Ok(qmp)
     }
 
+    /// Opens a connection. While another process has one, QEMU refuses
+    /// connections or holds them without its greeting, so this tries again
+    /// until that one closes.
     async fn open(path: &Path) -> Result<Link> {
-        let stream = tokio::time::timeout(Duration::from_secs(5), connect_local(path))
-            .await
-            .map_err(|_| Error::Vm("QEMU didn't accept a connection".into()))?
-            .map_err(|e| Error::Vm(format!("QEMU's control socket: {e}")))?;
+        let deadline = tokio::time::Instant::now() + BUSY_TIMEOUT;
+        loop {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match Self::try_open(path, left).await {
+                Ok(Some(link)) => return Ok(link),
+                Ok(None) if !left.is_zero() => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Ok(None) => {
+                    return Err(Error::Vm(format!(
+                        "QEMU's control socket didn't accept a connection within {} seconds. Another AAE process may be using the device.",
+                        BUSY_TIMEOUT.as_secs()
+                    )));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// A connection, or None if QEMU refused it or sent no greeting within
+    /// `wait`.
+    async fn try_open(path: &Path, wait: Duration) -> Result<Option<Link>> {
+        let stream = match connect_local(path).await {
+            Ok(stream) => stream,
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => return Ok(None),
+            Err(e) => return Err(Error::Vm(format!("QEMU's control socket: {e}"))),
+        };
         let (read, writer) = tokio::io::split(stream);
         let mut link = Link {
             reader: BufReader::new(read),
             writer,
         };
         // The greeting, then capabilities negotiation.
-        read_message(&mut link.reader).await?;
+        match tokio::time::timeout(wait, read_message(&mut link.reader)).await {
+            Ok(greeting) => greeting?,
+            Err(_) => return Ok(None),
+        };
         send(&mut link, &json!({"execute": "qmp_capabilities"})).await?;
-        Ok(link)
+        Ok(Some(link))
+    }
+
+    /// Closes the connection once no command has run on it for [`IDLE`].
+    fn close_when_idle(&self) {
+        let count = self.commands.fetch_add(1, Ordering::Relaxed) + 1;
+        let link = Arc::downgrade(&self.link);
+        let commands = self.commands.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(IDLE).await;
+            let Some(link) = link.upgrade() else {
+                return;
+            };
+            let mut guard = link.lock().await;
+            if commands.load(Ordering::Relaxed) == count {
+                *guard = None;
+            }
+        });
     }
 
     /// Runs a command and returns its result.
@@ -94,6 +155,8 @@ impl Qmp {
                 return Err(e);
             }
         };
+        drop(guard);
+        self.close_when_idle();
         if let Some(error) = reply.get("error") {
             let text = error
                 .get("desc")
@@ -363,4 +426,46 @@ pub fn qcode(code: i32) -> Option<&'static str> {
         194 => "f24",
         _ => return None,
     })
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use tokio::net::UnixListener;
+
+    /// A QMP server that, like QEMU's, serves one client at a time.
+    fn one_client_server(path: &Path) {
+        let listener = UnixListener::bind(path).unwrap();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let (read, mut write) = tokio::io::split(stream);
+                let mut lines = BufReader::new(read).lines();
+                write.write_all(b"{\"QMP\": {}}\n").await.unwrap();
+                while let Ok(Some(_)) = lines.next_line().await {
+                    if write.write_all(b"{\"return\": {}}\n").await.is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn processes_take_turns_on_the_socket() {
+        let dir = std::env::temp_dir().join(format!("aae-qmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("qmp.sock");
+        let _ = std::fs::remove_file(&path);
+        one_client_server(&path);
+
+        let first = Qmp::connect(&path, (100, 100)).await.unwrap();
+        // The second waits until the first has been idle and closes.
+        let started = tokio::time::Instant::now();
+        let second = Qmp::connect(&path, (100, 100)).await.unwrap();
+        assert!(started.elapsed() < IDLE * 4);
+        // And the first gets it back once the second is idle.
+        first.execute("query-status", None).await.unwrap();
+        drop(second);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
