@@ -32,9 +32,20 @@ impl Adb {
         // device stuck "starting" forever.
         let limit = if args.first() == Some(&"install") {
             Duration::from_secs(300)
+        } else if args.first() == Some(&"shell")
+            && args.get(1).is_some_and(|c| c.starts_with("settings "))
+        {
+            // Settings start a Java program, which an old Android, busy just
+            // after its first boot, can take more than a minute to start.
+            Duration::from_secs(180)
         } else {
             Duration::from_secs(60)
         };
+        self.raw_within(args, limit).await
+    }
+
+    /// [`Adb::raw`], giving up after `limit`.
+    async fn raw_within(&self, args: &[&str], limit: Duration) -> Result<String> {
         let run = Command::new(&self.bin)
             .no_console()
             .arg("-s")
@@ -131,6 +142,27 @@ impl Adb {
     /// can't run until then.
     pub async fn user_locked(&self) -> bool {
         matches!(self.shell("dumpsys user").await, Ok(v) if v.contains("RUNNING_LOCKED"))
+    }
+
+    /// Waits until Android's settings answer, up to `timeout`. Just after
+    /// the first boot of an old Android, such as 6, the system is still busy
+    /// setting itself up, and the settings command has been seen to take
+    /// more than a minute to answer, which stopped first-boot setup.
+    pub async fn wait_for_settings(&self, timeout: Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + timeout;
+        while tokio::time::Instant::now() < deadline {
+            let left = deadline - tokio::time::Instant::now();
+            let ask = format!("settings get secure {ENABLED_SERVICES}");
+            if self
+                .raw_within(&["shell", &ask], left.min(Duration::from_secs(180)))
+                .await
+                .is_ok()
+            {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+        false
     }
 
     /// Waits until Android has finished booting, up to `timeout`.
