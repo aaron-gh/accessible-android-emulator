@@ -209,6 +209,12 @@ pub struct DeviceMeta {
     /// is deleted then, so Android starts from its disk once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub uwb_off_nfc_on: bool,
+    /// The emulator can't start this device's Android with NFC on: older
+    /// images, such as Android 6, have no virtio-serial bus to connect it
+    /// to, and the emulator exits. Then [`DeviceMeta::uwb_off_nfc_on`] is
+    /// turned off and stays off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_nfc: bool,
     /// Accessibility services AAE turns back on after every boot and install,
     /// as `package/class`. Includes the screen reader.
     #[serde(default)]
@@ -304,6 +310,7 @@ impl Device {
         // Another copy of the device may have turned it on already.
         self.reload_meta();
         if self.meta.uwb_off_nfc_on
+            || self.meta.no_nfc
             || self.meta.kind == DeviceKind::Googlebook
             || self.has_named_snapshots()
         {
@@ -465,6 +472,7 @@ impl DeviceStore {
             playback_volume: None,
             software_graphics: false,
             uwb_off_nfc_on: true,
+            no_nfc: false,
             audio_output: None,
             keyboard_layout: None,
             cores: None,
@@ -532,6 +540,7 @@ impl DeviceStore {
             software_graphics: false,
             // Googlebook OS runs in its own virtual machine, not the emulator.
             uwb_off_nfc_on: false,
+            no_nfc: false,
             audio_output: None,
             keyboard_layout: None,
             cores: None,
@@ -906,6 +915,16 @@ mod tests {
         std::fs::remove_dir_all(&snapshot).unwrap();
         named.use_uwb_off_nfc_on().unwrap();
         assert!(store.get("Named").unwrap().meta.uwb_off_nfc_on);
+
+        // An Android that can't have NFC, such as Android 6, keeps it off.
+        let mut old = store.create("Old", &image(), Profile::Phone).unwrap();
+        old.update_meta(|meta| {
+            meta.uwb_off_nfc_on = false;
+            meta.no_nfc = true;
+        })
+        .unwrap();
+        old.use_uwb_off_nfc_on().unwrap();
+        assert!(!store.get("Old").unwrap().meta.uwb_off_nfc_on);
         let _ = std::fs::remove_dir_all(&store.root);
     }
 

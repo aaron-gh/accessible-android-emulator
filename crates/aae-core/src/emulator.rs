@@ -110,9 +110,15 @@ pub fn start(
             command.arg("-gpu").arg("swiftshader_indirect");
         }
     }
-    // See DeviceMeta::uwb_off_nfc_on.
-    if device.meta.uwb_off_nfc_on {
-        command.arg("-feature").arg("-Uwb,Nfc");
+    if let Some(features) = features(&device.meta) {
+        command.arg("-feature").arg(features);
+    }
+    if let Some(memory_mb) = memory_limit(device) {
+        tracing::info!(
+            "{}: this Android can use at most {memory_mb} MB of memory on this processor; starting it with that",
+            device.meta.name
+        );
+        command.arg("-memory").arg(memory_mb.to_string());
     }
     if options.cold_boot {
         command.arg("-no-snapshot-load");
@@ -167,6 +173,48 @@ pub fn start(
     Ok(info)
 }
 
+/// The newest Android whose images AAE starts without encrypting their data.
+/// The Intel and AMD images of Android 6 ask the emulator to encrypt the
+/// data partition at first boot (EncryptUserData in their
+/// advancedFeatures.ini); the ARM ones don't. On Windows that first boot
+/// never finished in ten minutes, with adb offline throughout, while the ARM
+/// image of the same Android, unencrypted, starts in a minute on a Mac.
+const LAST_UNENCRYPTED_API: u32 = 23;
+
+/// The emulator features to turn on or off for this device, for `-feature`.
+fn features(meta: &crate::device::DeviceMeta) -> Option<String> {
+    let mut features = Vec::new();
+    // See DeviceMeta::uwb_off_nfc_on.
+    if meta.uwb_off_nfc_on {
+        features.extend(["-Uwb", "Nfc"]);
+    }
+    if meta.api <= LAST_UNENCRYPTED_API {
+        features.push("-EncryptUserData");
+    }
+    (!features.is_empty()).then(|| features.join(","))
+}
+
+/// The newest Android whose Intel and AMD images run the old 3.10 kernel.
+const LAST_OLD_KERNEL_API: u32 = 25;
+
+/// The most memory those images can use. With more than about 3.5 GB the
+/// emulator places memory above 4 GB, the kernel reserves its graphics
+/// memory there, and the screen can't be set up ("goldfish_fb: probe of
+/// GFSH0004:00 failed with error -12"), so Android never finishes starting.
+/// Seen with Android 6 and 8 GB on Windows; the ARM images are unaffected.
+const OLD_KERNEL_MAX_MEMORY_MB: u32 = 3072;
+
+/// The memory to start this device with instead of its own, when its own
+/// is more than its Android can use.
+fn memory_limit(device: &Device) -> Option<u32> {
+    let meta = &device.meta;
+    if meta.api > LAST_OLD_KERNEL_API || !meta.abi.starts_with("x86") {
+        return None;
+    }
+    let memory_mb = crate::hardware::read(device).ok()?.memory_mb;
+    (memory_mb > OLD_KERNEL_MAX_MEMORY_MB).then_some(OLD_KERNEL_MAX_MEMORY_MB)
+}
+
 /// How long the emulator may take to answer on gRPC before AAE decides it hung.
 const EMULATOR_ANSWER: Duration = Duration::from_secs(60);
 
@@ -174,6 +222,15 @@ const EMULATOR_ANSWER: Duration = Duration::from_secs(60);
 /// doesn't always exit after promptly.
 fn graphics_failed(log: &Path) -> bool {
     std::fs::read_to_string(log).is_ok_and(|text| text.contains("OpenGL Core Profile not supported"))
+}
+
+/// Whether the emulator's log says it couldn't connect NFC, as with
+/// `-feature Nfc` on an image without a virtio-serial bus, such as Android 6.
+/// It exits at once then.
+pub fn nfc_unsupported(log: &Path) -> bool {
+    std::fs::read_to_string(log).is_ok_and(|text| {
+        text.contains("chardev=nfc") && text.contains("No 'virtio-serial-bus' bus found")
+    })
 }
 
 /// Progress while a device starts, for announcing.
@@ -257,6 +314,7 @@ pub async fn wait_until_ready(
                 }
             }
         }
+        let mut refused = false;
         if let Some(c) = &controller {
             if stage == BootStage::WaitingForEmulator {
                 match c.status().await {
@@ -264,7 +322,10 @@ pub async fn wait_until_ready(
                         stage = BootStage::WaitingForAndroid;
                         progress(stage);
                     }
-                    Err(e) => unanswered = format!("it refused a request: {e}"),
+                    Err(e) => {
+                        unanswered = format!("it refused a request: {e}");
+                        refused = true;
+                    }
                 }
             }
             if stage == BootStage::WaitingForAndroid {
@@ -276,6 +337,11 @@ pub async fn wait_until_ready(
                     return Err(Error::BatteryEmpty);
                 }
             }
+        }
+        if refused {
+            // The token may have been an old emulator's, read before this
+            // one wrote its own: read it again.
+            controller = None;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -358,6 +424,10 @@ pub async fn stop(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
     let _ = tokio::time::timeout(Duration::from_secs(15), adb.shell("sync")).await;
     // "emu kill" asks the emulator to save its state and exit.
     let _ = tokio::time::timeout(Duration::from_secs(10), adb.raw(&["emu", "kill"])).await;
+    // The snapshot holds all the device's memory. On Windows it is written
+    // out in full, which for 8 GB can take more than a minute on a slow
+    // disk, and ending the emulator part way leaves a broken snapshot.
+    let timeout = timeout.max(snapshot_save_time(device));
     let deadline = tokio::time::Instant::now() + timeout;
     while is_alive(info.pid) && tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -367,6 +437,13 @@ pub async fn stop(sdk: &Sdk, device: &Device, timeout: Duration) -> Result<()> {
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
     device.set_runtime(None)
+}
+
+/// How long saving the quick-boot snapshot may take: half a minute, and 15
+/// seconds for each gigabyte of the device's memory.
+fn snapshot_save_time(device: &Device) -> Duration {
+    let memory_mb = crate::hardware::read(device).map_or(2048, |h| h.memory_mb);
+    Duration::from_secs(30 + 15 * u64::from(memory_mb).div_ceil(1024))
 }
 
 /// Ends a device's emulator without waiting for Android, for a device whose
@@ -401,6 +478,11 @@ pub fn grpc_token(info: &RuntimeInfo) -> Option<String> {
 /// Mac and Linux that's the process AAE started. On Windows, emulator.exe
 /// only launches the emulator, which runs as another process and names the
 /// file after itself, so otherwise it's the file with this emulator's ports.
+///
+/// An emulator that was ended by force, as AAE does when a start fails,
+/// leaves its file behind with the same ports, as AAE takes the first free
+/// ones again. Its token is refused, so files of processes that have ended
+/// are skipped, and of the rest the newest is taken.
 fn find_grpc_token(dirs: &[std::path::PathBuf], info: &RuntimeInfo) -> Option<String> {
     let own = format!("pid_{}.ini", info.pid);
     if let Some(token) = dirs.iter().find_map(|dir| {
@@ -419,18 +501,24 @@ fn find_grpc_token(dirs: &[std::path::PathBuf], info: &RuntimeInfo) -> Option<St
         .filter(|path| {
             path.file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("pid_") && n.ends_with(".ini"))
+                .and_then(|n| n.strip_prefix("pid_")?.strip_suffix(".ini"))
+                .and_then(|pid| pid.parse::<u32>().ok())
+                .is_some_and(is_alive)
         })
-        .find_map(|path| {
+        .filter_map(|path| {
             let mut properties = crate::sdk::read_properties(&path).ok()?;
             let ours = properties.get("grpc.port") == Some(&grpc)
                 && properties.get("port.serial").is_none_or(|p| *p == console);
-            if ours {
-                properties.remove("grpc.token")
-            } else {
-                None
+            if !ours {
+                return None;
             }
+            let written = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            Some((written, properties.remove("grpc.token")?))
         })
+        .max_by_key(|(written, _)| *written)
+        .map(|(_, token)| token)
 }
 
 /// Where the emulator writes a `pid_<pid>.ini` file describing each running instance.
@@ -611,12 +699,132 @@ mod discovery_tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// A process id that is running: this test's own.
+    fn alive() -> u32 {
+        std::process::id()
+    }
+
+    /// A process id no system hands out.
+    const ENDED: u32 = 0x3FFF_FFF0;
+
     #[test]
     fn finds_windows_files_named_after_the_emulators_own_process_by_port() {
-        // emulator.exe (pid 100) launched the emulator as pid 13108.
+        // emulator.exe (pid 100) launched the emulator as another process.
         let dir = temp_dir("windows");
+        write(&dir, &format!("pid_{}.ini", alive()), 8556, 5556, "ours");
         write(&dir, "pid_200.ini", 8554, 5554, "another emulator");
-        write(&dir, "pid_13108.ini", 8556, 5556, "ours");
+        assert_eq!(
+            find_grpc_token(std::slice::from_ref(&dir), &info(100)).as_deref(),
+            Some("ours")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn meta(api: u32) -> crate::device::DeviceMeta {
+        let dir = temp_dir(&format!("features-{api}"));
+        let store = crate::device::DeviceStore::open(dir.clone()).unwrap();
+        let level = api.to_string();
+        let image = crate::sdk::SystemImage {
+            api,
+            release: crate::sdk::Release::read(&level, &format!("android-{api}"), false, false)
+                .unwrap(),
+            tag: "google_apis".into(),
+            abi: "x86_64".into(),
+            sysdir: format!("system-images/android-{api}/google_apis/x86_64/"),
+            path: std::path::PathBuf::from("/nowhere"),
+        };
+        let meta = store
+            .create("Phone", &image, crate::device::Profile::Phone)
+            .unwrap()
+            .meta;
+        let _ = std::fs::remove_dir_all(dir);
+        meta
+    }
+
+    fn device(api: u32, abi: &str, memory_mb: u32) -> (Device, std::path::PathBuf) {
+        let dir = temp_dir(&format!("memory-{api}-{abi}-{memory_mb}"));
+        let store = crate::device::DeviceStore::open(dir.clone()).unwrap();
+        let level = api.to_string();
+        let image = crate::sdk::SystemImage {
+            api,
+            release: crate::sdk::Release::read(&level, &format!("android-{api}"), false, false)
+                .unwrap(),
+            tag: "google_apis".into(),
+            abi: abi.into(),
+            sysdir: format!("system-images/android-{api}/google_apis/{abi}/"),
+            path: std::path::PathBuf::from("/nowhere"),
+        };
+        let mut device = store
+            .create("Phone", &image, crate::device::Profile::Phone)
+            .unwrap();
+        let mut hardware = crate::hardware::read(&device).unwrap();
+        hardware.memory_mb = memory_mb;
+        crate::hardware::write(&mut device, &hardware).unwrap();
+        (device, dir)
+    }
+
+    #[test]
+    fn old_android_on_intel_gets_at_most_3_gb() {
+        for (api, abi, memory, limit) in [
+            (23, "x86_64", 8192, Some(3072)),
+            (23, "x86_64", 2048, None),
+            (23, "arm64-v8a", 8192, None),
+            (36, "x86_64", 8192, None),
+        ] {
+            let (device, dir) = device(api, abi, memory);
+            assert_eq!(
+                memory_limit(&device),
+                limit,
+                "Android API {api}, {abi}, {memory} MB"
+            );
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
+    fn android_6_starts_without_encrypting_its_data() {
+        let mut marshmallow = meta(23);
+        assert_eq!(
+            features(&marshmallow).as_deref(),
+            Some("-Uwb,Nfc,-EncryptUserData")
+        );
+        marshmallow.uwb_off_nfc_on = false;
+        assert_eq!(features(&marshmallow).as_deref(), Some("-EncryptUserData"));
+        let mut recent = meta(36);
+        assert_eq!(features(&recent).as_deref(), Some("-Uwb,Nfc"));
+        recent.uwb_off_nfc_on = false;
+        assert_eq!(features(&recent), None);
+    }
+
+    #[test]
+    fn tells_when_this_android_cant_have_nfc() {
+        let dir = temp_dir("nfc");
+        let log = dir.join("emulator.log");
+        // As the emulator says with an Android 6 image on Windows.
+        std::fs::write(
+            &log,
+            "WARNING      | QEMU main loop exits abnormally with code 1\n\
+             pc_memory_init: above 4g size: 40000000\n\
+             qemu-system-x86_64-headless.exe: -device virtserialport,chardev=nfc,name=nfc: \
+             No 'virtio-serial-bus' bus found for device 'virtserialport'\n",
+        )
+        .unwrap();
+        assert!(nfc_unsupported(&log));
+        std::fs::write(&log, "OpenGL Core Profile not supported\n").unwrap();
+        assert!(!nfc_unsupported(&log));
+        assert!(!nfc_unsupported(&dir.join("missing.log")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn skips_the_file_an_emulator_ended_by_force_left_on_the_same_ports() {
+        let dir = temp_dir("stale");
+        write(&dir, &format!("pid_{ENDED}.ini"), 8556, 5556, "old");
+        assert_eq!(
+            find_grpc_token(std::slice::from_ref(&dir), &info(100)),
+            None
+        );
+        write(&dir, &format!("pid_{}.ini", alive()), 8556, 5556, "ours");
         assert_eq!(
             find_grpc_token(std::slice::from_ref(&dir), &info(100)).as_deref(),
             Some("ours")

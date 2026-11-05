@@ -14,6 +14,20 @@ use crate::sdk::Sdk;
 /// How long Android may take to boot. A first boot on a slow machine takes minutes.
 pub const BOOT_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// Android 7.1 and earlier. Their first boot, and the minutes after it, are
+/// much slower: Android 6 has been seen to take over ten minutes on Windows.
+const OLD_ANDROID: u32 = 25;
+
+/// How long this start may wait for Android: twice [`BOOT_TIMEOUT`] for the
+/// first boot of an old Android.
+fn boot_timeout(device: &Device, first_boot: bool) -> Duration {
+    if first_boot && device.meta.api <= OLD_ANDROID {
+        BOOT_TIMEOUT * 2
+    } else {
+        BOOT_TIMEOUT
+    }
+}
+
 /// Progress while a device starts. Each one reads as a sentence through [`Progress::describe`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Progress {
@@ -177,7 +191,8 @@ pub async fn start_device(
         report(p)
     };
     let first_boot = !device.meta.provisioned;
-    let (info, starting) = match emulator::running(device) {
+    let boot_wait = boot_timeout(device, first_boot);
+    let (mut info, starting) = match emulator::running(device) {
         Ok(info) => {
             progress(Progress::AlreadyRunning);
             (info, false)
@@ -198,7 +213,26 @@ pub async fn start_device(
         BootStage::WaitingForAndroid => progress(Progress::WaitingForAndroid { first_boot }),
         BootStage::Ready => progress(Progress::AndroidStarted),
     };
-    let ready = emulator::wait_until_ready(sdk, &info, BOOT_TIMEOUT, &mut stages).await;
+    let mut ready = emulator::wait_until_ready(sdk, &info, boot_wait, &mut stages).await;
+    // Older images, such as Android 6, can't have NFC on, and the emulator
+    // exits at once. It's not the graphics: start again without it, and
+    // keep it off for this device.
+    if starting
+        && device.meta.uwb_off_nfc_on
+        && matches!(ready, Err(Error::EmulatorExited(_)))
+        && emulator::nfc_unsupported(&info.log)
+    {
+        tracing::warn!(
+            "{}: this Android can't have NFC on in the emulator; starting it again without",
+            device.meta.name
+        );
+        device.update_meta(|meta| {
+            meta.uwb_off_nfc_on = false;
+            meta.no_nfc = true;
+        })?;
+        info = emulator::start(sdk, store, device, start)?;
+        ready = emulator::wait_until_ready(sdk, &info, boot_wait, &mut stages).await;
+    }
     let (controller, adb) = match ready {
         // The quick-boot snapshot was saved after Android shut down: start
         // without it, and charge the battery so Android stays up.
@@ -219,7 +253,7 @@ pub async fn start_device(
                 BootStage::Ready => progress(Progress::AndroidStarted),
             };
             let (controller, adb) =
-                emulator::wait_until_ready(sdk, &info, BOOT_TIMEOUT, &mut stages).await?;
+                emulator::wait_until_ready(sdk, &info, boot_wait, &mut stages).await?;
             controller.charge_battery().await?;
             (controller, adb)
         }
@@ -243,7 +277,7 @@ pub async fn start_device(
                 }
                 BootStage::Ready => progress(Progress::AndroidStarted),
             };
-            match emulator::wait_until_ready(sdk, &info, BOOT_TIMEOUT, &mut stages).await {
+            match emulator::wait_until_ready(sdk, &info, boot_wait, &mut stages).await {
                 Ok(ready) => {
                     device.save_meta()?;
                     ready
@@ -262,6 +296,15 @@ pub async fn start_device(
     // battery doesn't run down, so it stays at its level.
     if device.meta.profile == crate::device::Profile::Watch {
         controller.unplug_charger().await?;
+    }
+
+    // An old Android's settings can be slow to answer for minutes after it
+    // boots; setup and the service guard both start with them.
+    if device.meta.api <= OLD_ANDROID && !adb.wait_for_settings(Duration::from_secs(360)).await {
+        tracing::warn!(
+            "{}: Android's settings didn't answer within 6 minutes",
+            device.meta.name
+        );
     }
 
     // After a cold boot of a device with a screen lock. The helper works, but
@@ -310,4 +353,39 @@ pub async fn start_device(
         .map(String::from);
     progress(Progress::Ready(reader));
     Ok((controller, adb))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device::Profile;
+    use crate::sdk::{Release, SystemImage};
+
+    fn device(api: u32) -> Device {
+        let dir = std::env::temp_dir().join(format!("aae-boot-{api}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = DeviceStore::open(dir).unwrap();
+        let level = api.to_string();
+        let image = SystemImage {
+            api,
+            release: Release::read(&level, &format!("android-{api}"), false, false).unwrap(),
+            tag: "google_apis".into(),
+            abi: "x86_64".into(),
+            sysdir: format!("system-images/android-{api}/google_apis/x86_64/"),
+            path: std::path::PathBuf::from("/nowhere"),
+        };
+        store.create("Phone", &image, Profile::Phone).unwrap()
+    }
+
+    #[test]
+    fn old_android_gets_longer_for_its_first_boot() {
+        let marshmallow = device(23);
+        assert_eq!(boot_timeout(&marshmallow, true), BOOT_TIMEOUT * 2);
+        assert_eq!(boot_timeout(&marshmallow, false), BOOT_TIMEOUT);
+        let recent = device(35);
+        assert_eq!(boot_timeout(&recent, true), BOOT_TIMEOUT);
+        for d in [marshmallow, recent] {
+            let _ = std::fs::remove_dir_all(d.dir.parent().unwrap());
+        }
+    }
 }

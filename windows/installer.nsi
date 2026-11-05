@@ -63,6 +63,21 @@ VIAddVersionKey "LegalCopyright" "Apache License 2.0"
     done:
 !macroend
 
+; An emulator that was ended by force leaves its discovery file, pid_<n>.ini,
+; behind, with the ports and the token of that run. Older AAE builds could
+; take that token for a new emulator on the same ports, which refused it,
+; so the device never finished starting. While no emulator runs, none of
+; these files is in use, so they are removed. find answers 1 when no
+; emulator's process is listed; anything else leaves them alone.
+!macro RemoveStaleEmulatorFiles
+    nsExec::ExecToStack 'cmd /c tasklist /NH | find /I "qemu-system"'
+    Pop $0
+    Pop $1
+    StrCmp $0 "1" 0 +3
+        Delete "$LOCALAPPDATA\Temp\avd\running\pid_*.ini"
+        Delete "$TEMP\avd\running\pid_*.ini"
+!macroend
+
 ; Google's Android emulator is only made for Intel and AMD processors on
 ; Windows, so AAE can't run devices on Windows on ARM, and isn't installed.
 Function .onInit
@@ -74,6 +89,7 @@ FunctionEnd
 
 Section "Install"
     !insertmacro WaitForAAEToClose
+    !insertmacro RemoveStaleEmulatorFiles
     SetOutPath "$INSTDIR"
     File /r "${STAGE}/*"
     WriteUninstaller "$INSTDIR\Uninstall.exe"
