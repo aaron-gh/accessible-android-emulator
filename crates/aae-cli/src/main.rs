@@ -1120,7 +1120,7 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Command::SoundCheck { device } => {
             let (device, controller, adb) = ctx.connect(&device).await?;
-            let mut player = aae_core::audio::AudioPlayer::start(&controller).await?;
+            let player = aae_core::audio::AudioPlayer::start(&controller).await?;
             let health = player.probe(&adb).await;
             player.stop();
             match health {
