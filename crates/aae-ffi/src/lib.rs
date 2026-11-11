@@ -1859,7 +1859,7 @@ pub struct Session {
     controller: Controller,
     adb: Adb,
     keys: mpsc::UnboundedSender<KeyMessage>,
-    audio: Mutex<Option<AudioPlayer>>,
+    audio: Mutex<Option<Arc<AudioPlayer>>>,
     logs: Mutex<Option<LogStream>>,
     /// The computer's microphone, while it plays into the device's.
     microphone: Mutex<Option<aae_core::microphone::Microphone>>,
@@ -2376,7 +2376,7 @@ impl Session {
         })
         .await?;
         player.set_volume(self.audio_volume());
-        *self.audio.lock().unwrap() = Some(player);
+        *self.audio.lock().unwrap() = Some(Arc::new(player));
         Ok(())
     }
 
@@ -2394,24 +2394,23 @@ impl Session {
     /// helper's test tone with playback muted.
     pub async fn check_audio(&self, probe: bool) -> Result<AudioCheck, AaeError> {
         let adb = self.adb.clone();
-        // The player can't cross to the runtime, so wait here, off the lock.
-        let player = self.audio.lock().unwrap().take();
+        // Check with the player still in place, so focus, mute, restart and
+        // stop reach it while the check runs.
+        let player = self.audio.lock().unwrap().clone();
         let Some(player) = player else {
             return Ok(AudioCheck {
                 working: false,
                 message: "AAE isn't playing this device's audio.".into(),
             });
         };
-        let (player, health) = on_runtime(async move {
-            let health = if probe {
+        let health = on_runtime(async move {
+            Ok(if probe {
                 player.probe(&adb).await
             } else {
                 player.check(&adb).await
-            };
-            Ok((player, health))
+            })
         })
         .await?;
-        *self.audio.lock().unwrap() = Some(player);
         Ok(match health {
             aae_core::audio::AudioHealth::Working => AudioCheck {
                 working: true,
@@ -2446,7 +2445,7 @@ impl Session {
     }
 
     pub fn stop_audio(&self) {
-        if let Some(mut player) = self.audio.lock().unwrap().take() {
+        if let Some(player) = self.audio.lock().unwrap().take() {
             player.stop();
         }
     }

@@ -144,7 +144,7 @@ pub struct AudioPlayer {
     pub output_rate: u32,
     pub output_channels: u16,
     receiver: tokio::task::JoinHandle<()>,
-    output: Option<std::thread::JoinHandle<()>>,
+    output: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl AudioPlayer {
@@ -257,7 +257,7 @@ impl AudioPlayer {
             output_rate,
             output_channels,
             receiver,
-            output: Some(output),
+            output: std::sync::Mutex::new(Some(output)),
         })
     }
 
@@ -293,10 +293,11 @@ impl AudioPlayer {
         !self.receiver.is_finished()
     }
 
-    pub fn stop(&mut self) {
+    pub fn stop(&self) {
         self.controls.stop.store(true, Ordering::Relaxed);
         self.receiver.abort();
-        if let Some(thread) = self.output.take() {
+        let thread = self.output.lock().unwrap().take();
+        if let Some(thread) = thread {
             let _ = thread.join();
         }
     }
