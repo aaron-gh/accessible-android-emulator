@@ -173,15 +173,17 @@ pub async fn apply_keyboard_layout(sdk: &Sdk, adb: &Adb, layout: &Layout) -> Res
     let descriptor = layout.full_descriptor();
     // After a cold boot the package manager can take half a minute to list
     // the helper again, and until then the tool can't start, so keep trying.
+    // A device that has stopped answering must not keep this going: each try
+    // is cut short, and the whole wait ends after a fixed time.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
     let mut last = String::new();
-    for _ in 0..45 {
-        match adb
-            .shell(&format!("{HELPER_SHELL_TOOL} keyboard-layout {descriptor}"))
-            .await
-        {
-            Ok(out) if out.contains("Keyboard layout set") => return Ok(()),
-            Ok(out) => last = out,
-            Err(e) => last = e.to_string(),
+    while tokio::time::Instant::now() < deadline {
+        let command = format!("{HELPER_SHELL_TOOL} keyboard-layout {descriptor}");
+        match tokio::time::timeout(Duration::from_secs(20), adb.shell(&command)).await {
+            Ok(Ok(out)) if out.contains("Keyboard layout set") => return Ok(()),
+            Ok(Ok(out)) => last = out,
+            Ok(Err(e)) => last = e.to_string(),
+            Err(_) => last = "the device didn't answer".to_string(),
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
